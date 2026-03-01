@@ -1,5 +1,6 @@
 import uuid
 from decimal import Decimal
+
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -14,15 +15,35 @@ class Sale(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    seller_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("sellers.id"), index=True)
 
-    # ключ из Ozon
+    seller_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("sellers.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # связь с нашей таблицей products (пока nullable=True, чтобы миграция прошла без боли)
+    product_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("products.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+
+    # ключи из Ozon
     posting_number: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-
-    date: Mapped["Date"] = mapped_column(Date, nullable=False, index=True)
     offer_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
 
+    date: Mapped["Date"] = mapped_column(Date, nullable=False, index=True)
+
     qty: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # выручка по строке (как у тебя)
     revenue: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+
+    # расходы (минимум для прибыли)
+    commission: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, server_default="0")
+    logistics: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False, server_default="0")
 
     created_at: Mapped["DateTime"] = mapped_column(DateTime(timezone=True), server_default=func.now())
