@@ -5,7 +5,7 @@ from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, Uni
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base
+from app.db.base_class import Base
 
 
 class Sale(Base):
