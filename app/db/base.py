@@ -7,3 +7,4 @@ from app.models.stock_fbo import StockFbo
 from app.models.product import Product
 from app.models.ozon_connection import OzonConnection
 from app.models.ozon_product import OzonProduct
+from app.models.ozon_stock_threshold import OzonStockThreshold

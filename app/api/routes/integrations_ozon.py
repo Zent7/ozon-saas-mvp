@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 import httpx
 
 from app.db.session import get_db
 from app.models.ozon_connection import OzonConnection, OzonConnectionType
 from app.models.ozon_product import OzonProduct
+from app.models.stock_fbo import StockFbo
 from app.security.crypto import encrypt_str, decrypt_str
 from app.api.v1.schemas.ozon import OzonConnectIn, OzonConnectOut
 
@@ -63,7 +65,7 @@ async def ozon_test(seller_id: str, db: Session = Depends(get_db)):
         resp = await client.post(
             "https://api-seller.ozon.ru/v3/product/list",
             headers=headers,
-            json={"filter": {}, "limit": 1}
+            json={"filter": {}, "limit": 1},
         )
 
     return {
@@ -73,7 +75,12 @@ async def ozon_test(seller_id: str, db: Session = Depends(get_db)):
 
 
 @router.get("/products/{seller_id}")
-async def ozon_products(seller_id: str, limit: int = 100, last_id: str | None = None, db: Session = Depends(get_db)):
+async def ozon_products(
+    seller_id: str,
+    limit: int = 100,
+    last_id: str | None = None,
+    db: Session = Depends(get_db),
+):
     conn = _get_conn(seller_id, db)
     headers = _headers(conn)
 
@@ -139,7 +146,10 @@ async def ozon_products_sync(
 
         row = (
             db.query(OzonProduct)
-            .filter(OzonProduct.seller_id == seller_id, OzonProduct.product_id == int(product_id))
+            .filter(
+                OzonProduct.seller_id == seller_id,
+                OzonProduct.product_id == int(product_id),
+            )
             .first()
         )
 
@@ -170,4 +180,89 @@ async def ozon_products_sync(
         "items_fetched": len(all_items),
         "rows_upserted": upserted,
         "last_id": last_id,
+    }
+
+
+@router.post("/stocks_fbo_sync/{seller_id}")
+async def ozon_stocks_fbo_sync(
+    seller_id: str,
+    page_limit: int = 100,
+    db: Session = Depends(get_db),
+):
+    conn = _get_conn(seller_id, db)
+    headers = _headers(conn)
+
+    url = "https://api-seller.ozon.ru/v4/product/info/stocks"
+
+    products = (
+        db.query(OzonProduct)
+        .filter(OzonProduct.seller_id == seller_id)
+        .all()
+    )
+
+    if not products:
+        raise HTTPException(
+            status_code=400,
+            detail="No Ozon products found. Run products_sync first.",
+        )
+
+    offer_ids = [p.offer_id for p in products if p.offer_id]
+    all_items = []
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        for i in range(0, len(offer_ids), page_limit):
+            chunk = offer_ids[i:i + page_limit]
+
+            resp = await client.post(
+                url,
+                headers=headers,
+                json={
+                    "filter": {
+                        "offer_id": chunk,
+                    },
+                    "limit": page_limit,
+                },
+            )
+
+            if resp.status_code != 200:
+                raise HTTPException(status_code=502, detail=resp.text)
+
+            data = resp.json()
+            print("OZON STOCK RESPONSE:", data)
+
+            items = (data or {}).get("items") or []
+            all_items.extend(items)
+
+    db.execute(
+        delete(StockFbo).where(StockFbo.seller_id == seller_id)
+    )
+
+    inserted = 0
+
+    for item in all_items:
+        offer_id = item.get("offer_id")
+        stocks = item.get("stocks") or []
+
+        if not offer_id:
+            continue
+
+        for stock in stocks:
+            present = stock.get("present", 0)
+            cluster = stock.get("type", "unknown")
+
+            db.add(
+                StockFbo(
+                    seller_id=seller_id,
+                    offer_id=str(offer_id),
+                    cluster=str(cluster),
+                    qty=int(present),
+                )
+            )
+            inserted += 1
+
+    db.commit()
+
+    return {
+        "items_fetched": len(all_items),
+        "rows_inserted": inserted,
     }
