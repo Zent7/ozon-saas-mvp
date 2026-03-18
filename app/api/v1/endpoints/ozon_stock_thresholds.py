@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
+from app.db.session import get_db
 from app.api.v1.schemas.ozon_stock_threshold import (
     OzonStockThresholdOut,
     OzonStockThresholdUpsert,

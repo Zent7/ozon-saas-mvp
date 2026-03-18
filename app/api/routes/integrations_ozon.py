@@ -228,8 +228,6 @@ async def ozon_stocks_fbo_sync(
                 raise HTTPException(status_code=502, detail=resp.text)
 
             data = resp.json()
-            print("OZON STOCK RESPONSE:", data)
-
             items = (data or {}).get("items") or []
             all_items.extend(items)
 

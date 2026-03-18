@@ -5,6 +5,7 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     DateTime,
+    ForeignKey,
     Integer,
     Text,
     UniqueConstraint,
@@ -20,7 +21,12 @@ class OzonStockThreshold(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
-    seller_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    seller_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("sellers.id"),
+        nullable=False,
+        index=True,
+    )
     offer_id = Column(Text, nullable=False)
 
     min_stock = Column(Integer, nullable=False)
