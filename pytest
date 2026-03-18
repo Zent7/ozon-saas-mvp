@@ -1,0 +1,96 @@
+from uuid import uuid4
+from datetime import datetime, timedelta
+
+from app.models.ozon_stock_threshold import OzonStockThreshold
+from app.models.stock_fbo import StockFbo
+from app.services.ozon_alerts_service import build_stock_alerts_for_seller
+
+
+def test_build_stock_alerts_for_seller_returns_only_low_stock_alerts(db_session):
+    seller_id = uuid4()
+
+    threshold_1 = OzonStockThreshold(
+        seller_id=seller_id,
+        offer_id="offer-1",
+        min_stock=10,
+        enabled=True,
+    )
+    threshold_2 = OzonStockThreshold(
+        seller_id=seller_id,
+        offer_id="offer-2",
+        min_stock=5,
+        enabled=True,
+    )
+
+    db_session.add_all([threshold_1, threshold_2])
+
+    db_session.add_all(
+        [
+            StockFbo(
+                seller_id=seller_id,
+                offer_id="offer-1",
+                qty=7,
+                as_of=datetime.utcnow(),
+            ),
+            StockFbo(
+                seller_id=seller_id,
+                offer_id="offer-2",
+                qty=12,
+                as_of=datetime.utcnow(),
+            ),
+        ]
+    )
+
+    db_session.commit()
+
+    result = build_stock_alerts_for_seller(db_session, seller_id)
+
+    assert result == [
+        {
+            "offer_id": "offer-1",
+            "stock": 7,
+            "min_stock": 10,
+        }
+    ]
+
+
+def test_build_stock_alerts_for_seller_uses_latest_stock_snapshot(db_session):
+    seller_id = uuid4()
+
+    threshold = OzonStockThreshold(
+        seller_id=seller_id,
+        offer_id="offer-1",
+        min_stock=10,
+        enabled=True,
+    )
+
+    db_session.add(threshold)
+
+    db_session.add_all(
+        [
+            StockFbo(
+                seller_id=seller_id,
+                offer_id="offer-1",
+                qty=20,
+                as_of=datetime.utcnow() - timedelta(hours=1),
+            ),
+            StockFbo(
+                seller_id=seller_id,
+                offer_id="offer-1",
+                qty=4,
+                as_of=datetime.utcnow(),
+            ),
+        ]
+    )
+
+    db_session.commit()
+
+    result = build_stock_alerts_for_seller(db_session, seller_id)
+
+    assert result == [
+        {
+            "offer_id": "offer-1",
+            "stock": 4,
+            "min_stock": 10,
+        }
+    ]

@@ -8,8 +8,7 @@ def upsert_threshold(
     db: Session,
     *,
     seller_id: UUID,
-    sku: str,
-    warehouse_id: int,
+    offer_id: str,
     min_stock: int,
     enabled: bool,
     cooldown_minutes: int | None,
@@ -18,8 +17,7 @@ def upsert_threshold(
         db.query(OzonStockThreshold)
         .filter(
             OzonStockThreshold.seller_id == seller_id,
-            OzonStockThreshold.sku == sku,
-            OzonStockThreshold.warehouse_id == warehouse_id,
+            OzonStockThreshold.offer_id == offer_id,
         )
         .one_or_none()
     )
@@ -27,8 +25,7 @@ def upsert_threshold(
     if obj is None:
         obj = OzonStockThreshold(
             seller_id=seller_id,
-            sku=sku,
-            warehouse_id=warehouse_id,
+            offer_id=offer_id,
             min_stock=min_stock,
             enabled=enabled,
             cooldown_minutes=cooldown_minutes,

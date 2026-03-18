@@ -4,8 +4,7 @@ from typing import Optional
 
 
 class OzonStockThresholdUpsert(BaseModel):
-    sku: str = Field(min_length=1)
-    warehouse_id: int
+    offer_id: str = Field(min_length=1)
     min_stock: int = Field(ge=0)
     enabled: bool = True
     cooldown_minutes: Optional[int] = Field(default=None, ge=1)
@@ -14,8 +13,7 @@ class OzonStockThresholdUpsert(BaseModel):
 class OzonStockThresholdOut(BaseModel):
     id: UUID
     seller_id: UUID
-    sku: str
-    warehouse_id: int
+    offer_id: str
     min_stock: int
     enabled: bool
     cooldown_minutes: Optional[int]

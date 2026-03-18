@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 
 class OzonStockAlertOut(BaseModel):
-    sku: str
-    warehouse_id: int
+    offer_id: str
+    product_id: int | None
     stock: int
     min_stock: int

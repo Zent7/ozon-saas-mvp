@@ -23,10 +23,9 @@ def threshold_upsert(
     db: Session = Depends(get_db),
 ):
     return upsert_threshold(
-        db,
+        db=db,
         seller_id=seller_id,
-        sku=payload.sku,
-        warehouse_id=payload.warehouse_id,
+        offer_id=payload.offer_id,
         min_stock=payload.min_stock,
         enabled=payload.enabled,
         cooldown_minutes=payload.cooldown_minutes,
