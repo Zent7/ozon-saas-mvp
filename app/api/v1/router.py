@@ -23,7 +23,6 @@ api_router.include_router(ozon_router)
 
 api_router.include_router(
     ozon_stock_thresholds_router,
-    prefix="/ozon",
     tags=["Ozon Thresholds"],
 )
 

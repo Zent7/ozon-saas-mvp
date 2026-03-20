@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import and_, func
@@ -6,6 +7,18 @@ from sqlalchemy.orm import Session
 from app.models.ozon_product import OzonProduct
 from app.models.ozon_stock_threshold import OzonStockThreshold
 from app.models.stock_fbo import StockFbo
+
+
+def _cooldown_passed(threshold: OzonStockThreshold) -> bool:
+    if threshold.last_alert_at is None:
+        return True
+
+    if threshold.cooldown_minutes is None:
+        return True
+
+    return datetime.now(timezone.utc) >= threshold.last_alert_at + timedelta(
+        minutes=threshold.cooldown_minutes
+    )
 
 
 def build_stock_alerts_for_seller(db: Session, seller_id: UUID) -> list[dict]:
@@ -66,9 +79,10 @@ def build_stock_alerts_for_seller(db: Session, seller_id: UUID) -> list[dict]:
     for threshold in thresholds:
         qty = stock_by_offer_id.get(threshold.offer_id, 0)
 
-        if qty <= threshold.min_stock:
+        if qty <= threshold.min_stock and _cooldown_passed(threshold):
             result.append(
                 {
+                    "threshold_id": threshold.id,
                     "offer_id": threshold.offer_id,
                     "product_id": product_id_by_offer_id.get(threshold.offer_id),
                     "stock": qty,

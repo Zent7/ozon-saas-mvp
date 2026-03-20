@@ -13,9 +13,9 @@ class OzonStockThresholdUpsert(BaseModel):
 
 
 class OzonThresholdPatch(BaseModel):
-    min_stock: Optional[int] = Field(default=None, ge=0)
-    enabled: Optional[bool] = None
-    cooldown_minutes: Optional[int] = Field(default=None, ge=1)
+    min_stock: int | None = Field(default=None, ge=0)
+    enabled: bool | None = None
+    cooldown_minutes: int | None = Field(default=None, ge=1)
 
 
 class OzonStockThresholdOut(BaseModel):
