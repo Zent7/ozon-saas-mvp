@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -12,6 +12,7 @@ class Encounter(TimestampMixin, Base):
     __tablename__ = "encounters"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    legacy_source_id: Mapped[int | None] = mapped_column(Integer, nullable=True, unique=True, index=True)
     center_id: Mapped[int] = mapped_column(ForeignKey("centers.id"), index=True)
     client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"), index=True)
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)

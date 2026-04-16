@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Numeric, String, Text
+from sqlalchemy import Date, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -12,6 +12,7 @@ class Payment(TimestampMixin, Base):
     __tablename__ = "payments"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    legacy_source_id: Mapped[int | None] = mapped_column(Integer, nullable=True, unique=True, index=True)
     encounter_id: Mapped[int] = mapped_column(ForeignKey("encounters.id"), index=True)
     payment_date: Mapped[date] = mapped_column(Date)
     payment_type: Mapped[str] = mapped_column(String(50))

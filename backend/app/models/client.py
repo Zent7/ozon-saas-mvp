@@ -11,6 +11,7 @@ class Client(TimestampMixin, Base):
     __tablename__ = "clients"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    legacy_source_id: Mapped[int | None] = mapped_column(Integer, nullable=True, unique=True, index=True)
     patient_number: Mapped[int] = mapped_column(Integer, unique=True, index=True)
     last_name: Mapped[str] = mapped_column(String(120), index=True)
     first_name: Mapped[str] = mapped_column(String(120), index=True)

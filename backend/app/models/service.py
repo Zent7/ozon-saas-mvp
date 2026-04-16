@@ -20,6 +20,7 @@ class Service(TimestampMixin, Base):
     __tablename__ = "services"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    legacy_source_id: Mapped[int | None] = mapped_column(nullable=True, unique=True, index=True)
     category_id: Mapped[int | None] = mapped_column(ForeignKey("service_categories.id"), nullable=True)
     code: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), index=True)
