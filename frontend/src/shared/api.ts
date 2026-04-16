@@ -9,6 +9,7 @@ export type DashboardStats = {
 
 export type Client = {
   id: number;
+  patient_number: number;
   last_name: string;
   first_name: string;
   middle_name?: string | null;
@@ -80,7 +81,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   getDashboardStats: () => request<DashboardStats>("/dashboard/stats"),
   getClients: (search = "") => request<Client[]>(`/clients${search ? `?search=${encodeURIComponent(search)}` : ""}`),
-  createClient: (payload: Omit<Client, "id">) =>
+  createClient: (payload: Omit<Client, "id" | "patient_number">) =>
     request<Client>("/clients", { method: "POST", body: JSON.stringify(payload) }),
   getEncounters: () => request<Encounter[]>("/encounters"),
   createEncounter: (payload: Omit<Encounter, "id" | "status">) =>

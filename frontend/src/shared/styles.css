@@ -314,7 +314,7 @@ textarea {
 .record-table__header,
 .record-table__row {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  grid-template-columns: 64px 2fr 1fr 1fr 1fr 1fr;
   gap: 10px;
   align-items: center;
   padding: 9px 12px;

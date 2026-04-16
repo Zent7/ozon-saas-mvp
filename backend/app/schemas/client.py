@@ -22,5 +22,6 @@ class ClientCreate(ClientBase):
 
 class ClientRead(ClientBase):
     id: int
+    patient_number: int
 
     model_config = {"from_attributes": True}

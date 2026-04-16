@@ -82,6 +82,7 @@ def seed_reference_data(db: Session) -> None:
 
     clients = [
         Client(
+            patient_number=1,
             last_name="Иванов",
             first_name="Иван",
             middle_name="Иванович",
@@ -92,6 +93,7 @@ def seed_reference_data(db: Session) -> None:
             created_by_user_id=admin.id,
         ),
         Client(
+            patient_number=2,
             last_name="Петрова",
             first_name="Анна",
             middle_name="Сергеевна",

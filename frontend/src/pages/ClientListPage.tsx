@@ -66,8 +66,12 @@ export function ClientListPage() {
   };
 
   useEffect(() => {
-    void loadClients();
-  }, []);
+    const timeoutId = window.setTimeout(() => {
+      void loadClients(search);
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [search]);
 
   const submitForm = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -110,7 +114,7 @@ export function ClientListPage() {
           </div>
           <div className="summary-strip__item">
             <span>Активная карточка</span>
-            <strong>{selectedClient ? selectedClient.id : "—"}</strong>
+            <strong>{selectedClient ? selectedClient.patient_number : "—"}</strong>
           </div>
         </div>
       </div>
@@ -119,7 +123,7 @@ export function ClientListPage() {
         <div className="search-group">
           <input
             className="input input--compact"
-            placeholder="Поиск по ФИО, телефону, СНИЛС"
+            placeholder="Поиск по №, ФИО, телефону, СНИЛС"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -146,6 +150,7 @@ export function ClientListPage() {
 
           <div className="record-table">
             <div className="record-table__header">
+              <span>№</span>
               <span>ФИО</span>
               <span>Дата рождения</span>
               <span>Телефон</span>
@@ -164,6 +169,7 @@ export function ClientListPage() {
                     type="button"
                     onClick={() => setSelectedClientId(client.id)}
                   >
+                    <span>{client.patient_number}</span>
                     <span>{formatFullName(client)}</span>
                     <span>{formatBirthDate(client.birth_date)}</span>
                     <span>{client.phone || "—"}</span>
@@ -184,13 +190,17 @@ export function ClientListPage() {
           <section className="panel">
             <div className="panel__heading">
               <h2>Карточка пациента</h2>
-              <span>{selectedClient ? `ID ${selectedClient.id}` : "Нет выбора"}</span>
+              <span>{selectedClient ? `№ ${selectedClient.patient_number}` : "Нет выбора"}</span>
             </div>
 
             {selectedClient ? (
               <div className="details-card">
                 <div className="details-card__name">{formatFullName(selectedClient)}</div>
                 <div className="details-card__grid">
+                  <div>
+                    <span>№ пациента</span>
+                    <strong>{selectedClient.patient_number}</strong>
+                  </div>
                   <div>
                     <span>Дата рождения</span>
                     <strong>{formatBirthDate(selectedClient.birth_date)}</strong>
