@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Проверка документов</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4f7fb;
+        --surface: #ffffff;
+        --surface-2: #f8fafc;
+        --text: #17324d;
+        --muted: #68829b;
+        --border: #d8e4ef;
+        --accent: #0f766e;
+        --accent-2: #164e63;
+        --danger: #b42318;
+        --shadow: 0 18px 48px rgba(18, 52, 86, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        background:
+          radial-gradient(circle at top right, rgba(15, 118, 110, 0.12), transparent 26%),
+          linear-gradient(180deg, #f9fbfd 0%, var(--bg) 100%);
+        color: var(--text);
+      }
+
+      .page {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 32px 20px 48px;
+      }
+
+      .hero {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        align-items: end;
+        margin-bottom: 24px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 36px;
+        line-height: 1.05;
+      }
+
+      .subtitle {
+        margin: 0;
+        color: var(--muted);
+        max-width: 680px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(15, 118, 110, 0.1);
+        color: var(--accent);
+        font-weight: 600;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 360px 1fr;
+        gap: 20px;
+      }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        box-shadow: var(--shadow);
+      }
+
+      .card-inner {
+        padding: 22px;
+      }
+
+      .card h2 {
+        margin: 0 0 16px;
+        font-size: 20px;
+      }
+
+      .field {
+        margin-bottom: 16px;
+      }
+
+      .field label {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--muted);
+      }
+
+      .field select,
+      .field input,
+      .field button {
+        width: 100%;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: var(--surface-2);
+        padding: 12px 14px;
+        font-size: 15px;
+      }
+
+      .field select:focus,
+      .field input:focus {
+        outline: 2px solid rgba(15, 118, 110, 0.18);
+        border-color: rgba(15, 118, 110, 0.35);
+      }
+
+      .button-row {
+        display: flex;
+        gap: 10px;
+      }
+
+      .button-primary {
+        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+        color: #fff;
+        border: none;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .button-secondary {
+        background: #fff;
+        color: var(--text);
+        cursor: pointer;
+      }
+
+      .stack {
+        display: grid;
+        gap: 14px;
+      }
+
+      .result {
+        padding: 16px;
+        border-radius: 16px;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+      }
+
+      .result.success {
+        background: rgba(15, 118, 110, 0.08);
+        border-color: rgba(15, 118, 110, 0.25);
+      }
+
+      .result.error {
+        background: rgba(180, 35, 24, 0.08);
+        border-color: rgba(180, 35, 24, 0.25);
+      }
+
+      .result-title {
+        margin: 0 0 8px;
+        font-weight: 700;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .list {
+        display: grid;
+        gap: 12px;
+      }
+
+      .list-item {
+        padding: 14px 16px;
+        border-radius: 16px;
+        border: 1px solid var(--border);
+        background: #fff;
+      }
+
+      .list-item strong {
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      a {
+        color: var(--accent-2);
+      }
+
+      @media (max-width: 900px) {
+        .hero,
+        .grid {
+          grid-template-columns: 1fr;
+          display: grid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="hero">
+        <div>
+          <h1>Проверка документов</h1>
+          <p class="subtitle">
+            Живая тест-страница для генерации справок из шаблонов. Выбираешь шаблон, клиента и обращение, потом сразу
+            скачиваешь готовый файл.
+          </p>
+        </div>
+        <div class="badge">Backend: 127.0.0.1:8010</div>
+      </div>
+
+      <div class="grid">
+        <section class="card">
+          <div class="card-inner">
+            <h2>Сформировать документ</h2>
+            <div class="field">
+              <label for="template">Шаблон</label>
+              <select id="template"></select>
+            </div>
+            <div class="field">
+              <label for="client">Клиент</label>
+              <select id="client"></select>
+            </div>
+            <div class="field">
+              <label for="encounter">Обращение</label>
+              <select id="encounter"></select>
+            </div>
+            <div class="button-row">
+              <button id="refresh" class="button-secondary">Обновить данные</button>
+              <button id="generate" class="button-primary">Сформировать</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="stack">
+          <div id="status" class="result">
+            <p class="result-title">Статус</p>
+            <div class="muted">Выбери шаблон и нажми «Сформировать».</div>
+          </div>
+
+          <div class="card">
+            <div class="card-inner">
+              <h2>Быстрые варианты</h2>
+              <div class="list">
+                <div class="list-item">
+                  <strong>082у</strong>
+                  <span class="muted">Хороший первый тест для проверки печати.</span>
+                </div>
+                <div class="list-item">
+                  <strong>Справка</strong>
+                  <span class="muted">Подходит для короткой проверки генератора.</span>
+                </div>
+                <div class="list-item">
+                  <strong>ЭКГ</strong>
+                  <span class="muted">Быстрый тест на отдельный профиль документа.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <script>
+      const templateSelect = document.getElementById("template");
+      const clientSelect = document.getElementById("client");
+      const encounterSelect = document.getElementById("encounter");
+      const statusBox = document.getElementById("status");
+      const refreshButton = document.getElementById("refresh");
+      const generateButton = document.getElementById("generate");
+
+      async function request(path, init) {
+        const response = await fetch(`/api/v1${path}`, {
+          headers: { "Content-Type": "application/json" },
+          ...init,
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || "Ошибка API");
+        }
+        return response.json();
+      }
+
+      function renderStatus(kind, title, content) {
+        statusBox.className = `result ${kind}`;
+        statusBox.innerHTML = `<p class="result-title">${title}</p><div>${content}</div>`;
+      }
+
+      function fillSelect(select, items, mapper) {
+        select.innerHTML = "";
+        for (const item of items) {
+          const option = document.createElement("option");
+          const mapped = mapper(item);
+          option.value = mapped.value;
+          option.textContent = mapped.label;
+          select.appendChild(option);
+        }
+      }
+
+      async function loadData() {
+        renderStatus("",
+          "Загрузка",
+          "<span class='muted'>Подтягиваю шаблоны, клиентов и обращения...</span>"
+        );
+
+        const [templates, clients, encounters] = await Promise.all([
+          request("/documents/templates"),
+          request("/clients"),
+          request("/encounters"),
+        ]);
+
+        fillSelect(templateSelect, templates, (item) => ({
+          value: item.id,
+          label: `${item.name} (${item.template_type.toUpperCase()})`,
+        }));
+
+        fillSelect(clientSelect, clients, (item) => ({
+          value: item.id,
+          label: `${item.last_name} ${item.first_name}${item.middle_name ? " " + item.middle_name : ""} (${item.birth_date})`,
+        }));
+
+        fillSelect(encounterSelect, encounters, (item) => ({
+          value: item.id,
+          label: `#${item.id} | клиент ${item.client_id} | ${item.encounter_date} | ${item.payment_type}`,
+        }));
+
+        renderStatus("", "Готово", "<span class='muted'>Данные загружены. Можно формировать документ.</span>");
+      }
+
+      async function generateDocument() {
+        const payload = {
+          template_id: Number(templateSelect.value),
+          client_id: Number(clientSelect.value),
+          encounter_id: Number(encounterSelect.value),
+        };
+
+        renderStatus("", "Формирование", "<span class='muted'>Генерирую документ, это займет пару секунд...</span>");
+
+        try {
+          const result = await request("/documents/generate", {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+
+          const downloadUrl = `/api/v1/documents/generated/${encodeURIComponent(result.output_file_name)}`;
+          renderStatus(
+            "success",
+            "Документ готов",
+            `
+              <div><strong>${result.template_name}</strong></div>
+              <div class="muted" style="margin-top:8px;">Файл: ${result.output_file_name}</div>
+              <div style="margin-top:12px;">
+                <a href="${downloadUrl}" target="_blank" rel="noopener noreferrer">Скачать документ</a>
+              </div>
+            `
+          );
+        } catch (error) {
+          renderStatus("error", "Ошибка", `<span>${error.message}</span>`);
+        }
+      }
+
+      refreshButton.addEventListener("click", loadData);
+      generateButton.addEventListener("click", generateDocument);
+
+      loadData().catch((error) => {
+        renderStatus("error", "Не удалось загрузить данные", `<span>${error.message}</span>`);
+      });
+    </script>
+  </body>
+</html>

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<BlankSecurity>
+   <Request>
+      <blankInfo>
+         <id>[SeriesNumberCalc]</id>
+         <duplicate>
+            <duplicateId/>
+            <isDuplicated>false</isDuplicated>
+         </duplicate>
+         <isSpoiled>false</isSpoiled>
+         
+      </blankInfo>
+   </Request>
+   <SecurityBlank>
+      <userInfo>
+         <surname>[LastNameCalc]</surname>
+         <name>[FirstNameCalc]</name>
+         <patronymic>[PatronymicCalc]</patronymic>
+         <birthday>[BirthCalc]</birthday>
+      </userInfo>
+      <address>
+		 <place>[SubjectCalc]</place>
+         <area>[DistrictCalc]</area>
+         <city>[CityCalc]</city>
+		 <town></town>
+         <street>[StreetCalc]</street>
+		 <house>[HouseNumberCalc]</house>
+         <building>[HouseBodyCalc]</building>
+         <flat>[ApartmentNumberCalc]</flat>
+      </address>
+      <medConclusion>
+         <conclusion>текст медицинского заключения</conclusion>
+         <dateConclusion>[ServiceDateCalc1]</dateConclusion>
+         <fioDoctor>[MainDoctorCalc]</fioDoctor>
+      </medConclusion>
+   </SecurityBlank>
+</BlankSecurity>
