@@ -5,8 +5,11 @@
   clientSearch: "",
 };
 
+const legacyClients = Array.isArray(window.LEGACY_CLIENTS) ? window.LEGACY_CLIENTS : null;
+const legacyServices = Array.isArray(window.LEGACY_SERVICES) ? window.LEGACY_SERVICES : null;
+
 const data = {
-  serviceCatalog: [
+  serviceCatalog: legacyServices ?? [
     "Справка водительская",
     "Справка в бассейн",
     "Медосмотр",
@@ -18,7 +21,7 @@ const data = {
     "Офтальмолог",
     "ЛОР",
   ],
-  clients: [
+  clients: legacyClients ?? [
     {
       id: 1,
       patientNumber: 1,

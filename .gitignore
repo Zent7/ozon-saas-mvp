@@ -41,3 +41,6 @@ backups/
 *.mp4
 *.rar
 tmp_*
+
+# Local client data exports
+demo/legacy-data.js
