@@ -183,11 +183,12 @@ function matchesCenter(center) {
 
 function filteredClients() {
   const search = appState.clientSearch.trim().toLowerCase();
+  if (!search) return [];
+
   return data.clients.filter((client) => {
     if (!matchesCenter(client.center)) return false;
-    if (!search) return true;
     return [client.patientNumber, client.fullName, client.phone, client.document, client.snils].join(" ").toLowerCase().includes(search);
-  });
+  }).slice(0, 25);
 }
 
 function normalizeSearchValue(value) {
