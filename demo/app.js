@@ -202,7 +202,7 @@ function findDuplicateCandidates(searchValue) {
   return data.clients
     .filter((client) => matchesCenter(client.center))
     .map((client) => {
-      const haystack = normalizeSearchValue([client.patientNumber, client.fullName, client.birthDate, client.phone, client.document, client.snils].join(" "));
+      const haystack = normalizeSearchValue([client.patientNumber, client.birthDate, client.phone, client.document, client.snils].join(" "));
       const score = searchParts.reduce((total, part) => total + (haystack.includes(part) ? 1 : 0), 0);
       return { client, score };
     })
