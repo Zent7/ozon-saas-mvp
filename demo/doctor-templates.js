@@ -1,0 +1,713 @@
+﻿window.doctorTemplates = [
+  {
+    id: "phthisiatrist",
+    name: "ФТИЗИАТР",
+    layout: "phthisiatristClassic",
+    fields: [
+      {
+        key: "complaintsPreset",
+        label: "Жалобы preset",
+        type: "select",
+        options: ["Норма(м)", "Норма(ж)", "Жалобы есть"],
+        defaultValue: "Норма(м)",
+      },
+      {
+        key: "complaints",
+        label: "Жалобы",
+        type: "text",
+        defaultValue: "жалоб нет",
+      },
+      {
+        key: "anamnesis",
+        label: "Анамнез",
+        type: "textarea",
+        defaultValue: "Со слов, на учете в ПТД не состоит.",
+      },
+      {
+        key: "objective",
+        label: "Объективно",
+        type: "textarea",
+        defaultValue:
+          "Данные осмотра, пальпации, перкуссии, аускультации - патологических данных не выявлено.",
+      },
+      {
+        key: "diagnosis",
+        label: "Диагноз",
+        type: "textarea",
+        defaultValue: "Данных за активный туберкулез в настоящее время нет.",
+      },
+      {
+        key: "conclusion",
+        label: "Заключение",
+        type: "radio",
+        options: ["Годен", "Не годен"],
+        defaultValue: "Годен",
+      },
+      {
+        key: "validity",
+        label: "Срок",
+        type: "select",
+        options: ["6 мес", "1 год", "2 года"],
+        defaultValue: "1 год",
+      },
+      {
+        key: "mkb10",
+        label: "МКБ10",
+        type: "text",
+        defaultValue: "",
+      },
+      {
+        key: "note",
+        label: "Примечание",
+        type: "textarea",
+        defaultValue: "ООО ЭНИСТАФФ б\\н",
+      },
+    ],
+  },
+
+  {
+    id: "neurologist",
+    name: "НЕВРОЛОГ",
+    layout: "phthisiatristClassic",
+    fields: [
+      {
+        key: "complaintsPreset",
+        label: "Жалобы preset",
+        type: "select",
+        options: ["Норма(м)", "Норма(ж)", "Жалобы есть"],
+        defaultValue: "Норма(м)",
+      },
+      {
+        key: "complaints",
+        label: "Жалобы",
+        type: "text",
+        defaultValue: "в момент осмотра жалоб не выявлено",
+      },
+      {
+        key: "anamnesis",
+        label: "Анамнез",
+        type: "textarea",
+        defaultValue: "ЧМТ, судорожные припадки, потери сознания отрицает",
+      },
+      {
+        key: "objective",
+        label: "Объективно",
+        type: "textarea",
+        defaultValue:
+          "ЧН без особенностей, сухожильные рефлексы нормальные, D=S, координационные пробы выполняет удовлетворительно, в позе Ромберга устойчив",
+      },
+      {
+        key: "diagnosis",
+        label: "Диагноз",
+        type: "textarea",
+        defaultValue: "очаговой неврологической симптоматики не выявлено",
+      },
+      {
+        key: "conclusion",
+        label: "Заключение",
+        type: "radio",
+        options: ["Годен", "Не годен"],
+        defaultValue: "Годен",
+      },
+      {
+        key: "validity",
+        label: "Срок",
+        type: "select",
+        options: ["6 мес", "1 год", "2 года"],
+        defaultValue: "1 год",
+      },
+      {
+        key: "mkb10",
+        label: "МКБ10",
+        type: "text",
+        defaultValue: "",
+      },
+      {
+        key: "note",
+        label: "Примечание",
+        type: "textarea",
+        defaultValue: "прио/",
+      },
+    ],
+  },
+
+  {
+    id: "surgeon",
+    name: "ХИРУРГ",
+    layout: "phthisiatristClassic",
+    fields: [
+      {
+        key: "complaintsPreset",
+        label: "Жалобы preset",
+        type: "select",
+        options: ["Норма(м)", "Норма(ж)", "Жалобы есть"],
+        defaultValue: "Норма(м)",
+      },
+      {
+        key: "complaints",
+        label: "Жалобы",
+        type: "text",
+        defaultValue: "в момент осмотра жалоб нет",
+      },
+      {
+        key: "anamnesis",
+        label: "Анамнез",
+        type: "textarea",
+        defaultValue: "Операции, травмы отрицает",
+      },
+      {
+        key: "objective",
+        label: "Объективно",
+        type: "textarea",
+        defaultValue:
+          "Функциональных нарушений опорно-двигательного аппарата, варикозного расширения вен н/конеч., грыжевых выпячиваний не выявлено. Периферическая пульсация сохранена.",
+      },
+      {
+        key: "diagnosis",
+        label: "Диагноз",
+        type: "textarea",
+        defaultValue: "хирургической патологии не выявлено",
+      },
+      {
+        key: "conclusion",
+        label: "Заключение",
+        type: "radio",
+        options: ["Годен", "Не годен"],
+        defaultValue: "Годен",
+      },
+      {
+        key: "validity",
+        label: "Срок",
+        type: "select",
+        options: ["6 мес", "1 год", "2 года"],
+        defaultValue: "1 год",
+      },
+      {
+        key: "mkb10",
+        label: "МКБ10",
+        type: "text",
+        defaultValue: "",
+      },
+      {
+        key: "note",
+        label: "Примечание",
+        type: "textarea",
+        defaultValue: "прио/",
+      },
+    ],
+  },
+
+  {
+    id: "otolaryngologist",
+    name: "ОТОЛАРИНГОЛОГ",
+    layout: "phthisiatristClassic",
+    fields: [
+      {
+        key: "complaintsPreset",
+        label: "Жалобы preset",
+        type: "select",
+        options: ["Норма(м)", "Норма(ж)", "Жалобы есть"],
+        defaultValue: "Норма(м)",
+      },
+      {
+        key: "complaints",
+        label: "Жалобы",
+        type: "text",
+        defaultValue: "в момент осмотра жалоб нет",
+      },
+      {
+        key: "anamnesis",
+        label: "Анамнез",
+        type: "textarea",
+        defaultValue: "заболевания ЛОР-органов отрицает",
+      },
+      {
+        key: "objective",
+        label: "Объективно",
+        type: "textarea",
+        defaultValue: "Слизистые розовые, носовое дыхание свободное AD/AS",
+      },
+      {
+        key: "diagnosis",
+        label: "Диагноз",
+        type: "textarea",
+        defaultValue: "Патологии ЛОР-органов не выявлено",
+      },
+      {
+        key: "conclusion",
+        label: "Заключение",
+        type: "radio",
+        options: ["Годен", "Не годен"],
+        defaultValue: "Годен",
+      },
+      {
+        key: "validity",
+        label: "Срок",
+        type: "select",
+        options: ["6 мес", "1 год", "2 года"],
+        defaultValue: "1 год",
+      },
+      {
+        key: "mkb10",
+        label: "МКБ10",
+        type: "text",
+        defaultValue: "",
+      },
+      {
+        key: "note",
+        label: "Примечание",
+        type: "textarea",
+        defaultValue: "прио/",
+      }
+    ],
+  },
+
+  {
+    id: "ophthalmologist",
+    name: "ОФТАЛЬМОЛОГ",
+    layout: "phthisiatristClassic",
+    fields: [
+      {
+        key: "complaintsPreset",
+        label: "Жалобы preset",
+        type: "select",
+        options: [
+          "Норма",
+          "Миопия 1ст",
+          "Миопия 2ст",
+          "Миопия 3ст",
+          "Миопический",
+          "Пресбиопия",
+          "Гиперметропия",
+          "Глаукома",
+          "Заболевание"
+        ],
+        defaultValue: "Норма",
+      },
+      {
+        key: "complaints",
+        label: "Жалобы",
+        type: "text",
+        defaultValue: "в момент осмотра жалоб нет",
+      },
+      {
+        key: "anamnesis",
+        label: "Анамнез",
+        type: "textarea",
+        defaultValue: "Гл. заб. отрицает",
+      },
+      {
+        key: "objective",
+        label: "Объективно",
+        type: "textarea",
+        defaultValue: "Острота зрения OD: 1,0 б/к; Поля зрения OD: N; Острота зрения OS: 1,0 б/к; Поля зрения OS: N",
+      },
+      {
+        key: "diagnosis",
+        label: "Диагноз",
+        type: "textarea",
+        defaultValue: "патологии органа зрения не выявлено",
+      },
+      {
+        key: "conclusion",
+        label: "Заключение",
+        type: "radio",
+        options: ["Годен", "Не годен"],
+        defaultValue: "Годен",
+      },
+      {
+        key: "validity",
+        label: "Срок",
+        type: "select",
+        options: ["6 мес", "1 год", "2 года"],
+        defaultValue: "1 год",
+      },
+      {
+        key: "mkb10",
+        label: "МКБ10",
+        type: "text",
+        defaultValue: "",
+      },
+      {
+        key: "note",
+        label: "Примечание",
+        type: "textarea",
+        defaultValue: "прио/",
+      },
+    ],
+  },
+  {
+  id: "infectionist",
+  name: "ИНФЕКЦИОНИСТ",
+  layout: "phthisiatristClassic",
+  fields: [
+    {
+      key: "complaintsPreset",
+      label: "Жалобы preset",
+      type: "select",
+      options: ["Норма", "Жалобы есть"],
+      defaultValue: "Норма",
+    },
+    {
+      key: "complaints",
+      label: "Жалобы",
+      type: "text",
+      defaultValue: "жалоб нет",
+    },
+    {
+      key: "anamnesis",
+      label: "Анамнез",
+      type: "textarea",
+      defaultValue:
+        "Эпидемиологические предпосылки заражения ВИЧ нет.\nКонтакты с инфекционными больными за последние пол-года отрицает.",
+    },
+    {
+      key: "objective",
+      label: "Объективно",
+      type: "textarea",
+      defaultValue: "без особенностей",
+    },
+    {
+      key: "diagnosis",
+      label: "Диагноз",
+      type: "textarea",
+      defaultValue: "Объективных данных за наличие инфекционных заболеваний не выявлено",
+    },
+    {
+      key: "conclusion",
+      label: "Заключение",
+      type: "radio",
+      options: ["Годен", "Не годен"],
+      defaultValue: "Годен",
+    },
+    {
+      key: "validity",
+      label: "Срок",
+      type: "select",
+      options: ["6 мес", "1 год", "2 года"],
+      defaultValue: "1 год",
+    },
+    {
+      key: "mkb10",
+      label: "МКБ10",
+      type: "text",
+      defaultValue: "",
+    },
+    {
+      key: "note",
+      label: "Примечание",
+      type: "textarea",
+      defaultValue: "ООО ЭНИСТАФФ б\\н",
+    },
+  ],
+},
+{
+  id: "dermatologist",
+  name: "ДЕРМАТОЛОГ",
+  layout: "phthisiatristClassic",
+  fields: [
+    {
+      key: "complaintsPreset",
+      label: "Жалобы preset",
+      type: "select",
+      options: ["Норма(м)", "Норма(ж)", "Жалобы есть"],
+      defaultValue: "Норма(м)",
+    },
+    {
+      key: "complaints",
+      label: "Жалобы",
+      type: "text",
+      defaultValue: "в момент осмотра жалоб нет",
+    },
+    {
+      key: "anamnesis",
+      label: "Анамнез",
+      type: "textarea",
+      defaultValue: "Кожные, венерические заболевания отрицает.",
+    },
+    {
+      key: "objective",
+      label: "Объективно",
+      type: "textarea",
+      defaultValue:
+        "Кожные покровы и видимые слизистые обычной окраски, влажности. Сыпи и расчесываний нет.",
+    },
+    {
+      key: "diagnosis",
+      label: "Диагноз",
+      type: "textarea",
+      defaultValue: "Практически здоров",
+    },
+    {
+      key: "conclusion",
+      label: "Заключение",
+      type: "radio",
+      options: ["Годен", "Не годен"],
+      defaultValue: "Годен",
+    },
+    {
+      key: "validity",
+      label: "Срок",
+      type: "select",
+      options: ["6 мес", "1 год", "2 года"],
+      defaultValue: "1 год",
+    },
+    {
+      key: "mkb10",
+      label: "МКБ10",
+      type: "text",
+      defaultValue: "",
+    },
+    {
+      key: "note",
+      label: "Примечание",
+      type: "textarea",
+      defaultValue: "прио/",
+    },
+  ],
+},
+{
+  id: "gynecologist",
+  name: "ГИНЕКОЛОГ",
+  layout: "phthisiatristClassic",
+  fields: [
+    {
+      key: "complaintsPreset",
+      label: "Жалобы preset",
+      type: "select",
+      options: ["Норма", "Жалобы есть"],
+      defaultValue: "Норма",
+    },
+    {
+      key: "complaints",
+      label: "Жалобы",
+      type: "text",
+      defaultValue: "Жалоб активно не предъявляет",
+    },
+    {
+      key: "anamnesis",
+      label: "Анамнез",
+      type: "textarea",
+      defaultValue:
+        "Менструации с ___ лет, установились сразу, через 29 дней по 5-6 дней, умеренно болезненные, среднеобильные. Характер менструаций после начала половой жизни не изменился. Половую жизнь ведет с 18 лет. Беременностей — 2, родов — 0,",
+    },
+    {
+      key: "objective",
+      label: "Объективно",
+      type: "textarea",
+      defaultValue:
+        "Наружные половые органы развиты правильно. Оволосение по женскому типу. Область ануса и больших половых губ без видимых патологических изменений. Слизистая входа во влагалище обычного цвета, влажная, чистая. P.S. Шейка матки",
+    },
+    {
+      key: "diagnosis",
+      label: "Диагноз",
+      type: "textarea",
+      defaultValue: "Pr здорова",
+    },
+    {
+      key: "conclusion",
+      label: "Заключение",
+      type: "radio",
+      options: ["Годен", "Не годен"],
+      defaultValue: "Годен",
+    },
+    {
+      key: "validity",
+      label: "Срок",
+      type: "select",
+      options: ["6 мес", "1 год", "2 года"],
+      defaultValue: "1 год",
+    },
+    {
+      key: "mkb10",
+      label: "МКБ10",
+      type: "text",
+      defaultValue: "",
+    },
+    {
+      key: "note",
+      label: "Примечание",
+      type: "textarea",
+      defaultValue: "прио/",
+    },
+  ],
+},
+{
+  id: "dentist",
+  name: "СТОМАТОЛОГ",
+  layout: "phthisiatristClassic",
+  fields: [
+    {
+      key: "complaintsPreset",
+      label: "Жалобы preset",
+      type: "select",
+      options: ["Норма(м)", "Норма(ж)", "Жалобы есть"],
+      defaultValue: "Норма(м)",
+    },
+    {
+      key: "complaints",
+      label: "Жалобы",
+      type: "text",
+      defaultValue: "жалоб нет",
+    },
+    {
+      key: "anamnesis",
+      label: "Анамнез",
+      type: "textarea",
+      defaultValue:
+        "Полость рта санирована ____ г.; последнее посещение стоматолога _____ г.; Аллергия на анестетик ____________(со слов пациента), последний случай ______ г.",
+    },
+    {
+      key: "objective",
+      label: "Объективно",
+      type: "textarea",
+      defaultValue:
+        "Лицо симметрично; кожные покровы лица чистые; открывание рта свободное, функция ВНЧС в норме; СОПР бледно розового цвета, влажная, без видимых патологических изменений; дефекты твердых тканей зубов отсутствуют; пломбы без",
+    },
+    {
+      key: "diagnosis",
+      label: "Диагноз",
+      type: "textarea",
+      defaultValue: "Полость рта санирована.",
+    },
+    {
+      key: "conclusion",
+      label: "Заключение",
+      type: "radio",
+      options: ["Годен", "Не годен"],
+      defaultValue: "Годен",
+    },
+    {
+      key: "validity",
+      label: "Срок",
+      type: "select",
+      options: ["6 мес", "1 год", "2 года"],
+      defaultValue: "1 год",
+    },
+    {
+      key: "mkb10",
+      label: "МКБ10",
+      type: "text",
+      defaultValue: "",
+    },
+    {
+      key: "note",
+      label: "Примечание",
+      type: "textarea",
+      defaultValue: "прио/",
+    },
+  ],
+},
+{
+  id: "psychiatrist",
+  name: "ПСИХИАТР-НАРКОЛОГ",
+  layout: "psychiatristClassic",
+  fields: [
+    { key: "birthDate", label: "Дата рождения", type: "text", defaultValue: "" },
+    { key: "address", label: "Адрес", type: "text", defaultValue: "" },
+    { key: "serialNumber", label: "№ п/п", type: "text", defaultValue: "" },
+
+    { key: "complaintsPreset", label: "Жалобы", type: "select", options: ["норма(м)", "норма(ж)", "жалобы есть"], defaultValue: "норма(м)" },
+    { key: "complaints", label: "Жалобы текст", type: "text", defaultValue: "в момент осмотра жалоб нет" },
+
+    { key: "tab", label: "Вкладка", type: "select", options: ["Анамнез", "Психическое состояние", "Алкоголь", "Диагноз"], defaultValue: "Анамнез" },
+
+    { key: "anamnesisHeredity", label: "Наследственность", type: "text", defaultValue: "не отягощена" },
+    { key: "anamnesisDiseases", label: "Перенесенные травмы, заболевания", type: "text", defaultValue: "отрицает" },
+    { key: "anamnesisPndNumber", label: "Номер справки ПНД", type: "text", defaultValue: "" },
+    { key: "anamnesisNdNumber", label: "Номер справки НД", type: "text", defaultValue: "" },
+
+    { key: "mentalOrientation", label: "Ориентировка", type: "text", defaultValue: "полная" },
+    { key: "mentalMood", label: "Настроение", type: "text", defaultValue: "ровное" },
+    { key: "mentalAnswers", label: "На вопросы отвечает", type: "text", defaultValue: "по существу" },
+    { key: "mentalHallucinations", label: "Галлюцинации", type: "text", defaultValue: "не выявлено" },
+    { key: "mentalMemory", label: "Память", type: "text", defaultValue: "норма" },
+    { key: "mentalIntellect", label: "Интеллект", type: "text", defaultValue: "норма" },
+    { key: "mentalNote", label: "Примечание блока", type: "textarea", defaultValue: "" },
+
+    { key: "alcoholFrequency", label: "Как часто алкоголизируется", type: "text", defaultValue: "по праздникам" },
+    { key: "alcoholPreference", label: "Какие напитки предпочитает", type: "text", defaultValue: "крепкие" },
+    { key: "alcoholMaxDose", label: "Макс. количество выпитого за раз", type: "text", defaultValue: "200 мл" },
+    { key: "alcoholNextDay", label: "Самочувствие на след. день", type: "text", defaultValue: "нормальное" },
+    { key: "alcoholMultiDay", label: "Были ли случаи употребления спиртного несколько дней подряд", type: "text", defaultValue: "со слов не принимал" },
+    { key: "alcoholPsychotropic", label: "Употреблял ли психотропные препараты", type: "text", defaultValue: "отрицает" },
+    { key: "alcoholDrugs", label: "Употреблял ли наркотики", type: "text", defaultValue: "отрицает" },
+    { key: "alcoholTongue", label: "Состояние языка", type: "text", defaultValue: "чистый" },
+    { key: "alcoholPupils", label: "Зрачки", type: "text", defaultValue: "норма" },
+    { key: "alcoholLightReaction", label: "Реакция на свет", type: "text", defaultValue: "норма" },
+    { key: "alcoholTremor", label: "Тремор", type: "text", defaultValue: "нет" },
+
+    { key: "diagnosisShort", label: "Диагноз кратко", type: "text", defaultValue: "пр здоров" },
+    { key: "issuedConclusion", label: "Выдано заключение", type: "textarea", defaultValue: "" },
+
+    { key: "conclusion", label: "Заключение", type: "radio", options: ["Годен", "Не годен"], defaultValue: "Годен" },
+    { key: "validity", label: "Срок", type: "select", options: ["6 мес", "1 год", "2 года"], defaultValue: "1 год" },
+    { key: "mkb10", label: "МКБ10", type: "text", defaultValue: "" },
+    { key: "note", label: "Примечание", type: "textarea", defaultValue: "прио/" },
+  ],
+},
+{
+  id: "chairman",
+  name: "ПРЕДСЕДАТЕЛЬ",
+  layout: "chairmanClassic",
+  fields: [
+    { key: "birthDate", label: "Дата рождения", type: "text", defaultValue: "" },
+    { key: "medicalRequirements", label: "Мед. требования", type: "textarea", defaultValue: "" },
+
+    { key: "hasGlasses", label: "Очки", type: "checkbox", defaultValue: false },
+    { key: "hasHearingAid", label: "Слуховой аппарат", type: "checkbox", defaultValue: false },
+
+    { key: "ekg", label: "ЭКГ", type: "text", defaultValue: 'Медицинский центр ООО "ЦМО "ЮЛМЕД" ЭКГ от 07.04.2025' },
+    { key: "ekgConclusion", label: "Заключение ЭКГ", type: "textarea", defaultValue: "Ритм синусовый, ЧСС , нормальная электрическая позиция сердца, ЭКГ-комплексы без особенностей от 07.04.2025" },
+    { key: "fluorography", label: "Флюорография", type: "text", defaultValue: "" },
+
+    { key: "bloodGroup", label: "Группа крови", type: "text", defaultValue: "0 (I)" },
+    { key: "rhesusFactor", label: "Резус-фактор", type: "text", defaultValue: "Rh(+)" },
+    { key: "bloodSource", label: "Кровь - откуда данные", type: "text", defaultValue: "" },
+
+    { key: "vaccinationRefusal", label: "Подписан отказ от прививок", type: "checkbox", defaultValue: false },
+    { key: "needsKekReferral", label: "Нуждается в направлении на КЭК", type: "checkbox", defaultValue: false },
+
+    { key: "examDate", label: "Дата экзамена", type: "text", defaultValue: "" },
+    { key: "logotypeNumber", label: "№ Логотипа", type: "text", defaultValue: "" },
+    { key: "commissionNumber", label: "№ Атт.комиссии", type: "text", defaultValue: "" },
+    { key: "mkb10", label: "МКБ10", type: "text", defaultValue: "" },
+
+    { key: "diagnosis", label: "Диагноз", type: "textarea", defaultValue: "" },
+
+    { key: "conclusion", label: "Заключение", type: "radio", options: ["Годен", "Не годен"], defaultValue: "Годен" },
+    { key: "validity", label: "Срок", type: "select", options: ["6 мес", "1 год", "2 года"], defaultValue: "1 год" },
+    { key: "organ", label: "Орган", type: "select", options: ["По возрасту", "По состоянию здоровья"], defaultValue: "По возрасту" },
+
+    { key: "categoryA", label: "A", type: "checkbox", defaultValue: true },
+    { key: "categoryB", label: "B", type: "checkbox", defaultValue: true },
+    { key: "categoryC", label: "C", type: "checkbox", defaultValue: true },
+    { key: "categoryD", label: "D", type: "checkbox", defaultValue: true },
+    { key: "categoryE", label: "E", type: "checkbox", defaultValue: true },
+    { key: "categoryTram", label: "трамвай (п.6)", type: "checkbox", defaultValue: false },
+    { key: "categoryTractor", label: "тракторы (п.8.)", type: "checkbox", defaultValue: false },
+    { key: "categoryTrolleybus", label: "троллейбус (п.6.)", type: "checkbox", defaultValue: false },
+    { key: "categoryBoat", label: "лайнеры и катера (п.9)", type: "checkbox", defaultValue: false },
+    { key: "categorySailing", label: "парусный спорт", type: "checkbox", defaultValue: false },
+
+    { key: "indicationManual", label: "с ручн.управлением", type: "checkbox", defaultValue: false },
+    { key: "indicationAutomatic", label: "с автоматом", type: "checkbox", defaultValue: false },
+    { key: "indicationAcoustic", label: "с акустикой", type: "checkbox", defaultValue: false },
+    { key: "indicationGlasses", label: "очки/линзы", type: "checkbox", defaultValue: false },
+    { key: "indicationHearingAid", label: "слуховой аппарат", type: "checkbox", defaultValue: false },
+    { key: "indicationNoHiring", label: "без найма", type: "checkbox", defaultValue: false },
+    { key: "indicationOneYear", label: "на год", type: "checkbox", defaultValue: false },
+
+    { key: "restrictionAM", label: "AM", type: "checkbox", defaultValue: false },
+    { key: "restrictionBBE", label: "BBE", type: "checkbox", defaultValue: false },
+    { key: "restrictionCCE", label: "CCE", type: "checkbox", defaultValue: false },
+    { key: "restrictionNoHands", label: "Без руки", type: "checkbox", defaultValue: false },
+    { key: "restrictionNoLegs", label: "Без ноги", type: "checkbox", defaultValue: false },
+
+    { key: "periodicProf", label: "Периодический проф", type: "checkbox", defaultValue: false },
+
+    { key: "note", label: "Примечание", type: "textarea", defaultValue: "прио/" },
+  ],
+}
+];
+

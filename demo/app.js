@@ -1,26 +1,61 @@
-﻿const appState = {
+const appState = {
   page: "dashboard",
   selectedClientId: 1,
   centerFilter: "all",
   clientSearch: "",
+  serviceGroupFilter: "all",
+  doctorExamModal: {
+    isOpen: false,
+    clientId: null,
+    visitId: null,
+    doctorRoleId: null,
+  },
 };
 
 const legacyClients = Array.isArray(window.LEGACY_CLIENTS) ? window.LEGACY_CLIENTS : null;
 const legacyServices = Array.isArray(window.LEGACY_SERVICES) ? window.LEGACY_SERVICES : null;
 
+const structuredServicesData =
+  window.servicesData && Array.isArray(window.servicesData.services)
+    ? window.servicesData
+    : null;
+
+const serviceGroups = Array.isArray(structuredServicesData?.serviceGroups)
+  ? structuredServicesData.serviceGroups
+  : [];
+
+const doctorRoles = Array.isArray(structuredServicesData?.doctorRoles)
+  ? structuredServicesData.doctorRoles
+  : [];
+
+const structuredServices = Array.isArray(structuredServicesData?.services)
+  ? structuredServicesData.services
+  : [];
+
 const data = {
-  serviceCatalog: legacyServices ?? [
-    "Справка водительская",
-    "Справка в бассейн",
-    "Медосмотр",
-    "ЭКГ",
-    "Флюорография",
-    "Психиатр",
-    "Нарколог",
-    "Терапевт",
-    "Офтальмолог",
-    "ЛОР",
-  ],
+  serviceCatalog:
+    legacyServices ??
+    (structuredServices.length
+      ? structuredServices
+          .filter((service) => service.isActive !== false)
+          .slice()
+          .sort((a, b) => {
+            if ((a.groupId || 0) !== (b.groupId || 0)) return (a.groupId || 0) - (b.groupId || 0);
+            return (a.sortOrder || 0) - (b.sortOrder || 0);
+          })
+          .map((service) => service.name)
+      : [
+          "Справка водительская",
+          "Справка в бассейн",
+          "Медосмотр",
+          "ЭКГ",
+          "Флюорография",
+          "Психиатр",
+          "Нарколог",
+          "Терапевт",
+          "Офтальмолог",
+          "ЛОР",
+        ]),
   clients: legacyClients ?? [
     {
       id: 1,
@@ -114,6 +149,9 @@ const data = {
       services: ["ЛОР"],
     },
   ],
+  visits: [],
+  doctorExams: [],
+  mkb10History: [],
 };
 
 const pageTitle = document.getElementById("page-title");
@@ -171,10 +209,230 @@ const columnKeys = [
 ];
 
 function showToast(message) {
+  if (!toast) return;
   toast.textContent = message;
   toast.classList.remove("hidden");
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => toast.classList.add("hidden"), 2400);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function ensureVisitsStore() {
+  if (!data.visits) data.visits = [];
+  if (!data.doctorExams) data.doctorExams = [];
+}
+
+function generateId(prefix = "id") {
+  return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+}
+function rememberMkb10Value(value) {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (!normalized) return;
+
+  if (!Array.isArray(data.mkb10History)) {
+    data.mkb10History = [];
+  }
+
+  if (!data.mkb10History.includes(normalized)) {
+    data.mkb10History.push(normalized);
+    data.mkb10History.sort((a, b) => a.localeCompare(b, "ru"));
+  }
+}
+
+function getDoctorTemplates() {
+  return Array.isArray(window.doctorTemplates) ? window.doctorTemplates : [];
+}
+
+function getDoctorTemplate(doctorRoleId) {
+  return getDoctorTemplates().find((item) => item.id === doctorRoleId) || null;
+}
+
+function getSelectedClient() {
+  return data.clients.find((client) => client.id === appState.selectedClientId) || null;
+}
+
+function getDoctorRoleIdByLabel(label) {
+  const normalized = String(label || "").trim().toLowerCase();
+
+  const map = {
+    "гинеколог": "gynecologist",
+    "стоматолог": "dentist",
+    "дерматолог": "dermatologist",
+    "невролог": "neurologist",
+    "хирург": "surgeon",
+    "отоларинголог": "otolaryngologist",
+    "офтальмолог": "ophthalmologist",
+    "терапевт": "therapist",
+    "психиатр": "psychiatrist",
+    "инфекционист": "infectionist",
+    "фтизиатр": "phthisiatrist",
+    "узист": "uzist",
+    "председатель": "chairman",
+  };
+
+  return map[normalized] || null;
+}
+
+function getDoctorDisplayName(doctorRoleId) {
+  const template = getDoctorTemplate(doctorRoleId);
+  if (template?.name) return template.name;
+
+  const role = doctorRoles.find((item) => item.id === doctorRoleId);
+  return role?.name || doctorRoleId;
+}
+
+function buildDoctorExamFields(template) {
+  const result = {};
+
+  (template?.fields || []).forEach((field) => {
+    if (
+      (field.type === "radio" || field.type === "select") &&
+      field.defaultValue === undefined &&
+      Array.isArray(field.options) &&
+      field.options.length
+    ) {
+      result[field.key] = field.options[0];
+    } else {
+      result[field.key] = field.defaultValue ?? "";
+    }
+  });
+
+  return result;
+}
+
+function getOrCreateDraftVisit(clientId) {
+  ensureVisitsStore();
+
+  let visit = data.visits.find(
+    (item) => item.clientId === clientId && item.status === "draft",
+  );
+
+  if (!visit) {
+    visit = {
+      id: generateId("visit"),
+      clientId,
+      createdAt: new Date().toISOString(),
+      serviceIds: [],
+      examIds: [],
+      status: "draft",
+    };
+    data.visits.push(visit);
+  }
+
+  return visit;
+}
+
+function getDoctorExam(clientId, visitId, doctorRoleId) {
+  ensureVisitsStore();
+
+  return (
+    data.doctorExams.find(
+      (item) =>
+        item.clientId === clientId &&
+        item.visitId === visitId &&
+        item.doctorRoleId === doctorRoleId,
+    ) || null
+  );
+}
+
+function getOrCreateDoctorExam(clientId, visitId, doctorRoleId) {
+  ensureVisitsStore();
+
+  let exam = getDoctorExam(clientId, visitId, doctorRoleId);
+  if (exam) return exam;
+
+  const template = getDoctorTemplate(doctorRoleId);
+  if (!template) {
+    console.error("Не найден шаблон врача:", doctorRoleId);
+    return null;
+  }
+
+  exam = {
+    id: generateId("exam"),
+    clientId,
+    visitId,
+    doctorRoleId,
+    status: "draft",
+    isCompleted: false,
+    updatedAt: new Date().toISOString(),
+    fields: buildDoctorExamFields(template),
+  };
+
+  data.doctorExams.push(exam);
+
+  const visit = data.visits.find((item) => item.id === visitId);
+  if (visit && !visit.examIds.includes(exam.id)) {
+    visit.examIds.push(exam.id);
+  }
+
+  return exam;
+}
+
+function openDoctorExamCard({ clientId, visitId, doctorRoleId }) {
+  if (!clientId || !doctorRoleId) return;
+
+  ensureVisitsStore();
+
+  const finalVisitId = visitId || getOrCreateDraftVisit(clientId).id;
+  const exam = getOrCreateDoctorExam(clientId, finalVisitId, doctorRoleId);
+
+  if (!exam) {
+    showToast(`Для врача "${getDoctorDisplayName(doctorRoleId)}" пока нет шаблона`);
+    return;
+  }
+
+  appState.doctorExamModal = {
+    isOpen: true,
+    clientId,
+    visitId: finalVisitId,
+    doctorRoleId,
+  };
+
+  renderApp();
+}
+
+function closeDoctorExamCard() {
+  appState.doctorExamModal = {
+    isOpen: false,
+    clientId: null,
+    visitId: null,
+    doctorRoleId: null,
+  };
+
+  renderApp();
+}
+
+function saveDoctorExam(examId, updatedFields) {
+  ensureVisitsStore();
+
+  const exam = data.doctorExams.find((item) => item.id === examId);
+  if (!exam) return;
+
+  exam.fields = {
+    ...exam.fields,
+    ...updatedFields,
+  };
+  exam.updatedAt = new Date().toISOString();
+  exam.isCompleted = true;
+  exam.status = "completed";
+  rememberMkb10Value(exam.fields?.mkb10);
+}
+
+function getDoctorExamStatus(clientId, doctorRoleId) {
+  if (!clientId || !doctorRoleId) return "empty";
+
+  const visit = getOrCreateDraftVisit(clientId);
+  const exam = getDoctorExam(clientId, visit.id, doctorRoleId);
+
+  if (!exam) return "empty";
+  return exam.isCompleted ? "completed" : "draft";
 }
 
 function matchesCenter(center) {
@@ -185,10 +443,15 @@ function filteredClients() {
   const search = appState.clientSearch.trim().toLowerCase();
   if (!search) return [];
 
-  return data.clients.filter((client) => {
-    if (!matchesCenter(client.center)) return false;
-    return [client.patientNumber, client.fullName, client.phone, client.document, client.snils].join(" ").toLowerCase().includes(search);
-  }).slice(0, 25);
+  return data.clients
+    .filter((client) => {
+      if (!matchesCenter(client.center)) return false;
+      return [client.patientNumber, client.fullName, client.phone, client.document, client.snils]
+        .join(" ")
+        .toLowerCase()
+        .includes(search);
+    })
+    .slice(0, 25);
 }
 
 function normalizeSearchValue(value) {
@@ -206,7 +469,9 @@ function findDuplicateCandidates(searchValue) {
   return data.clients
     .filter((client) => matchesCenter(client.center))
     .map((client) => {
-      const haystack = normalizeSearchValue([client.patientNumber, client.birthDate, client.phone, client.document, client.snils].join(" "));
+      const haystack = normalizeSearchValue(
+        [client.patientNumber, client.birthDate, client.phone, client.document, client.snils].join(" "),
+      );
       const score = searchParts.reduce((total, part) => total + (haystack.includes(part) ? 1 : 0), 0);
       return { client, score };
     })
@@ -214,44 +479,6 @@ function findDuplicateCandidates(searchValue) {
     .sort((a, b) => b.score - a.score || (a.client.patientNumber ?? a.client.id) - (b.client.patientNumber ?? b.client.id))
     .slice(0, 5)
     .map((item) => item.client);
-}
-
-function createClientFromSearch() {
-  const raw = appState.clientSearch.trim();
-  if (!raw) {
-    showToast("Введите фамилию или ФИО перед добавлением");
-    return;
-  }
-
-  const existing = data.clients.find((client) => client.fullName.toLowerCase() === raw.toLowerCase());
-  if (existing) {
-    appState.selectedClientId = existing.id;
-    renderApp();
-    showToast("Такой клиент уже есть в списке");
-    return;
-  }
-
-  const parts = raw.split(/\s+/).filter(Boolean);
-  const [lastName = raw, firstName = "Новый", middleName = "Клиент"] = parts;
-  const nextId = Math.max(...data.clients.map((client) => client.id)) + 1;
-  const center = appState.centerFilter === "all" ? "Медцентр 1" : appState.centerFilter;
-
-  data.clients.unshift({
-    id: nextId,
-    patientNumber: Math.max(...data.clients.map((client) => client.patientNumber ?? client.id)) + 1,
-    fullName: [lastName, firstName, middleName].join(" "),
-    birthDate: "01.01.1990",
-    phone: "+7 999 000-00-00",
-    center,
-    document: "Паспорт уточняется",
-    snils: "не указан",
-    note: "Новый клиент из строки поиска",
-    lastVisit: "сегодня",
-  });
-
-  appState.selectedClientId = nextId;
-  renderApp();
-  showToast("Новый клиент добавлен");
 }
 
 function rerenderAndRestoreInput(inputId, value, caretPosition) {
@@ -264,6 +491,8 @@ function rerenderAndRestoreInput(inputId, value, caretPosition) {
 }
 
 function renderNav() {
+  if (!navRoot) return;
+
   navRoot.innerHTML = `
     <div class="nav-group">
       ${navItems
@@ -285,16 +514,10 @@ function renderNav() {
   navRoot.querySelectorAll("button").forEach((button) => {
     button.addEventListener("click", () => {
       const page = button.dataset.page;
-      if (page === "dashboard") {
-        appState.page = "dashboard";
-        renderApp();
-        return;
-      }
-
-      if (page) {
-        appState.page = page;
-        renderApp();
-      }
+      if (!page) return;
+      appState.page = page;
+      renderApp();
+      window.scrollTo({ top: 0, behavior: "auto" });
       if (button.dataset.toast) showToast(button.dataset.toast);
     });
   });
@@ -354,6 +577,23 @@ function buildExcelRows(clients) {
   }));
 }
 
+function renderDoctorButton(label, selectedClient) {
+  const doctorRoleId = getDoctorRoleIdByLabel(label);
+  const status = selectedClient && doctorRoleId
+    ? getDoctorExamStatus(selectedClient.id, doctorRoleId)
+    : "empty";
+
+  return `
+    <button
+      class="doctor-pill doctor-pill--${status}"
+      data-doctor-label="${escapeHtml(label)}"
+      data-doctor-role-id="${escapeHtml(doctorRoleId || "")}"
+    >
+      ${label}
+    </button>
+  `;
+}
+
 function renderSketchHome() {
   const currentClients = filteredClients();
   const selectedClient = currentClients.find((client) => client.id === appState.selectedClientId) || currentClients[0];
@@ -410,16 +650,14 @@ function renderSketchHome() {
         <article class="sketch-panel">
           <div class="sketch-doctors-block">
             <div class="sketch-doctors sketch-doctors--top">
-              ${doctorButtons
-                .map((label) => `<button class="doctor-pill" data-demo-toast="Открыт врач: ${label}">${label}</button>`)
-                .join("")}
+              ${doctorButtons.map((label) => renderDoctorButton(label, selectedClient)).join("")}
             </div>
           </div>
 
           <div class="sketch-toolbar">
             <label class="field sketch-search">
               <span></span>
-              <input id="clientSearchInput" value="${appState.clientSearch}" placeholder="поиск" />
+              <input id="clientSearchInput" value="${escapeHtml(appState.clientSearch)}" placeholder="поиск" />
             </label>
             <button class="primary-button sketch-add-button" id="addClientButton">Добавить</button>
           </div>
@@ -434,8 +672,8 @@ function renderSketchHome() {
                       .map(
                         (client) => `
                           <button class="duplicate-card" data-client-id="${client.id}">
-                            <strong>№ ${client.patientNumber ?? client.id} ${client.fullName}</strong>
-                            <span>${client.birthDate} · ${client.phone} · ${client.document}</span>
+                            <strong>№ ${client.patientNumber ?? client.id} ${escapeHtml(client.fullName)}</strong>
+                            <span>${escapeHtml(client.birthDate)} · ${escapeHtml(client.phone)} · ${escapeHtml(client.document)}</span>
                           </button>
                         `,
                       )
@@ -466,31 +704,31 @@ function renderSketchHome() {
                       (row) => `
                         <button class="sketch-table__grid sketch-table__grid--row ${selectedClient && selectedClient.id === row.id ? "sketch-table__grid--active" : ""}" data-client-id="${row.id}">
                           <span>${row.patientNumber}</span>
-                          <span>${row.fullName}</span>
-                          <span>${row.birthDate}</span>
-                          <span>${row.registration}</span>
-                          <span>${row.category}</span>
-                          <span>${row.referenceNumber}</span>
-                          <span>${row.gynecologist}</span>
-                          <span>${row.stomatologist}</span>
-                          <span>${row.dermatologist}</span>
-                          <span>${row.neurologist}</span>
-                          <span>${row.surgeon}</span>
-                          <span>${row.otolaryngologist}</span>
-                          <span>${row.ophthalmologist}</span>
-                          <span>${row.therapist}</span>
-                          <span>${row.psychiatrist}</span>
-                          <span>${row.infectionist}</span>
-                          <span>${row.phthisiatrician}</span>
-                          <span>${row.uzist}</span>
-                          <span>${row.note}</span>
-                          <span>${row.encounterDate}</span>
-                          <span>${row.cardNumber}</span>
-                          <span>${row.noNumber}</span>
-                          <span>${row.fg}</span>
-                          <span>${row.organization}</span>
-                          <span>${row.mkb10}</span>
-                          <span>${row.realDate}</span>
+                          <span>${escapeHtml(row.fullName)}</span>
+                          <span>${escapeHtml(row.birthDate)}</span>
+                          <span>${escapeHtml(row.registration)}</span>
+                          <span>${escapeHtml(row.category)}</span>
+                          <span>${escapeHtml(row.referenceNumber)}</span>
+                          <span>${escapeHtml(row.gynecologist)}</span>
+                          <span>${escapeHtml(row.stomatologist)}</span>
+                          <span>${escapeHtml(row.dermatologist)}</span>
+                          <span>${escapeHtml(row.neurologist)}</span>
+                          <span>${escapeHtml(row.surgeon)}</span>
+                          <span>${escapeHtml(row.otolaryngologist)}</span>
+                          <span>${escapeHtml(row.ophthalmologist)}</span>
+                          <span>${escapeHtml(row.therapist)}</span>
+                          <span>${escapeHtml(row.psychiatrist)}</span>
+                          <span>${escapeHtml(row.infectionist)}</span>
+                          <span>${escapeHtml(row.phthisiatrician)}</span>
+                          <span>${escapeHtml(row.uzist)}</span>
+                          <span>${escapeHtml(row.note)}</span>
+                          <span>${escapeHtml(row.encounterDate)}</span>
+                          <span>${escapeHtml(row.cardNumber)}</span>
+                          <span>${escapeHtml(row.noNumber)}</span>
+                          <span>${escapeHtml(row.fg)}</span>
+                          <span>${escapeHtml(row.organization)}</span>
+                          <span>${escapeHtml(row.mkb10)}</span>
+                          <span>${escapeHtml(row.realDate)}</span>
                         </button>
                       `,
                     )
@@ -510,13 +748,20 @@ function renderSketchHome() {
                 </div>
                 <div class="client-facts">
                   <div>№ пациента: ${selectedClient.patientNumber ?? selectedClient.id}</div>
-                  <div>${selectedClient.fullName}</div>
-                  <div>${selectedClient.birthDate}</div>
-                  <div>${selectedClient.phone}</div>
-                  <div>${selectedClient.document}</div>
-                  <div>${selectedClient.snils}</div>
-                  <div>${selectedClient.center}</div>
-                  <div>${selectedClient.services?.length ? `Услуги: ${selectedClient.services.join(", ")}` : "Услуги не выбраны"}</div>
+                  <div>${escapeHtml(selectedClient.fullName)}</div>
+                  <div>${escapeHtml(selectedClient.birthDate)}</div>
+                  <div>${escapeHtml(selectedClient.phone)}</div>
+                  <div>${escapeHtml(selectedClient.document)}</div>
+                  <div>${escapeHtml(selectedClient.snils)}</div>
+                  <div>${escapeHtml(selectedClient.center)}</div>
+                  <div>${selectedClient.services?.length ? `Услуги: ${escapeHtml(selectedClient.services.join(", "))}` : "Услуги не выбраны"}</div>
+                </div>
+
+                <div class="client-doctor-actions" style="margin-top:16px;">
+                  <div style="font-weight:600; margin-bottom:8px;">Карточки врачей</div>
+                  <div class="sketch-doctors">
+                    ${doctorButtons.map((label) => renderDoctorButton(label, selectedClient)).join("")}
+                  </div>
                 </div>
               `
               : '<div class="empty">Выбери клиента из списка сверху</div>'
@@ -538,29 +783,17 @@ function renderStubPage(title) {
 
 function renderContent() {
   if (appState.page === "dashboard") return renderSketchHome();
+  if (appState.page === "services") return renderServicesPage();
 
   const item = navItems.find((navItem) => navItem.id === appState.page);
   return renderStubPage(item?.label || "Раздел");
 }
 
 function openActionModal(title, html) {
+  if (!actionModalTitle || !actionModalContent || !actionModal) return;
   actionModalTitle.textContent = title;
   actionModalContent.innerHTML = html;
   actionModal.classList.remove("hidden");
-  actionModalContent.querySelectorAll("[data-demo-action]").forEach((button) => {
-    button.addEventListener("click", () => {
-      showToast(button.dataset.demoAction);
-      actionModal.classList.add("hidden");
-    });
-  });
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }
 
 function formatDateInput(value) {
@@ -581,211 +814,6 @@ function attachDateMask(root) {
   });
 }
 
-function openClientModal(clientId = null) {
-  const editingClient = clientId ? data.clients.find((client) => client.id === clientId) : null;
-  const raw = editingClient ? editingClient.fullName : appState.clientSearch.trim();
-  const parts = raw.split(/\s+/).filter(Boolean);
-  const [lastName = "", firstName = "", middleName = ""] = parts;
-  const selectedServices = new Set(editingClient?.services || []);
-
-  openActionModal(
-    editingClient ? "Изменить клиента" : "Новый клиент",
-    `
-      <form class="client-create-form" id="clientCreateForm">
-        <div class="client-create-grid client-create-grid--names">
-          <label class="field">
-            <span>Фамилия</span>
-            <input name="lastName" value="${escapeHtml(lastName)}" />
-          </label>
-          <label class="field">
-            <span>Имя</span>
-            <input name="firstName" value="${escapeHtml(firstName)}" />
-          </label>
-          <label class="field">
-            <span>Отчество</span>
-            <input name="middleName" value="${escapeHtml(middleName)}" />
-          </label>
-        </div>
-
-        <div class="client-create-grid client-create-grid--top">
-          <label class="field">
-            <span>Дата рождения</span>
-            <input name="birthDate" data-date-mask value="${escapeHtml(editingClient?.birthDate || "18.04.1979")}" />
-          </label>
-          <label class="field">
-            <span>Пол</span>
-            <select name="gender">
-              <option>муж</option>
-              <option>жен</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Место рождения</span>
-            <input name="birthPlace" value="г. Покров" />
-          </label>
-        </div>
-
-        <div class="client-create-grid client-create-grid--document">
-          <label class="field">
-            <span>Документ</span>
-            <select name="documentType">
-              <option>Паспорт РФ</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Серия</span>
-            <input name="passportSeries" value="17 04" />
-          </label>
-          <label class="field">
-            <span>Номер</span>
-            <input name="passportNumber" value="1679" />
-          </label>
-          <label class="field">
-            <span>Дата выдачи</span>
-            <input name="passportDate" data-date-mask value="12.12.2021" />
-          </label>
-          <label class="field field--wide">
-            <span>Кем выдан</span>
-            <input name="issuedBy" value="ГУ МВД России" />
-          </label>
-        </div>
-
-        <div class="client-create-grid client-create-grid--address">
-          <label class="field">
-            <span>Страна</span>
-            <input name="country" value="Россия" />
-          </label>
-          <label class="field">
-            <span>Город</span>
-            <input name="city" value="Покров" />
-          </label>
-          <label class="field field--wide">
-            <span>Улица</span>
-            <input name="street" value="Восточная" />
-          </label>
-          <label class="field">
-            <span>Дом</span>
-            <input name="house" value="2" />
-          </label>
-          <label class="field">
-            <span>Корпус</span>
-            <input name="building" value="" />
-          </label>
-          <label class="field">
-            <span>Кв.</span>
-            <input name="flat" value="" />
-          </label>
-        </div>
-
-        <div class="client-create-grid client-create-grid--contacts">
-          <label class="field">
-            <span>Телефон</span>
-            <input name="phone" value="${escapeHtml(editingClient?.phone || "+7 999 000-00-00")}" />
-          </label>
-          <label class="field">
-            <span>E-mail</span>
-            <input name="email" value="" />
-          </label>
-          <label class="field">
-            <span>СНИЛС</span>
-            <input name="snils" value="${escapeHtml(editingClient?.snils || "не указан")}" />
-          </label>
-        </div>
-
-        <label class="field">
-          <span>Комментарий</span>
-          <textarea name="comment" rows="2">${escapeHtml(editingClient?.note || "")}</textarea>
-        </label>
-
-        <div class="client-services-block">
-          <div class="client-services-block__title">Услуги</div>
-          <div class="client-services-list">
-            ${data.serviceCatalog
-              .map(
-                (service, index) => `
-                  <label class="client-service-chip">
-                    <input
-                      type="checkbox"
-                      name="services"
-                      value="${escapeHtml(service)}"
-                      ${selectedServices.has(service) ? "checked" : ""}
-                    />
-                    <span>${service}</span>
-                  </label>
-                `,
-              )
-              .join("")}
-          </div>
-        </div>
-
-        <div class="client-create-actions">
-          <button type="button" class="ghost-button" id="cancelClientCreate">Отмена</button>
-          <button type="submit" class="primary-button">ОК</button>
-        </div>
-      </form>
-    `,
-  );
-
-  const form = document.getElementById("clientCreateForm");
-  const cancel = document.getElementById("cancelClientCreate");
-
-  if (form) {
-    attachDateMask(form);
-  }
-
-  cancel?.addEventListener("click", () => {
-    actionModal.classList.add("hidden");
-  });
-
-  form?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const formData = new FormData(form);
-    const center = appState.centerFilter === "all" ? "Медцентр 1" : appState.centerFilter;
-    const fullName = [
-      formData.get("lastName"),
-      formData.get("firstName"),
-      formData.get("middleName"),
-    ]
-      .map((value) => String(value || "").trim())
-      .filter(Boolean)
-      .join(" ");
-    const selectedServiceValues = formData
-      .getAll("services")
-      .map((value) => String(value).trim())
-      .filter(Boolean);
-
-    const targetClient =
-      editingClient ||
-      {
-        id: Math.max(...data.clients.map((client) => client.id)) + 1,
-        patientNumber: Math.max(...data.clients.map((client) => client.patientNumber ?? client.id)) + 1,
-      };
-
-    Object.assign(targetClient, {
-      fullName: fullName || "Новый клиент",
-      birthDate: String(formData.get("birthDate") || "").trim() || "01.01.1990",
-      phone: String(formData.get("phone") || "").trim() || "+7 999 000-00-00",
-      center: editingClient?.center || center,
-      document: `Паспорт РФ ${String(formData.get("passportSeries") || "").trim()} ${String(formData.get("passportNumber") || "").trim()}`.trim(),
-      snils: String(formData.get("snils") || "").trim() || "не указан",
-      note:
-        String(formData.get("comment") || "").trim() ||
-        `Адрес: ${String(formData.get("city") || "").trim()}, ${String(formData.get("street") || "").trim()}`.trim(),
-      lastVisit: editingClient?.lastVisit || "сегодня",
-      services: selectedServiceValues,
-    });
-
-    if (!editingClient) {
-      data.clients.unshift(targetClient);
-    }
-
-    appState.selectedClientId = targetClient.id;
-    appState.clientSearch = "";
-    actionModal.classList.add("hidden");
-    renderApp();
-    showToast(editingClient ? `Клиент ${fullName || "клиент"} обновлен` : `Клиент ${fullName || "Новый клиент"} добавлен`);
-  });
-}
 function getPageTitle() {
   if (appState.page === "dashboard") return "Главная";
   return navItems.find((item) => item.id === appState.page)?.label || "Главная";
@@ -799,8 +827,14 @@ function applyColumnResizeState() {
 }
 
 function focusClientSearch() {
+  const hasDoctorModalOpen = !!window.appState?.doctorExamModal?.isOpen;
+  const hasActionModalOpen = actionModal && !actionModal.classList.contains("hidden");
+
+  if (hasDoctorModalOpen || hasActionModalOpen) return;
+
   const input = document.getElementById("clientSearchInput");
-  if (!input || actionModal && !actionModal.classList.contains("hidden")) return;
+  if (!input) return;
+
   input.focus();
   const caretPosition = input.value.length;
   input.setSelectionRange(caretPosition, caretPosition);
@@ -845,18 +879,65 @@ function bindContentEvents() {
 
   const addClientButton = document.getElementById("addClientButton");
   if (addClientButton) {
-    addClientButton.addEventListener("click", () => openClientModal());
+    addClientButton.addEventListener("click", () => {
+      const openModal = window.openClientModal || openClientModal;
+      openModal();
+    });
   }
 
   const editSelectedClientButton = document.getElementById("editSelectedClientButton");
   if (editSelectedClientButton) {
-    editSelectedClientButton.addEventListener("click", () => openClientModal(appState.selectedClientId));
+    editSelectedClientButton.addEventListener("click", () => {
+      const openModal = window.openClientModal || openClientModal;
+      openModal(appState.selectedClientId);
+    });
   }
+
+  const addServiceButton = document.getElementById("addServiceButton");
+  if (addServiceButton) {
+    addServiceButton.addEventListener("click", () => openServiceModal());
+  }
+
+  contentRoot.querySelectorAll("[data-service-group]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.serviceGroupFilter = button.dataset.serviceGroup;
+      renderApp();
+    });
+  });
+
+  contentRoot.querySelectorAll("[data-service-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openServiceModal(button.dataset.serviceId);
+    });
+  });
 
   contentRoot.querySelectorAll("[data-client-id]").forEach((button) => {
     button.addEventListener("click", () => {
       appState.selectedClientId = Number(button.dataset.clientId);
       renderApp();
+    });
+  });
+
+  contentRoot.querySelectorAll("[data-doctor-role-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const doctorRoleId = button.dataset.doctorRoleId;
+      const selectedClient = getSelectedClient();
+
+      if (!selectedClient) {
+        showToast("Сначала выбери клиента");
+        return;
+      }
+
+      if (!doctorRoleId) {
+        const label = button.dataset.doctorLabel || "врач";
+        showToast(`Для "${label}" шаблон пока не добавлен`);
+        return;
+      }
+
+      openDoctorExamCard({
+        clientId: selectedClient.id,
+        doctorRoleId,
+      });
     });
   });
 
@@ -868,11 +949,22 @@ function bindContentEvents() {
 }
 
 function renderApp() {
-  pageTitle.textContent = getPageTitle();
+  if (pageTitle) {
+    pageTitle.textContent = getPageTitle();
+  }
+
   renderNav();
-  contentRoot.innerHTML = renderContent();
+
+  if (contentRoot) {
+    contentRoot.innerHTML = `
+      ${renderContent()}
+      ${window.renderDoctorExamModal ? window.renderDoctorExamModal() : ""}
+    `;
+  }
+
   applyColumnResizeState();
   bindContentEvents();
+
   if (appState.page === "dashboard") {
     window.setTimeout(focusClientSearch, 0);
   }
@@ -888,25 +980,34 @@ if (centerSelect) {
 const showLoginButton = document.getElementById("showLogin");
 if (showLoginButton) {
   showLoginButton.addEventListener("click", () => {
-    loginModal.classList.remove("hidden");
+    loginModal?.classList.remove("hidden");
   });
 }
 
-document.getElementById("closeLogin").addEventListener("click", () => {
+document.getElementById("closeLogin")?.addEventListener("click", () => {
+  loginModal?.classList.add("hidden");
+});
+
+document.getElementById("closeAction")?.addEventListener("click", () => {
+  actionModal?.classList.add("hidden");
+});
+
+loginModal?.querySelector(".modal__backdrop")?.addEventListener("click", () => {
   loginModal.classList.add("hidden");
 });
 
-document.getElementById("closeAction").addEventListener("click", () => {
+actionModal?.querySelector(".modal__backdrop")?.addEventListener("click", () => {
   actionModal.classList.add("hidden");
 });
 
-loginModal.querySelector(".modal__backdrop").addEventListener("click", () => {
-  loginModal.classList.add("hidden");
-});
-
-actionModal.querySelector(".modal__backdrop").addEventListener("click", () => {
-  actionModal.classList.add("hidden");
-});
+window.appState = appState;
+window.data = data;
+window.getDoctorTemplate = getDoctorTemplate;
+window.getDoctorExam = getDoctorExam;
+window.getOrCreateDraftVisit = getOrCreateDraftVisit;
+window.openDoctorExamCard = openDoctorExamCard;
+window.closeDoctorExamCard = closeDoctorExamCard;
+window.saveDoctorExam = saveDoctorExam;
+window.openClientModal = openClientModal;
 
 renderApp();
-

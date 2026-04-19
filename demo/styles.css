@@ -979,6 +979,198 @@ textarea {
 .doctor-pill--wide {
   text-align: left;
 }
+
+.doctor-classic-backdrop,
+.chairman-backdrop,
+.psychiatrist-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(11, 25, 38, 0.42);
+}
+
+.doctor-classic-window,
+.chairman-window,
+.psychiatrist-window {
+  width: min(1120px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  border: 1px solid rgba(23, 48, 74, 0.24);
+  border-radius: 14px;
+  background: #fffdf7;
+  box-shadow: 0 24px 80px rgba(11, 25, 38, 0.28);
+}
+
+.doctor-classic-titlebar,
+.chairman-titlebar,
+.psychiatrist-titlebar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(23, 48, 74, 0.18);
+  background: #17304a;
+  color: #fff;
+}
+
+.doctor-classic-title,
+.chairman-title,
+.psychiatrist-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.doctor-classic-close,
+.chairman-close,
+.psychiatrist-close {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  cursor: pointer;
+  font-size: 22px;
+}
+
+.doctor-classic-form,
+.chairman-form,
+.psychiatrist-form {
+  padding: 16px;
+}
+
+.doctor-classic-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 210px;
+  gap: 16px;
+}
+
+.doctor-classic-main,
+.chairman-main,
+.psychiatrist-main {
+  display: grid;
+  gap: 10px;
+}
+
+.doctor-classic-row,
+.chairman-row,
+.psychiatrist-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.doctor-classic-label,
+.chairman-label,
+.psychiatrist-label {
+  padding-top: 7px;
+  color: #26394a;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.doctor-classic-field,
+.chairman-field,
+.psychiatrist-field {
+  min-width: 0;
+}
+
+.doctor-classic-input,
+.doctor-classic-select,
+.doctor-classic-textarea,
+.chairman-input,
+.chairman-select,
+.chairman-textarea,
+.psychiatrist-input,
+.psychiatrist-select,
+.psychiatrist-textarea {
+  width: 100%;
+  border: 1px solid rgba(23, 48, 74, 0.24);
+  border-radius: 9px;
+  padding: 7px 9px;
+  background: #ffffff;
+  color: var(--text);
+  font: inherit;
+}
+
+.doctor-classic-textarea,
+.chairman-textarea,
+.psychiatrist-textarea {
+  min-height: 58px;
+  resize: vertical;
+}
+
+.doctor-classic-textarea--diagnosis {
+  min-height: 78px;
+}
+
+.doctor-classic-complaints-left,
+.doctor-classic-complaints-right,
+.doctor-classic-bottom-line {
+  display: grid;
+  gap: 8px;
+}
+
+.doctor-classic-field--complaints {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.doctor-classic-radio-group,
+.chairman-checkboxes,
+.psychiatrist-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.doctor-classic-radio,
+.chairman-checkbox,
+.psychiatrist-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.doctor-classic-sidebar {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.doctor-classic-sidebtn {
+  border: 1px solid rgba(23, 48, 74, 0.18);
+  border-radius: 10px;
+  padding: 9px 10px;
+  background: #f5efe2;
+  color: #17304a;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.doctor-classic-actions,
+.chairman-actions,
+.psychiatrist-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.doctor-classic-bottom-line {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
 .client-facts {
   display: grid;
   gap: 10px;
@@ -1029,6 +1221,15 @@ textarea {
   }
 
   .sketch-doctors {
+    grid-template-columns: 1fr;
+  }
+
+  .doctor-classic-body,
+  .doctor-classic-row,
+  .chairman-row,
+  .psychiatrist-row,
+  .doctor-classic-field--complaints,
+  .doctor-classic-bottom-line {
     grid-template-columns: 1fr;
   }
 }
