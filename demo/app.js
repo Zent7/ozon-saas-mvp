@@ -224,6 +224,60 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function repairDemoText(value) {
+  const replacements = {
+    "Р“Р»Р°РІРЅР°СЏ": "Главная",
+    "Р’СЂР°С‡Рё": "Врачи",
+    "РЈСЃР»СѓРіРё": "Услуги",
+    "Р‘Р»Р°РЅРєРё": "Бланки",
+    "РЁР°Р±Р»РѕРЅС‹": "Шаблоны",
+    "Р—Р°РіСЂСѓР·РєР° СЃРїСЂР°РІРєРё": "Загрузка справки",
+    "РЎРѕС‚СЂСѓРґРЅРёРє": "Сотрудник",
+    "РљР°СЃСЃР°": "Касса",
+    "РћС‚С‡РµС‚С‹": "Отчеты",
+    "РџСѓРЅРєС‚С‹ РІСЂРµРґРЅРѕСЃС‚Рё": "Пункты вредности",
+    "Р“РёРЅРµРєРѕР»РѕРі": "Гинеколог",
+    "РЎС‚РѕРјР°С‚РѕР»РѕРі": "Стоматолог",
+    "Р”РµСЂРјР°С‚РѕР»РѕРі": "Дерматолог",
+    "РќРµРІСЂРѕР»РѕРі": "Невролог",
+    "РҐРёСЂСѓСЂРі": "Хирург",
+    "РћС‚РѕР»Р°СЂРёРЅРіРѕР»РѕРі": "Отоларинголог",
+    "РћС„С‚Р°Р»СЊРјРѕР»РѕРі": "Офтальмолог",
+    "РўРµСЂР°РїРµРІС‚": "Терапевт",
+    "РџСЃРёС…РёР°С‚СЂ": "Психиатр",
+    "РРЅС„РµРєС†РёРѕРЅРёСЃС‚": "Инфекционист",
+    "Р¤С‚РёР·РёР°С‚СЂ": "Фтизиатр",
+    "РЈР·РёСЃС‚": "Узист",
+    "РџСЂРµРґСЃРµРґР°С‚РµР»СЊ": "Председатель",
+    "Р¤РРћ": "ФИО",
+    "Р”Р°С‚Р° СЂРѕР¶РґРµРЅРёСЏ": "Дата рождения",
+    "Р РµРіРёСЃС‚СЂР°С†РёСЏ": "Регистрация",
+    "РљР°С‚РµРіРѕСЂРёРё Рё СѓСЃР»РѕРІРёСЏ РґРѕРїСѓСЃРєР°": "Категории и условия допуска",
+    "РџСЂРёРјРµС‡Р°РЅРёСЏ": "Примечания",
+    "Р”Р°С‚Р° РѕР±СЂР°С‰РµРЅРёСЏ": "Дата обращения",
+    "РќРѕРјРµСЂ РєР°СЂС‚С‹": "Номер карты",
+    "РћСЂРіР°РЅРёР·Р°С†РёСЏ": "Организация",
+    "РњРљР‘10": "МКБ10",
+    "Р РµР°Р»СЊРЅР°СЏ РґР°С‚Р°": "Реальная дата",
+    "РїРѕРёСЃРє": "поиск",
+    "Р”РѕР±Р°РІРёС‚СЊ": "Добавить",
+    "РР·РјРµРЅРёС‚СЊ": "Изменить",
+    "РРЅС„РѕСЂРјР°С†РёСЏ Рѕ РєР»РёРµРЅС‚Рµ": "Информация о клиенте",
+    "РљР°СЂС‚РѕС‡РєРё РІСЂР°С‡РµР№": "Карточки врачей",
+    "РЈСЃР»СѓРіРё РЅРµ РІС‹Р±СЂР°РЅС‹": "Услуги не выбраны",
+    "Р’РѕР·РјРѕР¶РЅС‹Рµ РґСѓР±Р»Рё": "Возможные дубли",
+    "РџРѕ С‚РµРєСѓС‰РµРјСѓ С„РёР»СЊС‚СЂСѓ РєР»РёРµРЅС‚РѕРІ РЅРµ РЅР°Р№РґРµРЅРѕ": "Введите фамилию, телефон, дату рождения или документ. Без поиска список не грузится специально, чтобы база работала быстро.",
+    "Р’С‹Р±РµСЂРё РєР»РёРµРЅС‚Р° РёР· СЃРїРёСЃРєР° СЃРІРµСЂС…Сѓ": "Сначала найди клиента через строку поиска. После выбора тут появятся карточка клиента, кнопка изменения, услуги и карточки врачей.",
+    "в„–": "№",
+    "В·": "·",
+  };
+
+  return Object.entries(replacements).reduce(
+    (result, [broken, fixed]) => result.replaceAll(broken, fixed),
+    String(value ?? ""),
+  );
+}
+
 function ensureVisitsStore() {
   if (!data.visits) data.visits = [];
   if (!data.doctorExams) data.doctorExams = [];
@@ -493,7 +547,7 @@ function rerenderAndRestoreInput(inputId, value, caretPosition) {
 function renderNav() {
   if (!navRoot) return;
 
-  navRoot.innerHTML = `
+  navRoot.innerHTML = repairDemoText(`
     <div class="nav-group">
       ${navItems
         .map(
@@ -509,7 +563,7 @@ function renderNav() {
         )
         .join("")}
     </div>
-  `;
+  `);
 
   navRoot.querySelectorAll("button").forEach((button) => {
     button.addEventListener("click", () => {
@@ -781,9 +835,88 @@ function renderStubPage(title) {
   `;
 }
 
+function renderDoctorsPage() {
+  const templates = getDoctorTemplates();
+  const roles = [
+    ["Гинеколог", "gynecologist"],
+    ["Стоматолог", "dentist"],
+    ["Дерматолог", "dermatologist"],
+    ["Невролог", "neurologist"],
+    ["Хирург", "surgeon"],
+    ["Отоларинголог", "otolaryngologist"],
+    ["Офтальмолог", "ophthalmologist"],
+    ["Терапевт", "therapist"],
+    ["Психиатр", "psychiatrist"],
+    ["Инфекционист", "infectionist"],
+    ["Фтизиатр", "phthisiatrist"],
+    ["Узист", "uzist"],
+    ["Председатель", "chairman"],
+  ];
+
+  return `
+    <section class="card">
+      <h3>Врачи</h3>
+      <p class="muted">Карточки врачей подключены. Чтобы открыть осмотр, вернись на главную, найди клиента и нажми нужного врача.</p>
+      <div class="cards-grid">
+        ${roles
+          .map(([label, id]) => {
+            const template = templates.find((item) => item.id === id);
+            return `
+              <article class="mini-card">
+                <strong>${label}</strong>
+                <span>${template ? `Шаблон: ${escapeHtml(template.name)}` : "Шаблон пока не найден"}</span>
+              </article>
+            `;
+          })
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderTemplatesPage() {
+  const templates = getDoctorTemplates();
+
+  return `
+    <section class="card">
+      <h3>Шаблоны</h3>
+      <p class="muted">Подключено шаблонов врачей: ${templates.length}. Эти шаблоны используются при открытии карточки врача на главной.</p>
+      <div class="cards-grid">
+        ${templates
+          .map(
+            (template) => `
+              <article class="mini-card">
+                <strong>${escapeHtml(template.name || template.id)}</strong>
+                <span>Полей: ${Array.isArray(template.fields) ? template.fields.length : 0}</span>
+              </article>
+            `,
+          )
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderBlanksPage() {
+  return `
+    <section class="card">
+      <h3>Бланки</h3>
+      <p class="muted">Раздел подготовлен под автонумерацию и печатные формы. Сейчас реальные шаблоны документов лежат в backend, а в демке показаны врачебные шаблоны и сценарий оформления клиента.</p>
+      <div class="stats-grid">
+        <div class="stat-card"><strong>Автонумерация</strong><span>заложена как следующий шаг</span></div>
+        <div class="stat-card"><strong>Документы</strong><span>генерация будет подключаться к обращению</span></div>
+        <div class="stat-card"><strong>XML</strong><span>после услуг и документов</span></div>
+      </div>
+    </section>
+  `;
+}
+
 function renderContent() {
   if (appState.page === "dashboard") return renderSketchHome();
   if (appState.page === "services" && window.renderServicesPage) return window.renderServicesPage();
+  if (appState.page === "doctors") return renderDoctorsPage();
+  if (appState.page === "templates") return renderTemplatesPage();
+  if (appState.page === "blanks" || appState.page === "blanks2") return renderBlanksPage();
 
   const item = navItems.find((navItem) => navItem.id === appState.page);
   return renderStubPage(item?.label || "Раздел");
@@ -791,8 +924,8 @@ function renderContent() {
 
 function openActionModal(title, html) {
   if (!actionModalTitle || !actionModalContent || !actionModal) return;
-  actionModalTitle.textContent = title;
-  actionModalContent.innerHTML = html;
+  actionModalTitle.textContent = repairDemoText(title);
+  actionModalContent.innerHTML = repairDemoText(html);
   actionModal.classList.remove("hidden");
 }
 
@@ -952,16 +1085,16 @@ function bindContentEvents() {
 
 function renderApp() {
   if (pageTitle) {
-    pageTitle.textContent = getPageTitle();
+    pageTitle.textContent = repairDemoText(getPageTitle());
   }
 
   renderNav();
 
   if (contentRoot) {
-    contentRoot.innerHTML = `
+    contentRoot.innerHTML = repairDemoText(`
       ${renderContent()}
       ${window.renderDoctorExamModal ? window.renderDoctorExamModal() : ""}
-    `;
+    `);
   }
 
   applyColumnResizeState();
