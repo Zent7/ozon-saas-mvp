@@ -235,14 +235,7 @@ function openServiceModal(serviceId = null) {
       structuredServices.push(targetService);
     }
 
-    data.serviceCatalog = structuredServices
-      .filter((service) => service.isActive !== false)
-      .slice()
-      .sort((a, b) => {
-        if ((a.groupId || 0) !== (b.groupId || 0)) return (a.groupId || 0) - (b.groupId || 0);
-        return (a.sortOrder || 0) - (b.sortOrder || 0);
-      })
-      .map((service) => service.name);
+    window.markServicesChanged?.();
 
     actionModal.classList.add("hidden");
     renderApp();

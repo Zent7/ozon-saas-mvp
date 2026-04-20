@@ -273,12 +273,24 @@ function openClientModal(clientId = null) {
       services: selectedServiceValues,
     });
 
-    if (!editingClient) {
+    const isCreated = !editingClient;
+
+    if (isCreated) {
+      targetClient.__demoCreated = true;
       data.clients.unshift(targetClient);
     }
 
     appState.selectedClientId = targetClient.id;
     appState.clientSearch = "";
+    window.markClientChanged?.(targetClient, isCreated);
+
+    const currentVisit = window.getCurrentVisitForClient?.(targetClient.id);
+    if (currentVisit && currentVisit.status !== "closed") {
+      currentVisit.serviceNames = selectedServiceValues;
+      currentVisit.amount = window.calculateVisitAmount?.(selectedServiceValues) ?? currentVisit.amount;
+      window.persistDemoState?.();
+    }
+
     actionModal.classList.add("hidden");
     renderApp();
     showToast(editingClient ? `Клиент ${fullName || "клиент"} обновлен` : `Клиент ${fullName || "Новый клиент"} добавлен`);

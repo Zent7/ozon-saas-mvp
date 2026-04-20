@@ -1178,6 +1178,99 @@ textarea {
   color: var(--text);
 }
 
+.encounter-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid rgba(23, 48, 74, 0.14);
+  border-radius: 14px;
+  background: #fffaf0;
+}
+
+.encounter-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.encounter-panel__head > div {
+  display: grid;
+  gap: 4px;
+}
+
+.encounter-panel__head span,
+.encounter-grid span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.encounter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.encounter-grid > div {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.encounter-services,
+.document-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.encounter-services span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #eaf5f4;
+  color: #17304a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.encounter-history {
+  display: grid;
+  gap: 8px;
+}
+
+.encounter-history button {
+  border: 1px solid rgba(23, 48, 74, 0.14);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.encounter-history button.active {
+  border-color: #0c7d7b;
+  background: rgba(12, 125, 123, 0.08);
+}
+
+.document-panel {
+  margin-top: 18px;
+}
+
+.document-preview {
+  max-height: 56vh;
+  overflow: auto;
+  padding: 14px;
+  border-radius: 12px;
+  background: #111827;
+  color: #f8fafc;
+  white-space: pre-wrap;
+  font: 14px/1.55 "Consolas", monospace;
+}
+
 .sketch-client-card--full {
   width: 100%;
 }
@@ -1230,6 +1323,10 @@ textarea {
   .psychiatrist-row,
   .doctor-classic-field--complaints,
   .doctor-classic-bottom-line {
+    grid-template-columns: 1fr;
+  }
+
+  .encounter-grid {
     grid-template-columns: 1fr;
   }
 }

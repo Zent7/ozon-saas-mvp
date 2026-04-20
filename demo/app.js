@@ -4,6 +4,7 @@ const appState = {
   centerFilter: "all",
   clientSearch: "",
   serviceGroupFilter: "all",
+  activeVisitId: null,
   doctorExamModal: {
     isOpen: false,
     clientId: null,
@@ -152,7 +153,13 @@ const data = {
   visits: [],
   doctorExams: [],
   mkb10History: [],
+  clientOverrides: {},
+  servicesDirty: false,
 };
+
+const DEMO_STORAGE_KEY = "vova-medcenter-demo-state-v2";
+
+applyPersistedDemoState();
 
 const pageTitle = document.getElementById("page-title");
 const navRoot = document.getElementById("nav");
@@ -210,7 +217,7 @@ const columnKeys = [
 
 function showToast(message) {
   if (!toast) return;
-  toast.textContent = message;
+  toast.textContent = repairDemoText(message);
   toast.classList.remove("hidden");
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => toast.classList.add("hidden"), 2400);
@@ -280,6 +287,93 @@ function repairDemoText(value) {
   );
 }
 
+function loadPersistedDemoState() {
+  try {
+    const raw = window.localStorage?.getItem(DEMO_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch (error) {
+    console.warn("Не удалось прочитать сохранение демки", error);
+    return null;
+  }
+}
+
+function applyPersistedDemoState() {
+  const saved = loadPersistedDemoState();
+  if (!saved || typeof saved !== "object") return;
+
+  data.clientOverrides = saved.clientOverrides && typeof saved.clientOverrides === "object"
+    ? saved.clientOverrides
+    : {};
+
+  Object.values(data.clientOverrides).forEach((clientPatch) => {
+    const existing = data.clients.find((client) => String(client.id) === String(clientPatch.id));
+    if (existing) Object.assign(existing, clientPatch);
+  });
+
+  if (Array.isArray(saved.createdClients)) {
+    saved.createdClients
+      .filter((client) => !data.clients.some((item) => String(item.id) === String(client.id)))
+      .reverse()
+      .forEach((client) => data.clients.unshift(client));
+  }
+
+  if (Array.isArray(saved.structuredServices) && Array.isArray(structuredServices)) {
+    structuredServices.splice(0, structuredServices.length, ...saved.structuredServices);
+    data.servicesDirty = true;
+    refreshServiceCatalog();
+  }
+
+  if (Array.isArray(saved.visits)) data.visits = saved.visits;
+  if (Array.isArray(saved.doctorExams)) data.doctorExams = saved.doctorExams;
+  if (Array.isArray(saved.mkb10History)) data.mkb10History = saved.mkb10History;
+  if (saved.activeVisitId) appState.activeVisitId = saved.activeVisitId;
+}
+
+function persistDemoState() {
+  try {
+    const payload = {
+      createdClients: data.clients.filter((client) => client.__demoCreated),
+      clientOverrides: data.clientOverrides || {},
+      visits: data.visits || [],
+      doctorExams: data.doctorExams || [],
+      mkb10History: data.mkb10History || [],
+      activeVisitId: appState.activeVisitId,
+      structuredServices: data.servicesDirty ? structuredServices : undefined,
+      savedAt: new Date().toISOString(),
+    };
+
+    window.localStorage?.setItem(DEMO_STORAGE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn("Не удалось сохранить демо-данные", error);
+    showToast("Не удалось сохранить демо-данные: лимит браузера");
+  }
+}
+
+function markClientChanged(client, isCreated = false) {
+  if (!client) return;
+  if (isCreated) client.__demoCreated = true;
+  data.clientOverrides = data.clientOverrides || {};
+  data.clientOverrides[client.id] = { ...client };
+  persistDemoState();
+}
+
+function refreshServiceCatalog() {
+  data.serviceCatalog = structuredServices
+    .filter((service) => service.isActive !== false)
+    .slice()
+    .sort((a, b) => {
+      if ((a.groupId || 0) !== (b.groupId || 0)) return (a.groupId || 0) - (b.groupId || 0);
+      return (a.sortOrder || 0) - (b.sortOrder || 0);
+    })
+    .map((service) => service.name);
+}
+
+function markServicesChanged() {
+  data.servicesDirty = true;
+  refreshServiceCatalog();
+  persistDemoState();
+}
+
 function ensureVisitsStore() {
   if (!data.visits) data.visits = [];
   if (!data.doctorExams) data.doctorExams = [];
@@ -312,6 +406,31 @@ function getDoctorTemplate(doctorRoleId) {
 
 function getSelectedClient() {
   return data.clients.find((client) => client.id === appState.selectedClientId) || null;
+}
+
+function getServiceByName(name) {
+  return structuredServices.find((service) => service.name === name) || null;
+}
+
+function calculateVisitAmount(serviceNames = []) {
+  return serviceNames.reduce((total, name) => total + Number(getServiceByName(name)?.price || 0), 0);
+}
+
+function formatDateTime(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getVisitTitle(visit) {
+  if (!visit) return "Обращение не создано";
+  return `Обращение от ${visit.visitDate || formatDateTime(visit.createdAt)}`;
 }
 
 function getDoctorRoleIdByLabel(label) {
@@ -363,26 +482,63 @@ function buildDoctorExamFields(template) {
   return result;
 }
 
-function getOrCreateDraftVisit(clientId) {
+function getVisitsForClient(clientId) {
   ensureVisitsStore();
+  return data.visits
+    .filter((visit) => String(visit.clientId) === String(clientId))
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+}
 
-  let visit = data.visits.find(
-    (item) => item.clientId === clientId && item.status === "draft",
+function getCurrentVisitForClient(clientId) {
+  ensureVisitsStore();
+  const active = data.visits.find(
+    (visit) => String(visit.id) === String(appState.activeVisitId) && String(visit.clientId) === String(clientId),
   );
+  if (active) return active;
+  return getVisitsForClient(clientId)[0] || null;
+}
 
-  if (!visit) {
-    visit = {
-      id: generateId("visit"),
-      clientId,
-      createdAt: new Date().toISOString(),
-      serviceIds: [],
-      examIds: [],
-      status: "draft",
-    };
-    data.visits.push(visit);
-  }
+function createVisitForClient(clientId, options = {}) {
+  ensureVisitsStore();
+  const client = data.clients.find((item) => String(item.id) === String(clientId));
+  if (!client) return null;
+
+  const serviceNames = Array.isArray(options.serviceNames)
+    ? options.serviceNames
+    : Array.isArray(client.services)
+      ? client.services.slice()
+      : [];
+
+  const visit = {
+    id: generateId("visit"),
+    clientId,
+    createdAt: new Date().toISOString(),
+    visitDate: formatDateTime(new Date()),
+    serviceNames,
+    center: client.center || "Медцентр 1",
+    paymentType: options.paymentType || "Наличные",
+    amount: Number(options.amount ?? calculateVisitAmount(serviceNames)),
+    comment: options.comment || "",
+    examIds: [],
+    documentIds: [],
+    status: options.status || "draft",
+  };
+
+  data.visits.unshift(visit);
+  appState.activeVisitId = visit.id;
+  persistDemoState();
 
   return visit;
+}
+
+function getOrCreateDraftVisit(clientId) {
+  const current = getCurrentVisitForClient(clientId);
+  if (current && current.status !== "closed") {
+    appState.activeVisitId = current.id;
+    return current;
+  }
+
+  return createVisitForClient(clientId);
 }
 
 function getDoctorExam(clientId, visitId, doctorRoleId) {
@@ -428,6 +584,8 @@ function getOrCreateDoctorExam(clientId, visitId, doctorRoleId) {
     visit.examIds.push(exam.id);
   }
 
+  persistDemoState();
+
   return exam;
 }
 
@@ -450,6 +608,8 @@ function openDoctorExamCard({ clientId, visitId, doctorRoleId }) {
     visitId: finalVisitId,
     doctorRoleId,
   };
+  appState.activeVisitId = finalVisitId;
+  persistDemoState();
 
   renderApp();
 }
@@ -479,12 +639,14 @@ function saveDoctorExam(examId, updatedFields) {
   exam.isCompleted = true;
   exam.status = "completed";
   rememberMkb10Value(exam.fields?.mkb10);
+  persistDemoState();
 }
 
 function getDoctorExamStatus(clientId, doctorRoleId) {
   if (!clientId || !doctorRoleId) return "empty";
 
-  const visit = getOrCreateDraftVisit(clientId);
+  const visit = getCurrentVisitForClient(clientId);
+  if (!visit) return "empty";
   const exam = getDoctorExam(clientId, visit.id, doctorRoleId);
 
   if (!exam) return "empty";
@@ -813,6 +975,8 @@ function renderSketchHome() {
                   <div>${selectedClient.services?.length ? `Услуги: ${escapeHtml(selectedClient.services.join(", "))}` : "Услуги не выбраны"}</div>
                 </div>
 
+                ${renderVisitPanel(selectedClient)}
+
                 <div class="client-doctor-actions" style="margin-top:16px;">
                   <div style="font-weight:600; margin-bottom:8px;">Карточки врачей</div>
                   <div class="sketch-doctors">
@@ -881,6 +1045,68 @@ function renderDoctorsPage() {
   `;
 }
 
+function renderVisitPanel(selectedClient) {
+  if (!selectedClient) return "";
+
+  const visits = getVisitsForClient(selectedClient.id);
+  const activeVisit = getCurrentVisitForClient(selectedClient.id);
+
+  return `
+    <div class="encounter-panel">
+      <div class="encounter-panel__head">
+        <div>
+          <strong>Обращение</strong>
+          <span>${activeVisit ? escapeHtml(getVisitTitle(activeVisit)) : "для клиента пока не создано"}</span>
+        </div>
+        <button class="primary-button" id="createVisitButton">Новое обращение</button>
+      </div>
+
+      ${
+        activeVisit
+          ? `
+            <div class="encounter-grid">
+              <div><span>Дата</span><strong>${escapeHtml(activeVisit.visitDate || formatDateTime(activeVisit.createdAt))}</strong></div>
+              <div><span>Центр</span><strong>${escapeHtml(activeVisit.center || selectedClient.center || "Медцентр 1")}</strong></div>
+              <div><span>Оплата</span><strong>${escapeHtml(activeVisit.paymentType || "Наличные")}</strong></div>
+              <div><span>Сумма</span><strong>${Number(activeVisit.amount || 0).toLocaleString("ru-RU")} ₽</strong></div>
+            </div>
+            <div class="encounter-services">
+              ${(activeVisit.serviceNames || selectedClient.services || [])
+                .map((service) => `<span>${escapeHtml(service)}</span>`)
+                .join("") || "<span>Услуги не выбраны</span>"}
+            </div>
+            ${
+              activeVisit.comment
+                ? `<div class="muted" style="margin-top:8px;">${escapeHtml(activeVisit.comment)}</div>`
+                : ""
+            }
+          `
+          : `<p class="muted" style="margin:8px 0 0 0;">Создай обращение, чтобы привязать к нему услуги, врачей и документы.</p>`
+      }
+
+      ${
+        visits.length > 1
+          ? `
+            <div class="encounter-history">
+              <strong>История обращений</strong>
+              ${visits
+                .slice(0, 5)
+                .map(
+                  (visit) => `
+                    <button class="${visit.id === activeVisit?.id ? "active" : ""}" data-select-visit-id="${escapeHtml(visit.id)}">
+                      ${escapeHtml(visit.visitDate || formatDateTime(visit.createdAt))} · ${Number(visit.amount || 0).toLocaleString("ru-RU")} ₽
+                    </button>
+                  `,
+                )
+                .join("")}
+            </div>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
 function renderTemplatesPage() {
   const templates = getDoctorTemplates();
 
@@ -918,12 +1144,85 @@ function renderBlanksPage() {
   `;
 }
 
+function renderDocumentsPage() {
+  const selectedClient = getSelectedClient();
+  const activeVisit = selectedClient ? getCurrentVisitForClient(selectedClient.id) : null;
+
+  return `
+    ${renderBlanksPage()}
+    <section class="card">
+      <h3>Документы по обращению</h3>
+      ${
+        selectedClient && activeVisit
+          ? `
+            <p class="muted">Клиент: ${escapeHtml(selectedClient.fullName)}. ${escapeHtml(getVisitTitle(activeVisit))}</p>
+            <div class="document-actions">
+              <button class="primary-button" data-generate-document="medical">Медицинская справка</button>
+              <button class="ghost-button" data-generate-document="driver">Водительская справка</button>
+              <button class="ghost-button" data-generate-document="xml">XML-заготовка</button>
+            </div>
+          `
+          : `<p class="muted">Сначала на главной найди клиента и создай обращение. После этого здесь появится генерация документов по выбранному обращению.</p>`
+      }
+    </section>
+  `;
+}
+
+function buildDemoDocument(type) {
+  const client = getSelectedClient();
+  const visit = client ? getCurrentVisitForClient(client.id) : null;
+  if (!client || !visit) return "";
+
+  const services = (visit.serviceNames || client.services || []).join(", ") || "услуги не выбраны";
+  const amount = Number(visit.amount || 0).toLocaleString("ru-RU");
+
+  if (type === "xml") {
+    return `<Visit><Client>${escapeHtml(client.fullName)}</Client><BirthDate>${escapeHtml(client.birthDate)}</BirthDate><Date>${escapeHtml(visit.visitDate)}</Date><Services>${escapeHtml(services)}</Services><Amount>${amount}</Amount></Visit>`;
+  }
+
+  const title = type === "driver" ? "Водительская справка" : "Медицинская справка";
+  return [
+    title,
+    "",
+    `Клиент: ${client.fullName}`,
+    `Дата рождения: ${client.birthDate}`,
+    `Документ: ${client.document}`,
+    `Обращение: ${visit.visitDate}`,
+    `Услуги: ${services}`,
+    `Сумма: ${amount} ₽`,
+    "",
+    "Это демо-предпросмотр. Реальная DOCX/XML-генерация будет выполняться backend-модулем документов.",
+  ].join("\n");
+}
+
+function openDemoDocument(type) {
+  const content = buildDemoDocument(type);
+  if (!content) {
+    showToast("Сначала выбери клиента и обращение");
+    return;
+  }
+
+  openActionModal(
+    "Предпросмотр документа",
+    `
+      <pre class="document-preview">${escapeHtml(content)}</pre>
+      <div class="client-create-actions">
+        <button type="button" class="primary-button" id="closeDocumentPreview">ОК</button>
+      </div>
+    `,
+  );
+
+  document.getElementById("closeDocumentPreview")?.addEventListener("click", () => {
+    actionModal.classList.add("hidden");
+  });
+}
+
 function renderContent() {
   if (appState.page === "dashboard") return renderSketchHome();
   if (appState.page === "services" && window.renderServicesPage) return window.renderServicesPage();
   if (appState.page === "doctors") return renderDoctorsPage();
   if (appState.page === "templates") return renderTemplatesPage();
-  if (appState.page === "blanks" || appState.page === "blanks2") return renderBlanksPage();
+  if (appState.page === "blanks" || appState.page === "blanks2") return renderDocumentsPage();
 
   const item = navItems.find((navItem) => navItem.id === appState.page);
   return renderStubPage(item?.label || "Раздел");
@@ -1040,6 +1339,34 @@ function bindContentEvents() {
     addServiceButton.addEventListener("click", () => window.openServiceModal?.());
   }
 
+  const createVisitButton = document.getElementById("createVisitButton");
+  if (createVisitButton) {
+    createVisitButton.addEventListener("click", () => {
+      const selectedClient = getSelectedClient();
+      if (!selectedClient) {
+        showToast("Сначала выбери клиента");
+        return;
+      }
+      createVisitForClient(selectedClient.id);
+      renderApp();
+      showToast("Обращение создано");
+    });
+  }
+
+  contentRoot.querySelectorAll("[data-select-visit-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.activeVisitId = button.dataset.selectVisitId;
+      persistDemoState();
+      renderApp();
+    });
+  });
+
+  contentRoot.querySelectorAll("[data-generate-document]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openDemoDocument(button.dataset.generateDocument);
+    });
+  });
+
   contentRoot.querySelectorAll("[data-service-group]").forEach((button) => {
     button.addEventListener("click", () => {
       appState.serviceGroupFilter = button.dataset.serviceGroup;
@@ -1056,6 +1383,8 @@ function bindContentEvents() {
   contentRoot.querySelectorAll("[data-client-id]").forEach((button) => {
     button.addEventListener("click", () => {
       appState.selectedClientId = Number(button.dataset.clientId);
+      appState.activeVisitId = getCurrentVisitForClient(appState.selectedClientId)?.id || null;
+      persistDemoState();
       renderApp();
     });
   });
@@ -1076,8 +1405,10 @@ function bindContentEvents() {
         return;
       }
 
+      const activeVisit = getOrCreateDraftVisit(selectedClient.id);
       openDoctorExamCard({
         clientId: selectedClient.id,
+        visitId: activeVisit.id,
         doctorRoleId,
       });
     });
@@ -1165,6 +1496,12 @@ window.data = data;
 window.getDoctorTemplate = getDoctorTemplate;
 window.getDoctorExam = getDoctorExam;
 window.getOrCreateDraftVisit = getOrCreateDraftVisit;
+window.getCurrentVisitForClient = getCurrentVisitForClient;
+window.createVisitForClient = createVisitForClient;
+window.calculateVisitAmount = calculateVisitAmount;
+window.persistDemoState = persistDemoState;
+window.markClientChanged = markClientChanged;
+window.markServicesChanged = markServicesChanged;
 window.openDoctorExamCard = openDoctorExamCard;
 window.closeDoctorExamCard = closeDoctorExamCard;
 window.saveDoctorExam = saveDoctorExam;
