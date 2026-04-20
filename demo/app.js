@@ -4,6 +4,9 @@ const appState = {
   centerFilter: "all",
   clientSearch: "",
   serviceGroupFilter: "all",
+  visitServiceGroupFilter: "all",
+  visitServiceSearch: "",
+  restoreInputId: null,
   activeVisitId: null,
   doctorExamModal: {
     isOpen: false,
@@ -412,6 +415,23 @@ function getServiceByName(name) {
   return structuredServices.find((service) => service.name === name) || null;
 }
 
+function getSortedServiceGroups() {
+  return serviceGroups
+    .filter((group) => group.isActive !== false)
+    .slice()
+    .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+}
+
+function getSortedServices() {
+  return structuredServices
+    .filter((service) => service.isActive !== false)
+    .slice()
+    .sort((a, b) => {
+      if ((a.groupId || 0) !== (b.groupId || 0)) return (a.groupId || 0) - (b.groupId || 0);
+      return (a.sortOrder || 0) - (b.sortOrder || 0);
+    });
+}
+
 function calculateVisitAmount(serviceNames = []) {
   return serviceNames.reduce((total, name) => total + Number(getServiceByName(name)?.price || 0), 0);
 }
@@ -526,9 +546,30 @@ function createVisitForClient(clientId, options = {}) {
 
   data.visits.unshift(visit);
   appState.activeVisitId = visit.id;
+  appState.visitServiceGroupFilter = "all";
+  appState.visitServiceSearch = "";
   persistDemoState();
 
   return visit;
+}
+
+function updateVisit(visitId, patch = {}) {
+  ensureVisitsStore();
+  const visit = data.visits.find((item) => String(item.id) === String(visitId));
+  if (!visit) return null;
+
+  Object.assign(visit, patch, {
+    updatedAt: new Date().toISOString(),
+  });
+
+  persistDemoState();
+  return visit;
+}
+
+function syncClientServicesFromVisit(client, visit) {
+  if (!client || !visit) return;
+  client.services = Array.isArray(visit.serviceNames) ? visit.serviceNames.slice() : [];
+  markClientChanged(client, false);
 }
 
 function getOrCreateDraftVisit(clientId) {
@@ -700,12 +741,17 @@ function findDuplicateCandidates(searchValue) {
 }
 
 function rerenderAndRestoreInput(inputId, value, caretPosition) {
+  appState.restoreInputId = inputId;
   renderApp();
   const input = document.getElementById(inputId);
-  if (!input) return;
+  if (!input) {
+    appState.restoreInputId = null;
+    return;
+  }
   input.focus();
   const safePos = Math.min(caretPosition, value.length);
   input.setSelectionRange(safePos, safePos);
+  appState.restoreInputId = null;
 }
 
 function renderNav() {
@@ -1045,11 +1091,129 @@ function renderDoctorsPage() {
   `;
 }
 
+function renderVisitServicePicker(activeVisit) {
+  const selectedSet = new Set(activeVisit?.serviceNames || []);
+  const currentGroup = appState.visitServiceGroupFilter || "all";
+  const search = String(appState.visitServiceSearch || "").trim().toLowerCase();
+  const groups = getSortedServiceGroups();
+  const visibleServices = getSortedServices()
+    .filter((service) => currentGroup === "all" || String(service.groupId) === String(currentGroup))
+    .filter((service) => {
+      if (!search) return true;
+      return [service.name, service.notes, service.price].join(" ").toLowerCase().includes(search);
+    })
+    .slice(0, 80);
+
+  return `
+    <div class="operator-services">
+      <div class="operator-services__top">
+        <strong>Услуги в обращении</strong>
+        <input id="visitServiceSearchInput" value="${escapeHtml(appState.visitServiceSearch || "")}" placeholder="найти услугу" />
+      </div>
+
+      <div class="operator-service-groups">
+        <button class="${currentGroup === "all" ? "active" : ""}" data-visit-service-group="all">Все</button>
+        ${groups
+          .map(
+            (group) => `
+              <button class="${String(currentGroup) === String(group.id) ? "active" : ""}" data-visit-service-group="${group.id}">
+                ${escapeHtml(group.name)}
+              </button>
+            `,
+          )
+          .join("")}
+      </div>
+
+      <div class="operator-service-list">
+        ${
+          visibleServices.length
+            ? visibleServices
+                .map(
+                  (service) => `
+                    <label class="operator-service-row">
+                      <input type="checkbox" name="visitService" value="${escapeHtml(service.name)}" ${selectedSet.has(service.name) ? "checked" : ""} />
+                      <span>${escapeHtml(service.name)}</span>
+                      <strong>${Number(service.price || 0).toLocaleString("ru-RU")} ₽</strong>
+                    </label>
+                  `,
+                )
+                .join("")
+            : `<div class="muted">Услуги не найдены</div>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+function renderOperatorVisitForm(selectedClient, activeVisit) {
+  return `
+    <form class="operator-visit-form" id="operatorVisitForm" data-visit-id="${escapeHtml(activeVisit.id)}">
+      <div class="operator-visit-form__title">
+        <strong>Оформление обращения</strong>
+        <span>оператор меняет услуги, оплату, сумму и комментарий прямо здесь</span>
+      </div>
+
+      <div class="encounter-grid">
+        <label>
+          <span>Дата</span>
+          <input name="visitDate" value="${escapeHtml(activeVisit.visitDate || formatDateTime(activeVisit.createdAt))}" />
+        </label>
+        <label>
+          <span>Центр</span>
+          <input name="center" value="${escapeHtml(activeVisit.center || selectedClient.center || "Медцентр 1")}" />
+        </label>
+        <label>
+          <span>Оплата</span>
+          <select name="paymentType">
+            ${["Наличные", "Карта", "Безнал", "Организация"]
+              .map((item) => `<option ${item === activeVisit.paymentType ? "selected" : ""}>${item}</option>`)
+              .join("")}
+          </select>
+        </label>
+        <label>
+          <span>Сумма</span>
+          <input name="amount" inputmode="numeric" value="${Number(activeVisit.amount || 0)}" />
+        </label>
+      </div>
+
+      ${renderVisitServicePicker(activeVisit)}
+
+      <label class="operator-comment">
+        <span>Комментарий</span>
+        <textarea name="comment" rows="2" placeholder="например: уточнить категорию, организация, особенности оплаты">${escapeHtml(activeVisit.comment || "")}</textarea>
+      </label>
+
+      <div class="operator-visit-summary">
+        <div>
+          <span>Выбрано услуг</span>
+          <strong>${(activeVisit.serviceNames || []).length}</strong>
+        </div>
+        <div>
+          <span>Расчет по прайсу</span>
+          <strong>${calculateVisitAmount(activeVisit.serviceNames || []).toLocaleString("ru-RU")} ₽</strong>
+        </div>
+        <div>
+          <span>Статус</span>
+          <strong>${activeVisit.status === "closed" ? "Завершено" : "В работе"}</strong>
+        </div>
+      </div>
+
+      <div class="operator-visit-actions">
+        <button type="button" class="ghost-button" id="recalculateVisitAmountButton">Пересчитать сумму</button>
+        <button type="submit" class="primary-button">Сохранить обращение</button>
+        <button type="button" class="ghost-button" id="openVisitDocumentsButton">Документы</button>
+        <button type="button" class="ghost-button" id="closeVisitButton">Завершить</button>
+      </div>
+    </form>
+  `;
+}
+
 function renderVisitPanel(selectedClient) {
   if (!selectedClient) return "";
 
   const visits = getVisitsForClient(selectedClient.id);
   const activeVisit = getCurrentVisitForClient(selectedClient.id);
+  const operatorForm = activeVisit ? renderOperatorVisitForm(selectedClient, activeVisit) : "";
 
   return `
     <div class="encounter-panel">
@@ -1083,6 +1247,8 @@ function renderVisitPanel(selectedClient) {
           `
           : `<p class="muted" style="margin:8px 0 0 0;">Создай обращение, чтобы привязать к нему услуги, врачей и документы.</p>`
       }
+
+      ${operatorForm}
 
       ${
         visits.length > 1
@@ -1307,6 +1473,44 @@ function bindColumnResize() {
   });
 }
 
+function readOperatorVisitForm(form) {
+  const formData = new FormData(form);
+  const serviceNames = Array.from(form.querySelectorAll('input[name="visitService"]:checked'))
+    .map((input) => input.value)
+    .filter(Boolean);
+
+  return {
+    visitDate: String(formData.get("visitDate") || "").trim(),
+    center: String(formData.get("center") || "").trim(),
+    paymentType: String(formData.get("paymentType") || "Наличные").trim(),
+    amount: Number(String(formData.get("amount") || "0").replace(",", ".")) || 0,
+    comment: String(formData.get("comment") || "").trim(),
+    serviceNames,
+  };
+}
+
+function saveOperatorVisitForm({ recalculate = false, close = false } = {}) {
+  const form = document.getElementById("operatorVisitForm");
+  if (!form) return null;
+
+  const selectedClient = getSelectedClient();
+  const visitId = form.dataset.visitId;
+  const patch = readOperatorVisitForm(form);
+
+  if (recalculate) {
+    patch.amount = calculateVisitAmount(patch.serviceNames);
+  }
+
+  if (close) {
+    patch.status = "closed";
+    patch.closedAt = new Date().toISOString();
+  }
+
+  const visit = updateVisit(visitId, patch);
+  syncClientServicesFromVisit(selectedClient, visit);
+  return visit;
+}
+
 function bindContentEvents() {
   const clientSearchInput = document.getElementById("clientSearchInput");
   if (clientSearchInput) {
@@ -1350,6 +1554,71 @@ function bindContentEvents() {
       createVisitForClient(selectedClient.id);
       renderApp();
       showToast("Обращение создано");
+    });
+  }
+
+  const operatorVisitForm = document.getElementById("operatorVisitForm");
+  if (operatorVisitForm) {
+    operatorVisitForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      saveOperatorVisitForm();
+      renderApp();
+      showToast("Обращение сохранено");
+    });
+
+    operatorVisitForm.querySelectorAll('input[name="visitService"]').forEach((checkbox) => {
+      checkbox.addEventListener("change", () => {
+        const selectedNames = Array.from(operatorVisitForm.querySelectorAll('input[name="visitService"]:checked')).map(
+          (input) => input.value,
+        );
+        const amountInput = operatorVisitForm.querySelector('input[name="amount"]');
+        if (amountInput) amountInput.value = String(calculateVisitAmount(selectedNames));
+      });
+    });
+  }
+
+  const visitServiceSearchInput = document.getElementById("visitServiceSearchInput");
+  if (visitServiceSearchInput) {
+    visitServiceSearchInput.addEventListener("input", (event) => {
+      saveOperatorVisitForm();
+      appState.visitServiceSearch = event.target.value;
+      rerenderAndRestoreInput("visitServiceSearchInput", event.target.value, event.target.selectionStart || event.target.value.length);
+    });
+  }
+
+  contentRoot.querySelectorAll("[data-visit-service-group]").forEach((button) => {
+    button.addEventListener("click", () => {
+      saveOperatorVisitForm();
+      appState.visitServiceGroupFilter = button.dataset.visitServiceGroup;
+      renderApp();
+    });
+  });
+
+  const recalculateVisitAmountButton = document.getElementById("recalculateVisitAmountButton");
+  if (recalculateVisitAmountButton) {
+    recalculateVisitAmountButton.addEventListener("click", () => {
+      saveOperatorVisitForm({ recalculate: true });
+      renderApp();
+      showToast("Сумма пересчитана по выбранным услугам");
+    });
+  }
+
+  const openVisitDocumentsButton = document.getElementById("openVisitDocumentsButton");
+  if (openVisitDocumentsButton) {
+    openVisitDocumentsButton.addEventListener("click", () => {
+      saveOperatorVisitForm();
+      appState.page = "blanks";
+      renderApp();
+      showToast("Открыты документы по обращению");
+    });
+  }
+
+  const closeVisitButton = document.getElementById("closeVisitButton");
+  if (closeVisitButton) {
+    closeVisitButton.addEventListener("click", () => {
+      saveOperatorVisitForm({ close: true });
+      renderApp();
+      showToast("Обращение завершено");
     });
   }
 
@@ -1456,7 +1725,7 @@ function renderApp() {
   applyColumnResizeState();
   bindContentEvents();
 
-  if (appState.page === "dashboard") {
+  if (appState.page === "dashboard" && !appState.restoreInputId) {
     window.setTimeout(focusClientSearch, 0);
   }
 }
