@@ -783,7 +783,7 @@ function renderStubPage(title) {
 
 function renderContent() {
   if (appState.page === "dashboard") return renderSketchHome();
-  if (appState.page === "services") return renderServicesPage();
+  if (appState.page === "services" && window.renderServicesPage) return window.renderServicesPage();
 
   const item = navItems.find((navItem) => navItem.id === appState.page);
   return renderStubPage(item?.label || "Раздел");
@@ -880,22 +880,24 @@ function bindContentEvents() {
   const addClientButton = document.getElementById("addClientButton");
   if (addClientButton) {
     addClientButton.addEventListener("click", () => {
-      const openModal = window.openClientModal || openClientModal;
-      openModal();
+      if (window.openClientModal) {
+        window.openClientModal();
+      }
     });
   }
 
   const editSelectedClientButton = document.getElementById("editSelectedClientButton");
   if (editSelectedClientButton) {
     editSelectedClientButton.addEventListener("click", () => {
-      const openModal = window.openClientModal || openClientModal;
-      openModal(appState.selectedClientId);
+      if (window.openClientModal) {
+        window.openClientModal(appState.selectedClientId);
+      }
     });
   }
 
   const addServiceButton = document.getElementById("addServiceButton");
   if (addServiceButton) {
-    addServiceButton.addEventListener("click", () => openServiceModal());
+    addServiceButton.addEventListener("click", () => window.openServiceModal?.());
   }
 
   contentRoot.querySelectorAll("[data-service-group]").forEach((button) => {
@@ -907,7 +909,7 @@ function bindContentEvents() {
 
   contentRoot.querySelectorAll("[data-service-id]").forEach((button) => {
     button.addEventListener("click", () => {
-      openServiceModal(button.dataset.serviceId);
+      window.openServiceModal?.(button.dataset.serviceId);
     });
   });
 
@@ -1008,6 +1010,5 @@ window.getOrCreateDraftVisit = getOrCreateDraftVisit;
 window.openDoctorExamCard = openDoctorExamCard;
 window.closeDoctorExamCard = closeDoctorExamCard;
 window.saveDoctorExam = saveDoctorExam;
-window.openClientModal = openClientModal;
 
 renderApp();

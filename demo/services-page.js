@@ -249,3 +249,6 @@ function openServiceModal(serviceId = null) {
     showToast(editingService ? "Услуга обновлена" : "Услуга добавлена");
   });
 }
+
+window.renderServicesPage = renderServicesPage;
+window.openServiceModal = openServiceModal;
