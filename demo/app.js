@@ -262,6 +262,8 @@ function repairDemoText(value) {
     "РїРѕРёСЃРє": "поиск",
     "Р”РѕР±Р°РІРёС‚СЊ": "Добавить",
     "РР·РјРµРЅРёС‚СЊ": "Изменить",
+    "РћС‚РєСЂС‹С‚СЊ С„РѕСЂРјСѓ": "Открыть форму",
+    "Р¤РѕСЂРјС‹ РЅРµС‚": "Формы нет",
     "РРЅС„РѕСЂРјР°С†РёСЏ Рѕ РєР»РёРµРЅС‚Рµ": "Информация о клиенте",
     "РљР°СЂС‚РѕС‡РєРё РІСЂР°С‡РµР№": "Карточки врачей",
     "РЈСЃР»СѓРіРё РЅРµ РІС‹Р±СЂР°РЅС‹": "Услуги не выбраны",
@@ -865,6 +867,11 @@ function renderDoctorsPage() {
               <article class="mini-card">
                 <strong>${label}</strong>
                 <span>${template ? `Шаблон: ${escapeHtml(template.name)}` : "Шаблон пока не найден"}</span>
+                ${
+                  template
+                    ? `<button class="ghost-button" data-template-preview-role-id="${escapeHtml(id)}">Открыть форму</button>`
+                    : `<button class="ghost-button" disabled>Формы нет</button>`
+                }
               </article>
             `;
           })
@@ -1071,6 +1078,24 @@ function bindContentEvents() {
 
       openDoctorExamCard({
         clientId: selectedClient.id,
+        doctorRoleId,
+      });
+    });
+  });
+
+  contentRoot.querySelectorAll("[data-template-preview-role-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const doctorRoleId = button.dataset.templatePreviewRoleId;
+      const previewClient = getSelectedClient() || data.clients[0];
+
+      if (!previewClient) {
+        showToast("Нет клиента для предпросмотра формы");
+        return;
+      }
+
+      appState.selectedClientId = previewClient.id;
+      openDoctorExamCard({
+        clientId: previewClient.id,
         doctorRoleId,
       });
     });
