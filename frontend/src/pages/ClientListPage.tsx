@@ -312,37 +312,36 @@ export function ClientListPage() {
             <div className="operator-eyebrow">Единая система для двух медцентров</div>
             <h1>Главная</h1>
           </div>
-          <div className="operator-status">PostgreSQL • backend • Alembic</div>
         </header>
-
-        <section className="doctor-strip">
-          {doctors.map((doctor) => (
-            <button key={doctor} type="button" className="doctor-chip">
-              {doctor}
-            </button>
-          ))}
-        </section>
-
-        <section className="operator-search">
-          <input
-            autoFocus
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="ФИО, телефон, документ, СНИЛС, полис или № пациента"
-          />
-          <button type="button" onClick={() => void loadClients(search)}>
-            Найти
-          </button>
-          <button type="button" onClick={startCreate}>
-            Добавить
-          </button>
-          <span>{loading ? "Идет поиск..." : search.trim() ? `Найдено: ${clients.length}` : "Введите строку поиска"}</span>
-        </section>
 
         {error ? <div className="operator-alert operator-alert--error">{error}</div> : null}
         {notice ? <div className="operator-alert">{notice}</div> : null}
 
         <section className="operator-table-card">
+          <div className="doctor-strip">
+            {doctors.map((doctor) => (
+              <button key={doctor} type="button" className="doctor-chip">
+                {doctor}
+              </button>
+            ))}
+          </div>
+
+          <div className="operator-search">
+            <input
+              autoFocus
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="поиск"
+            />
+            <button type="button" onClick={() => void loadClients(search)}>
+              Найти
+            </button>
+            <button type="button" onClick={startCreate}>
+              Добавить
+            </button>
+            <span>{loading ? "Идет поиск..." : search.trim() ? `Найдено: ${clients.length}` : ""}</span>
+          </div>
+
           <div className="operator-table">
             <div className="operator-row operator-row--head">
               <span>№</span>
