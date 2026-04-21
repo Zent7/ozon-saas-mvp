@@ -19,7 +19,7 @@ const doctors = [
   "Председатель",
 ];
 
-const columnStorageKey = "vova-medcenter-column-widths-v1";
+const columnStorageKey = "vova-medcenter-column-widths-v2";
 
 const columns = [
   { key: "number", label: "№" },
@@ -43,7 +43,6 @@ const columns = [
   { key: "note", label: "Примечания" },
   { key: "encounterDate", label: "Дата обращения" },
   { key: "cardNumber", label: "Номер карты" },
-  { key: "journalNumber", label: "Номер журнала" },
   { key: "noNumber", label: "б/н" },
   { key: "fg", label: "ФГ" },
   { key: "organization", label: "Организация" },
@@ -552,7 +551,6 @@ export function ClientListPage() {
                   <span>{client.notes || ""}</span>
                   <span>{client.encounter_date_text || ""}</span>
                   <span>{client.card_number || client.patient_number}</span>
-                  <span>{client.journal_number || ""}</span>
                   <span>{client.no_number || ""}</span>
                   <span>{client.flg || ""}</span>
                   <span>{client.organization || ""}</span>

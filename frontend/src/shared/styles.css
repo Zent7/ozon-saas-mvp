@@ -1,13 +1,22 @@
 :root {
   color-scheme: light;
   font-family: "Segoe UI", Tahoma, sans-serif;
-  background: #ccd6e3;
+  background: #f3f7fb;
   color: #13212f;
   line-height: 1.4;
+  --bg: #f3f7fb;
+  --panel: rgba(255, 255, 255, 0.9);
+  --panel-strong: #ffffff;
   --line: rgba(14, 31, 53, 0.1);
   --text: #17304a;
   --muted: #69809a;
   --accent: #0c7d7b;
+  --accent-deep: #145d66;
+  --accent-soft: rgba(12, 125, 123, 0.12);
+  --warn: #a95b17;
+  --warn-soft: rgba(169, 91, 23, 0.12);
+  --danger: #9d2f2f;
+  --shadow: 0 24px 60px rgba(15, 31, 56, 0.08);
   --excel-col-number: 42px;
   --excel-col-fio: 130px;
   --excel-col-birth: 64px;
@@ -29,7 +38,6 @@
   --excel-col-note: 165px;
   --excel-col-encounterDate: 72px;
   --excel-col-cardNumber: 68px;
-  --excel-col-journalNumber: 68px;
   --excel-col-noNumber: 22px;
   --excel-col-fg: 22px;
   --excel-col-organization: 88px;
@@ -50,8 +58,9 @@ body,
 body {
   margin: 0;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.1)),
-    linear-gradient(180deg, #d7dee8 0%, #c5d1de 100%);
+    radial-gradient(circle at top left, rgba(12, 125, 123, 0.16), transparent 24%),
+    radial-gradient(circle at bottom right, rgba(20, 93, 102, 0.12), transparent 20%),
+    linear-gradient(180deg, #f7fbfd 0%, var(--bg) 100%);
 }
 
 a {
@@ -638,9 +647,6 @@ textarea {
   min-height: 100vh;
   display: grid;
   grid-template-columns: 140px minmax(0, 1fr);
-  background:
-    radial-gradient(circle at bottom right, rgba(20, 93, 102, 0.12), transparent 20%),
-    linear-gradient(180deg, #f7fbfd 0%, #dce5ed 100%);
   color: #17304a;
 }
 
@@ -664,10 +670,11 @@ textarea {
   height: 42px;
   display: grid;
   place-items: center;
-  border-radius: 12px;
-  background: #58a6a6;
-  color: #06202a;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #2fd1d3 0%, #9ce9d5 100%);
+  color: #14334f;
   font-weight: 800;
+  font-size: 20px;
 }
 
 .operator-logo strong,
@@ -760,11 +767,11 @@ textarea {
 .operator-table-card {
   min-height: 0;
   margin: 14px 0 0;
-  border: 1px solid rgba(23, 48, 74, 0.1);
+  border: 1px solid var(--line);
   border-radius: 24px;
-  background: #fff;
-  box-shadow: 0 18px 40px rgba(16, 38, 63, 0.08);
-  padding: 18px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  padding: 14px;
   overflow: hidden;
 }
 
@@ -881,16 +888,14 @@ textarea {
 }
 
 .sketch-table--excel {
-  height: min(33vh, 320px);
-  min-height: 248px;
-  overflow: auto;
-  border: 1px solid rgba(23, 48, 74, 0.1);
+  overflow-x: auto;
+  border: 1px solid var(--line);
   border-radius: 16px;
   background: #fff;
 }
 
 .sketch-table__grid {
-  min-width: 1690px;
+  min-width: 1622px;
   display: grid;
   grid-template-columns:
     var(--excel-col-number)
@@ -914,7 +919,6 @@ textarea {
     var(--excel-col-note)
     var(--excel-col-encounterDate)
     var(--excel-col-cardNumber)
-    var(--excel-col-journalNumber)
     var(--excel-col-noNumber)
     var(--excel-col-fg)
     var(--excel-col-organization)
@@ -934,8 +938,8 @@ textarea {
 }
 
 .sketch-table__grid > span {
-  border-right: 1px solid rgba(23, 48, 74, 0.1);
-  border-bottom: 1px solid rgba(23, 48, 74, 0.1);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
   padding: 6px 4px;
   overflow: hidden;
   font-size: 10px;
@@ -943,9 +947,6 @@ textarea {
 }
 
 .sketch-table__grid--head {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   background: #f4f6f8;
   font-weight: 700;
 }
@@ -956,7 +957,6 @@ textarea {
   align-items: center;
   justify-content: center;
   min-height: 38px;
-  color: #17304a;
   white-space: normal;
   text-align: center;
   line-height: 1.1;
@@ -990,8 +990,8 @@ textarea {
 }
 
 .sketch-table__grid--head > span:nth-child(n + 7):nth-child(-n + 18),
-.sketch-table__grid--head > span:nth-child(23),
-.sketch-table__grid--head > span:nth-child(24) {
+.sketch-table__grid--head > span:nth-child(22),
+.sketch-table__grid--head > span:nth-child(23) {
   writing-mode: vertical-rl;
   text-orientation: mixed;
   min-height: 104px;
@@ -1002,8 +1002,8 @@ textarea {
 }
 
 .sketch-table__grid--head > span:nth-child(n + 7):nth-child(-n + 18) .col-resize-handle,
-.sketch-table__grid--head > span:nth-child(23) .col-resize-handle,
-.sketch-table__grid--head > span:nth-child(24) .col-resize-handle {
+.sketch-table__grid--head > span:nth-child(22) .col-resize-handle,
+.sketch-table__grid--head > span:nth-child(23) .col-resize-handle {
   width: 8px;
 }
 
