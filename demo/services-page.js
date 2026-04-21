@@ -55,7 +55,6 @@ function renderServicesPage() {
           <h3 style="margin:0;">Услуги</h3>
           <p class="muted" style="margin:6px 0 0 0;">Справочник услуг для выбора и настройки</p>
         </div>
-        <button class="primary-button" id="addServiceButton">Добавить услугу</button>
       </div>
 
       <div class="sketch-doctors sketch-doctors--top" style="margin-bottom:16px;">
@@ -78,6 +77,7 @@ function renderServicesPage() {
             `,
           )
           .join("")}
+        <button class="primary-button services-add-inline" id="addServiceButton">Добавить услугу</button>
       </div>
 
       <div class="services-table">

@@ -967,11 +967,15 @@ textarea {
 
 .services-page__header {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   gap: 12px;
   margin-bottom: 16px;
   flex-wrap: wrap;
+}
+
+.services-add-inline {
+  margin-left: 4px;
 }
 
 .services-table {
@@ -1280,6 +1284,181 @@ textarea {
 
 .doctor-classic-bottom-line {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.psy-window {
+  width: min(1120px, 96vw);
+  max-height: 92vh;
+  overflow: auto;
+  border: 1px solid rgba(23, 48, 74, 0.24);
+  border-radius: 14px;
+  background: #fffdf7;
+  box-shadow: 0 24px 80px rgba(11, 25, 38, 0.28);
+}
+
+.psy-form {
+  padding: 16px;
+}
+
+.psy-top,
+.psy-content,
+.psy-body {
+  display: grid;
+  gap: 10px;
+}
+
+.psy-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.psy-label,
+.psy-small-label {
+  color: #26394a;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.psy-label {
+  padding-top: 7px;
+}
+
+.psy-field-main,
+.psy-meta-item,
+.psy-field,
+.psy-complaints-left,
+.psy-complaints-right {
+  min-width: 0;
+}
+
+.psy-row--meta-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.psy-meta-item {
+  display: grid;
+  gap: 5px;
+}
+
+.psy-meta-item--address {
+  grid-column: span 2;
+}
+
+.psy-row--complaints {
+  grid-template-columns: 180px minmax(0, 1fr);
+}
+
+.psy-complaints-left,
+.psy-complaints-right {
+  display: grid;
+  gap: 5px;
+}
+
+.psy-row--tabs {
+  display: block;
+}
+
+.psy-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-bottom: 1px solid rgba(23, 48, 74, 0.18);
+}
+
+.psy-tab {
+  border: 1px solid rgba(23, 48, 74, 0.16);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  padding: 7px 12px;
+  background: #f5efe2;
+  color: #17304a;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.psy-tab--active {
+  background: #ffffff;
+  color: var(--accent-deep);
+}
+
+.psy-main-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 170px;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.psy-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.psy-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.psy-grid--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.psy-grid--single {
+  grid-template-columns: 1fr;
+}
+
+.psy-field {
+  display: grid;
+  gap: 5px;
+}
+
+.psy-field--full {
+  grid-column: 1 / -1;
+}
+
+.psy-textarea,
+.psy-issued-textarea,
+.psy-note-textarea {
+  min-height: 74px;
+}
+
+.psy-footer-box,
+.psy-note-block {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(23, 48, 74, 0.12);
+  border-radius: 12px;
+  background: rgba(245, 239, 226, 0.45);
+}
+
+.psy-footer-title {
+  font-weight: 700;
+}
+
+.psy-conclusion-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.psy-sidebar {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.psy-sidebar-meta {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.psy-sidebar-meta__row {
+  display: grid;
+  gap: 5px;
 }
 .client-facts {
   display: grid;
@@ -1604,11 +1783,20 @@ textarea {
 
   .doctor-classic-body,
   .doctor-classic-row,
+  .psy-main-layout,
+  .psy-row,
+  .psy-row--meta-grid,
+  .psy-row--complaints,
+  .psy-grid--two,
   .chairman-row,
   .psychiatrist-row,
   .doctor-classic-field--complaints,
   .doctor-classic-bottom-line {
     grid-template-columns: 1fr;
+  }
+
+  .psy-meta-item--address {
+    grid-column: auto;
   }
 
   .encounter-grid {
