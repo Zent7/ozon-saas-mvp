@@ -162,7 +162,9 @@ const data = {
 };
 
 const DEMO_STORAGE_KEY = "vova-medcenter-demo-state-v2";
+const COLUMN_WIDTHS_STORAGE_KEY = "vova-medcenter-column-widths-v1";
 
+loadColumnWidths();
 applyPersistedDemoState();
 
 const pageTitle = document.getElementById("page-title");
@@ -378,6 +380,25 @@ function markServicesChanged() {
   data.servicesDirty = true;
   refreshServiceCatalog();
   persistDemoState();
+}
+
+function loadColumnWidths() {
+  try {
+    const raw = window.localStorage?.getItem(COLUMN_WIDTHS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    window.__columnWidths = parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    console.warn("Не удалось прочитать ширину колонок", error);
+    window.__columnWidths = {};
+  }
+}
+
+function persistColumnWidths() {
+  try {
+    window.localStorage?.setItem(COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(window.__columnWidths || {}));
+  } catch (error) {
+    console.warn("Не удалось сохранить ширину колонок", error);
+  }
 }
 
 function ensureVisitsStore() {
@@ -1657,6 +1678,7 @@ function bindColumnResize() {
       };
 
       const onUp = () => {
+        persistColumnWidths();
         window.removeEventListener("mousemove", onMove);
         window.removeEventListener("mouseup", onUp);
       };
