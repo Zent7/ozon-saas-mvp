@@ -26,7 +26,7 @@ python -m uvicorn app.main:app --reload --port 8000
 
 $frontendCommand = @"
 cd "$frontend"
-npm run dev
+npm run dev -- --host 127.0.0.1 --port 5173
 "@
 
 Start-Process powershell.exe -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $backendCommand
