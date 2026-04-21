@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -40,26 +40,14 @@ def parse_search_date(value: str):
 
 
 def duplicate_conditions_for(payload: ClientCreate | ClientUpdate):
-    conditions = []
-    if payload.phone:
-        conditions.append(Client.phone == payload.phone)
-    if payload.snils:
-        conditions.append(Client.snils == payload.snils)
-    if payload.oms_policy:
-        conditions.append(Client.oms_policy == payload.oms_policy)
-    if payload.document_series and payload.document_number:
-        conditions.append(
-            (Client.document_series == payload.document_series)
-            & (Client.document_number == payload.document_number)
-        )
-    if payload.last_name and payload.first_name and payload.birth_date:
-        conditions.append(
-            (func.lower(Client.last_name) == payload.last_name.lower())
-            & (func.lower(Client.first_name) == payload.first_name.lower())
-            & (func.coalesce(func.lower(Client.middle_name), "") == (payload.middle_name or "").lower())
-            & (Client.birth_date == payload.birth_date)
-        )
-    return conditions
+    if not (payload.last_name and payload.first_name and payload.middle_name):
+        return []
+
+    return [
+        (func.lower(Client.last_name) == payload.last_name.lower())
+        & (func.lower(Client.first_name) == payload.first_name.lower())
+        & (func.lower(Client.middle_name) == payload.middle_name.lower())
+    ]
 
 
 def find_duplicate(
@@ -81,7 +69,7 @@ def duplicate_error(payload: ClientCreate | ClientUpdate, client: Client) -> HTT
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail={
-            "message": "Найден возможный дубль клиента",
+            "message": "Клиент с таким полным ФИО уже есть",
             "duplicate_keys": build_duplicate_check_keys(payload),
             "client_id": client.id,
             "patient_number": client.patient_number,
@@ -101,6 +89,7 @@ def list_clients(
         return []
 
     pattern = f"%{value}%"
+    name_tokens = value.split()
     numeric_value = int(value) if value.isdigit() and len(value) <= 9 else None
     date_value = parse_search_date(value)
     search_conditions = [
@@ -113,6 +102,19 @@ def list_clients(
         Client.document_series.ilike(pattern),
         Client.document_number.ilike(pattern),
     ]
+    if name_tokens:
+        search_conditions.append(
+            and_(
+                *[
+                    or_(
+                        Client.last_name.ilike(f"%{token}%"),
+                        Client.first_name.ilike(f"%{token}%"),
+                        Client.middle_name.ilike(f"%{token}%"),
+                    )
+                    for token in name_tokens
+                ]
+            )
+        )
     if numeric_value is not None:
         search_conditions.insert(0, Client.patient_number == numeric_value)
     if date_value is not None:

@@ -160,7 +160,7 @@ export function ClientListPage() {
       <div className="page-header">
         <div>
           <h1>Клиенты</h1>
-          <p>Поиск идет через backend с лимитом 25 записей. Без строки поиска база целиком не загружается.</p>
+          <p>Поиск идет через backend по всей базе клиентов. На экран выводятся первые 25 совпадений.</p>
         </div>
         <div className="summary-strip">
           <div className="summary-strip__item">
@@ -178,7 +178,7 @@ export function ClientListPage() {
         <div className="search-group">
           <input
             className="input input--compact"
-            placeholder="ФИО, телефон, документ, СНИЛС, полис или №"
+            placeholder="Полное ФИО, телефон, документ, СНИЛС, полис или №"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             autoFocus
@@ -190,7 +190,7 @@ export function ClientListPage() {
             Добавить
           </button>
         </div>
-        <span className="toolbar-note">Показ максимум 25 клиентов, чтобы поиск оставался быстрым.</span>
+        <span className="toolbar-note">Ищем по всей базе, но не грузим все 100 000 строк в браузер.</span>
       </div>
 
       {error ? <div className="panel panel--error">{error}</div> : null}
@@ -270,7 +270,7 @@ export function ClientListPage() {
           <section className="panel">
             <div className="panel__heading">
               <h2>{editingClientId ? "Изменение клиента" : "Новый клиент"}</h2>
-              <span>Антидубли включены</span>
+              <span>Антидубли: полное ФИО</span>
             </div>
 
             <form className="form-grid form-grid--dense" onSubmit={submitForm}>
