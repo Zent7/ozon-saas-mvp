@@ -1,0 +1,7 @@
+Alembic migrations for the MedCenters backend.
+
+Run from backend directory:
+
+    .\.venv\Scripts\Activate.ps1
+    $env:DATABASE_URL="postgresql+psycopg://medcenters:medcenters@127.0.0.1:5434/medcenters"
+    python -m alembic upgrade head

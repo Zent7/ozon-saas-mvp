@@ -1,26 +1,52 @@
 # Backend
 
-Каркас backend для MVP построен на FastAPI.
+Backend для медицинской системы построен на FastAPI, SQLAlchemy и PostgreSQL.
 
-## План запуска
-1. Создать виртуальное окружение.
-2. Установить зависимости из `requirements.txt`.
-3. При необходимости скопировать `.env.example` в `.env`.
-4. Запустить приложение командой:
+## Локальный запуск в PowerShell
 
-```bash
-uvicorn app.main:app --reload
+```powershell
+cd C:\Users\mihd0\Downloads\Вова\backend
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+$env:DATABASE_URL="postgresql+psycopg://medcenters:medcenters@127.0.0.1:5434/medcenters"
+python -m alembic upgrade head
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
-По умолчанию проект стартует на SQLite для быстрого локального запуска.
-`docker-compose.yml` оставлен для перехода на PostgreSQL следующим этапом.
+Swagger открывается по адресу:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+## Миграции БД
+
+Структура базы ведется через Alembic. Перед первым запуском на новой базе нужно выполнить:
+
+```powershell
+python -m alembic upgrade head
+```
+
+Создание новой миграции после изменения моделей:
+
+```powershell
+python -m alembic revision --autogenerate -m "описание изменения"
+python -m alembic upgrade head
+```
+
+Проверка, что модели и база не расходятся:
+
+```powershell
+python -m alembic check
+```
 
 ## Что уже заложено
-- структура приложения
-- конфигурация
-- базовые модели
-- API healthcheck
-- доменные заготовки для клиентов, обращений и услуг
-- автоинициализация БД и seed-данные
-- каталог реальных шаблонов документов и XML
-- базовая генерация документов из подключенных шаблонов
+
+- PostgreSQL как основная база.
+- Alembic для контроля структуры БД.
+- API для клиентов, обращений, услуг, документов и повторов.
+- Быстрый поиск клиентов через backend.
+- Нумерация пациентов.
+- Seed-данные для первого запуска.
+- Каталог реальных шаблонов документов и XML.
+- Базовая генерация документов из подключенных шаблонов.

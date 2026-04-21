@@ -118,9 +118,5 @@ def ensure_client_profile_columns() -> None:
 
 
 def init_db() -> None:
-    ensure_client_patient_numbers()
-    ensure_legacy_import_columns()
-    ensure_client_profile_columns()
-    Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
         seed_reference_data(db)
