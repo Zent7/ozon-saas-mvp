@@ -19,6 +19,37 @@ const doctors = [
   "Председатель",
 ];
 
+const columnStorageKey = "vova-medcenter-column-widths-v1";
+
+const columns = [
+  { key: "number", label: "№" },
+  { key: "fio", label: "ФИО" },
+  { key: "birth", label: "Дата рождения" },
+  { key: "registration", label: "Регистрация" },
+  { key: "category", label: "Категории и условия допуска" },
+  { key: "reference", label: "№ справки" },
+  { key: "gynecologist", label: "Гинеколог" },
+  { key: "stomatologist", label: "Стоматолог" },
+  { key: "dermatologist", label: "Дерматолог" },
+  { key: "neurologist", label: "Невролог" },
+  { key: "surgeon", label: "Хирург" },
+  { key: "otolaryngologist", label: "Отоларинголог" },
+  { key: "ophthalmologist", label: "Офтальмолог" },
+  { key: "therapist", label: "Терапевт" },
+  { key: "psychiatrist", label: "Психиатр" },
+  { key: "infectionist", label: "Инфекционист" },
+  { key: "phthisiatrician", label: "Фтизиатр" },
+  { key: "uzist", label: "Узист" },
+  { key: "note", label: "Примечания" },
+  { key: "encounterDate", label: "Дата обращения" },
+  { key: "cardNumber", label: "Номер карты" },
+  { key: "noNumber", label: "б/н" },
+  { key: "fg", label: "ФГ" },
+  { key: "organization", label: "Организация" },
+  { key: "mkb10", label: "МКБ10" },
+  { key: "realDate", label: "Реальная дата" },
+];
+
 const sideActions = [
   "Главное",
   "Врачи",
@@ -111,6 +142,16 @@ function servicePrice(service: Service) {
   return Number(service.price || 0);
 }
 
+function readSavedColumnWidths() {
+  try {
+    const saved = window.localStorage.getItem(columnStorageKey);
+    const parsed = saved ? JSON.parse(saved) : {};
+    return parsed && typeof parsed === "object" ? parsed as Record<string, number> : {};
+  } catch {
+    return {};
+  }
+}
+
 export function ClientListPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -126,6 +167,7 @@ export function ClientListPage() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => readSavedColumnWidths());
 
   const selectedClient = clients.find((client) => client.id === selectedClientId) ?? null;
   const selectedServices = services.filter((service) => selectedServiceIds.includes(service.id));
@@ -286,6 +328,39 @@ export function ClientListPage() {
     );
   }
 
+  useEffect(() => {
+    window.localStorage.setItem(columnStorageKey, JSON.stringify(columnWidths));
+  }, [columnWidths]);
+
+  function startColumnResize(key: string, event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const root = document.documentElement;
+    const currentWidth = Number.parseInt(
+      getComputedStyle(root).getPropertyValue(`--excel-col-${key}`).trim(),
+      10,
+    );
+    const initialWidth = columnWidths[key] || currentWidth || 80;
+    const startX = event.clientX;
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const nextWidth = Math.max(22, initialWidth + moveEvent.clientX - startX);
+      setColumnWidths((current) => ({ ...current, [key]: nextWidth }));
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
+  const columnStyle = Object.fromEntries(
+    Object.entries(columnWidths).map(([key, width]) => [`--excel-col-${key}`, `${width}px`]),
+  ) as React.CSSProperties;
+
   return (
     <div className="operator-shell">
       <aside className="operator-sidebar">
@@ -318,9 +393,9 @@ export function ClientListPage() {
         {notice ? <div className="operator-alert">{notice}</div> : null}
 
         <section className="operator-table-card">
-          <div className="doctor-strip">
+          <div className="sketch-doctors sketch-doctors--top">
             {doctors.map((doctor) => (
-              <button key={doctor} type="button" className="doctor-chip">
+              <button key={doctor} type="button" className="doctor-pill">
                 {doctor}
               </button>
             ))}
@@ -342,42 +417,30 @@ export function ClientListPage() {
             <span>{loading ? "Идет поиск..." : search.trim() ? `Найдено: ${clients.length}` : ""}</span>
           </div>
 
-          <div className="operator-table">
-            <div className="operator-row operator-row--head">
-              <span>№</span>
-              <span>ФИО</span>
-              <span>Дата рождения</span>
-              <span>Регистрация</span>
-              <span>Категории и условия допуска</span>
-              <span>№ справки</span>
-              <span>Гинеколог</span>
-              <span>Стоматолог</span>
-              <span>Дерматолог</span>
-              <span>Невролог</span>
-              <span>Хирург</span>
-              <span>Отоларинголог</span>
-              <span>Офтальмолог</span>
-              <span>Терапевт</span>
-              <span>Психиатр</span>
-              <span>Инфекционист</span>
-              <span>Фтизиатр</span>
-              <span>Узист</span>
-              <span>Примечания</span>
-              <span>Дата обращения</span>
-              <span>Номер карты</span>
-              <span>б/н</span>
-              <span>ФГ</span>
-              <span>Организация</span>
-              <span>МКБ10</span>
-              <span>Реальная дата</span>
+          <div className="sketch-table sketch-table--excel" style={columnStyle}>
+            <div className="sketch-table__grid sketch-table__grid--head">
+              {columns.map((column) => (
+                <span key={column.key} className="sketch-head-cell sketch-head-cell--resizable">
+                  <span>{column.label}</span>
+                  <button
+                    className="col-resize-handle"
+                    type="button"
+                    aria-label={`Изменить ширину столбца ${column.label}`}
+                    onMouseDown={(event) => startColumnResize(column.key, event)}
+                  />
+                </span>
+              ))}
             </div>
 
-            <div className="operator-table__body">
               {clients.map((client) => (
                 <button
                   key={client.id}
                   type="button"
-                  className={client.id === selectedClientId ? "operator-row operator-row--active" : "operator-row"}
+                  className={
+                    client.id === selectedClientId
+                      ? "sketch-table__grid sketch-table__grid--row sketch-table__grid--active"
+                      : "sketch-table__grid sketch-table__grid--row"
+                  }
                   onClick={() => {
                     setSelectedClientId(client.id);
                     setIsEditingClient(false);
@@ -418,7 +481,6 @@ export function ClientListPage() {
               {!search.trim() ? (
                 <div className="operator-empty">Без поиска таблица пустая, чтобы не грузить всю базу в браузер.</div>
               ) : null}
-            </div>
           </div>
         </section>
 

@@ -4,6 +4,36 @@
   background: #ccd6e3;
   color: #13212f;
   line-height: 1.4;
+  --line: rgba(14, 31, 53, 0.1);
+  --text: #17304a;
+  --muted: #69809a;
+  --accent: #0c7d7b;
+  --excel-col-number: 42px;
+  --excel-col-fio: 130px;
+  --excel-col-birth: 64px;
+  --excel-col-registration: 155px;
+  --excel-col-category: 110px;
+  --excel-col-reference: 58px;
+  --excel-col-gynecologist: 42px;
+  --excel-col-stomatologist: 42px;
+  --excel-col-dermatologist: 42px;
+  --excel-col-neurologist: 42px;
+  --excel-col-surgeon: 42px;
+  --excel-col-otolaryngologist: 42px;
+  --excel-col-ophthalmologist: 42px;
+  --excel-col-therapist: 42px;
+  --excel-col-psychiatrist: 42px;
+  --excel-col-infectionist: 42px;
+  --excel-col-phthisiatrician: 42px;
+  --excel-col-uzist: 42px;
+  --excel-col-note: 165px;
+  --excel-col-encounterDate: 72px;
+  --excel-col-cardNumber: 68px;
+  --excel-col-noNumber: 22px;
+  --excel-col-fg: 22px;
+  --excel-col-organization: 88px;
+  --excel-col-mkb10: 64px;
+  --excel-col-realDate: 110px;
 }
 
 * {
@@ -813,7 +843,43 @@ textarea {
   font-size: 13px;
 }
 
-.operator-table {
+.sketch-doctors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.sketch-doctors--top {
+  margin-top: 0;
+  margin-bottom: 16px;
+  max-width: 100%;
+}
+
+.doctor-pill {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+  padding: 6px 12px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.doctor-pill:hover {
+  border-color: rgba(12, 125, 123, 0.28);
+  background: rgba(12, 125, 123, 0.06);
+}
+
+.sketch-table {
+  display: grid;
+  gap: 10px;
+}
+
+.sketch-table--excel {
   height: min(33vh, 320px);
   min-height: 248px;
   overflow: auto;
@@ -822,39 +888,68 @@ textarea {
   background: #fff;
 }
 
-.operator-row {
+.sketch-table__grid {
   min-width: 1622px;
   display: grid;
   grid-template-columns:
-    46px 190px 110px 240px 150px 90px repeat(12, 48px) 210px 112px 48px 48px 120px 90px 130px;
+    var(--excel-col-number)
+    var(--excel-col-fio)
+    var(--excel-col-birth)
+    var(--excel-col-registration)
+    var(--excel-col-category)
+    var(--excel-col-reference)
+    var(--excel-col-gynecologist)
+    var(--excel-col-stomatologist)
+    var(--excel-col-dermatologist)
+    var(--excel-col-neurologist)
+    var(--excel-col-surgeon)
+    var(--excel-col-otolaryngologist)
+    var(--excel-col-ophthalmologist)
+    var(--excel-col-therapist)
+    var(--excel-col-psychiatrist)
+    var(--excel-col-infectionist)
+    var(--excel-col-phthisiatrician)
+    var(--excel-col-uzist)
+    var(--excel-col-note)
+    var(--excel-col-encounterDate)
+    var(--excel-col-cardNumber)
+    var(--excel-col-noNumber)
+    var(--excel-col-fg)
+    var(--excel-col-organization)
+    var(--excel-col-mkb10)
+    var(--excel-col-realDate);
+  align-items: stretch;
+}
+
+.sketch-table__grid--row {
+  width: 100%;
   border: 0;
   background: #fff;
   color: #17304a;
   text-align: left;
   padding: 0;
+  cursor: pointer;
 }
 
-.operator-row span {
-  min-height: 25px;
+.sketch-table__grid > span {
   border-right: 1px solid rgba(23, 48, 74, 0.1);
   border-bottom: 1px solid rgba(23, 48, 74, 0.1);
-  padding: 4px 6px;
+  padding: 6px 4px;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
   font-size: 10px;
   line-height: 1.1;
 }
 
-.operator-row--head {
+.sketch-table__grid--head {
   position: sticky;
   top: 0;
   z-index: 2;
   background: #f4f6f8;
-  font-weight: 800;
+  font-weight: 700;
 }
 
-.operator-row--head span {
+.sketch-table__grid--head > span {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -865,23 +960,65 @@ textarea {
   line-height: 1.1;
 }
 
-.operator-row--head span:nth-child(n + 7):nth-child(-n + 18),
-.operator-row--head span:nth-child(22),
-.operator-row--head span:nth-child(23) {
+.sketch-head-cell--resizable {
+  padding-right: 12px !important;
+}
+
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.col-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  right: 3px;
+  width: 2px;
+  background: rgba(23, 48, 74, 0.16);
+  border-radius: 999px;
+}
+
+.sketch-table__grid--head > span:nth-child(n + 7):nth-child(-n + 18),
+.sketch-table__grid--head > span:nth-child(22),
+.sketch-table__grid--head > span:nth-child(23) {
   writing-mode: vertical-rl;
   text-orientation: mixed;
   min-height: 104px;
   padding: 6px 2px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
-button.operator-row {
-  width: 100%;
-  cursor: pointer;
+.sketch-table__grid--head > span:nth-child(n + 7):nth-child(-n + 18) .col-resize-handle,
+.sketch-table__grid--head > span:nth-child(22) .col-resize-handle,
+.sketch-table__grid--head > span:nth-child(23) .col-resize-handle {
+  width: 8px;
 }
 
-button.operator-row:hover,
-.operator-row--active {
+.sketch-table__grid--row > span {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.sketch-table__grid--row:hover,
+.sketch-table__grid--active {
   background: rgba(12, 125, 123, 0.06);
+}
+
+.sketch-table__grid--row:hover > span,
+.sketch-table__grid--active > span {
+  background: rgba(12, 125, 123, 0.02);
 }
 
 .operator-empty {
