@@ -16,11 +16,19 @@ export type Client = {
   birth_date: string;
   sex?: string | null;
   phone?: string | null;
+  email?: string | null;
+  document_type?: string | null;
+  document_series?: string | null;
+  document_number?: string | null;
+  document_issued_by?: string | null;
+  document_issued_date?: string | null;
   snils?: string | null;
   oms_policy?: string | null;
   address_text?: string | null;
   notes?: string | null;
 };
+
+export type ClientPayload = Omit<Client, "id" | "patient_number">;
 
 export type Encounter = {
   id: number;
@@ -80,9 +88,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   getDashboardStats: () => request<DashboardStats>("/dashboard/stats"),
-  getClients: (search = "") => request<Client[]>(`/clients${search ? `?search=${encodeURIComponent(search)}` : ""}`),
-  createClient: (payload: Omit<Client, "id" | "patient_number">) =>
+  getClients: (search = "", limit = 25) =>
+    request<Client[]>(`/clients?limit=${limit}${search ? `&search=${encodeURIComponent(search)}` : ""}`),
+  createClient: (payload: ClientPayload) =>
     request<Client>("/clients", { method: "POST", body: JSON.stringify(payload) }),
+  updateClient: (clientId: number, payload: ClientPayload) =>
+    request<Client>(`/clients/${clientId}`, { method: "PUT", body: JSON.stringify(payload) }),
   getEncounters: () => request<Encounter[]>("/encounters"),
   createEncounter: (payload: Omit<Encounter, "id" | "status">) =>
     request<Encounter>("/encounters", { method: "POST", body: JSON.stringify(payload) }),

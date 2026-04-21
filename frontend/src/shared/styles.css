@@ -320,6 +320,16 @@ textarea {
   padding: 9px 12px;
 }
 
+.record-table--clients {
+  overflow-x: auto;
+}
+
+.record-table__header--clients,
+.record-table__row--clients {
+  min-width: 920px;
+  grid-template-columns: 64px minmax(220px, 2fr) minmax(130px, 1fr) minmax(150px, 1fr) minmax(160px, 1fr) minmax(140px, 1fr);
+}
+
 .record-table__header {
   position: sticky;
   top: 58px;
