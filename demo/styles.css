@@ -38,6 +38,13 @@
   --excel-col-organization: 88px;
   --excel-col-mkb10: 64px;
   --excel-col-realDate: 110px;
+  --excel-col-serviceId: 72px;
+  --excel-col-serviceName: 340px;
+  --excel-col-serviceGroup: 190px;
+  --excel-col-servicePrice: 130px;
+  --excel-col-serviceNote: 320px;
+  --excel-col-serviceDoctors: 330px;
+  --excel-col-serviceStatus: 130px;
   font-family: "Segoe UI", sans-serif;
   color: var(--text);
 }
@@ -975,7 +982,6 @@ textarea {
   height: calc(100vh - 235px);
   max-height: none;
   overflow: auto;
-  resize: both;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: #ffffff;
@@ -985,13 +991,13 @@ textarea {
   min-width: 1480px;
   display: grid;
   grid-template-columns:
-    minmax(72px, 0.45fr)
-    minmax(340px, 2.5fr)
-    minmax(190px, 1.2fr)
-    minmax(130px, 0.8fr)
-    minmax(320px, 1.8fr)
-    minmax(330px, 2.1fr)
-    minmax(130px, 0.85fr);
+    var(--excel-col-serviceId)
+    var(--excel-col-serviceName)
+    var(--excel-col-serviceGroup)
+    var(--excel-col-servicePrice)
+    var(--excel-col-serviceNote)
+    var(--excel-col-serviceDoctors)
+    var(--excel-col-serviceStatus);
   align-items: stretch;
   width: 100%;
 }
@@ -1018,6 +1024,12 @@ textarea {
 }
 
 .services-table__grid--head > span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-height: 42px;
+  text-align: center;
   white-space: nowrap;
 }
 
@@ -1615,7 +1627,6 @@ textarea {
     min-width: 0;
     min-height: 420px;
     height: 62vh;
-    resize: vertical;
   }
 
   .services-table__grid {

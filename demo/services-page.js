@@ -82,13 +82,34 @@ function renderServicesPage() {
 
       <div class="services-table">
         <div class="services-table__grid services-table__grid--head">
-          <span>ID</span>
-          <span>Наименование</span>
-          <span>Группа</span>
-          <span>Цена</span>
-          <span>Примечание</span>
-          <span>Врачи</span>
-          <span>Статус</span>
+          <span class="sketch-head-cell sketch-head-cell--resizable">
+            ID
+            <button class="col-resize-handle" data-resize-col="serviceId" aria-label="Изменить ширину столбца ID"></button>
+          </span>
+          <span class="sketch-head-cell sketch-head-cell--resizable">
+            Наименование
+            <button class="col-resize-handle" data-resize-col="serviceName" aria-label="Изменить ширину столбца Наименование"></button>
+          </span>
+          <span class="sketch-head-cell sketch-head-cell--resizable">
+            Группа
+            <button class="col-resize-handle" data-resize-col="serviceGroup" aria-label="Изменить ширину столбца Группа"></button>
+          </span>
+          <span class="sketch-head-cell sketch-head-cell--resizable">
+            Цена
+            <button class="col-resize-handle" data-resize-col="servicePrice" aria-label="Изменить ширину столбца Цена"></button>
+          </span>
+          <span class="sketch-head-cell sketch-head-cell--resizable">
+            Примечание
+            <button class="col-resize-handle" data-resize-col="serviceNote" aria-label="Изменить ширину столбца Примечание"></button>
+          </span>
+          <span class="sketch-head-cell sketch-head-cell--resizable">
+            Врачи
+            <button class="col-resize-handle" data-resize-col="serviceDoctors" aria-label="Изменить ширину столбца Врачи"></button>
+          </span>
+          <span class="sketch-head-cell sketch-head-cell--resizable">
+            Статус
+            <button class="col-resize-handle" data-resize-col="serviceStatus" aria-label="Изменить ширину столбца Статус"></button>
+          </span>
         </div>
 
         ${
