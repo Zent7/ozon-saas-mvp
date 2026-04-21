@@ -284,7 +284,10 @@ function openClientModal(clientId = null) {
     appState.clientSearch = "";
     window.markClientChanged?.(targetClient, isCreated);
 
-    const currentVisit = window.getCurrentVisitForClient?.(targetClient.id);
+    const currentVisit =
+      isCreated && selectedServiceValues.length
+        ? window.createVisitForClientIfNeeded?.(targetClient.id, { serviceNames: selectedServiceValues })
+        : window.getCurrentVisitForClient?.(targetClient.id);
     if (currentVisit && currentVisit.status !== "closed") {
       currentVisit.serviceNames = selectedServiceValues;
       currentVisit.amount = window.calculateVisitAmount?.(selectedServiceValues) ?? currentVisit.amount;

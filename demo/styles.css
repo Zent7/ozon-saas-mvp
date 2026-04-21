@@ -1228,6 +1228,38 @@ textarea {
   gap: 8px;
 }
 
+.document-history {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid rgba(23, 48, 74, 0.12);
+  border-radius: 14px;
+  background: #fbfdff;
+}
+
+.document-history__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(23, 48, 74, 0.1);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.document-history__row span {
+  font-weight: 700;
+}
+
+.document-history__row small {
+  color: var(--muted);
+}
+
 .encounter-services span {
   padding: 6px 10px;
   border-radius: 999px;

@@ -154,6 +154,7 @@ const data = {
     },
   ],
   visits: [],
+  documents: [],
   doctorExams: [],
   mkb10History: [],
   clientOverrides: {},
@@ -327,6 +328,7 @@ function applyPersistedDemoState() {
   }
 
   if (Array.isArray(saved.visits)) data.visits = saved.visits;
+  if (Array.isArray(saved.documents)) data.documents = saved.documents;
   if (Array.isArray(saved.doctorExams)) data.doctorExams = saved.doctorExams;
   if (Array.isArray(saved.mkb10History)) data.mkb10History = saved.mkb10History;
   if (saved.activeVisitId) appState.activeVisitId = saved.activeVisitId;
@@ -338,6 +340,7 @@ function persistDemoState() {
       createdClients: data.clients.filter((client) => client.__demoCreated),
       clientOverrides: data.clientOverrides || {},
       visits: data.visits || [],
+      documents: data.documents || [],
       doctorExams: data.doctorExams || [],
       mkb10History: data.mkb10History || [],
       activeVisitId: appState.activeVisitId,
@@ -379,6 +382,7 @@ function markServicesChanged() {
 
 function ensureVisitsStore() {
   if (!data.visits) data.visits = [];
+  if (!data.documents) data.documents = [];
   if (!data.doctorExams) data.doctorExams = [];
 }
 
@@ -551,6 +555,12 @@ function createVisitForClient(clientId, options = {}) {
   persistDemoState();
 
   return visit;
+}
+
+function createVisitForClientIfNeeded(clientId, options = {}) {
+  const existing = getCurrentVisitForClient(clientId);
+  if (existing && existing.status !== "closed") return existing;
+  return createVisitForClient(clientId, options);
 }
 
 function updateVisit(visitId, patch = {}) {
@@ -860,7 +870,7 @@ function renderDoctorButton(label, selectedClient) {
 
 function renderSketchHome() {
   const currentClients = filteredClients();
-  const selectedClient = currentClients.find((client) => client.id === appState.selectedClientId) || currentClients[0];
+  const selectedClient = currentClients.find((client) => client.id === appState.selectedClientId) || getSelectedClient() || currentClients[0];
   const duplicateCandidates = findDuplicateCandidates(appState.clientSearch).filter((client) => client.id !== selectedClient?.id);
   const doctorButtons = [
     "Гинеколог",
@@ -1313,6 +1323,7 @@ function renderBlanksPage() {
 function renderDocumentsPage() {
   const selectedClient = getSelectedClient();
   const activeVisit = selectedClient ? getCurrentVisitForClient(selectedClient.id) : null;
+  const visitDocuments = activeVisit ? getDocumentsForVisit(activeVisit.id) : [];
 
   return `
     ${renderBlanksPage()}
@@ -1381,6 +1392,189 @@ function openDemoDocument(type) {
   document.getElementById("closeDocumentPreview")?.addEventListener("click", () => {
     actionModal.classList.add("hidden");
   });
+}
+
+function buildDemoDocument(type) {
+  const client = getSelectedClient();
+  const visit = client ? getCurrentVisitForClient(client.id) : null;
+  if (!client || !visit) return "";
+
+  const services = (visit.serviceNames || client.services || []).join(", ") || "услуги не выбраны";
+  const amount = Number(visit.amount || 0).toLocaleString("ru-RU");
+  const comment = visit.comment ? `Комментарий: ${visit.comment}` : "Комментарий: не указан";
+
+  if (type === "xml") {
+    return [
+      `<?xml version="1.0" encoding="UTF-8"?>`,
+      `<Visit>`,
+      `  <Client>${escapeHtml(client.fullName)}</Client>`,
+      `  <PatientNumber>${escapeHtml(client.patientNumber ?? client.id)}</PatientNumber>`,
+      `  <BirthDate>${escapeHtml(client.birthDate)}</BirthDate>`,
+      `  <Document>${escapeHtml(client.document)}</Document>`,
+      `  <VisitDate>${escapeHtml(visit.visitDate)}</VisitDate>`,
+      `  <Center>${escapeHtml(visit.center || client.center || "")}</Center>`,
+      `  <PaymentType>${escapeHtml(visit.paymentType || "")}</PaymentType>`,
+      `  <Services>${escapeHtml(services)}</Services>`,
+      `  <Amount>${amount}</Amount>`,
+      `  <Comment>${escapeHtml(visit.comment || "")}</Comment>`,
+      `</Visit>`,
+    ].join("\n");
+  }
+
+  const title = getDocumentTitle(type).toUpperCase();
+  return [
+    title,
+    "",
+    `Пациент: ${client.fullName}`,
+    `№ пациента: ${client.patientNumber ?? client.id}`,
+    `Дата рождения: ${client.birthDate}`,
+    `Телефон: ${client.phone || "не указан"}`,
+    `Документ: ${client.document || "не указан"}`,
+    `СНИЛС: ${client.snils || "не указан"}`,
+    "",
+    `Обращение: ${visit.visitDate}`,
+    `Центр: ${visit.center || client.center || "не указан"}`,
+    `Услуги: ${services}`,
+    `Оплата: ${visit.paymentType || "не указана"}`,
+    `Сумма: ${amount} ₽`,
+    comment,
+    "",
+    "Заключение: по результатам оформления данные подготовлены для печатной формы.",
+    "",
+    "М.П.                         Подпись __________________",
+  ].join("\n");
+}
+
+function getDocumentTitle(type) {
+  if (type === "driver") return "Водительская справка";
+  if (type === "xml") return "XML-файл по обращению";
+  return "Медицинская справка";
+}
+
+function getDocumentsForVisit(visitId) {
+  ensureVisitsStore();
+  return data.documents
+    .filter((documentItem) => String(documentItem.visitId) === String(visitId))
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+}
+
+function createDemoDocument(type) {
+  ensureVisitsStore();
+  const client = getSelectedClient();
+  const visit = client ? getCurrentVisitForClient(client.id) : null;
+  if (!client || !visit) return null;
+
+  const documentItem = {
+    id: generateId("document"),
+    type,
+    title: getDocumentTitle(type),
+    clientId: client.id,
+    visitId: visit.id,
+    createdAt: new Date().toISOString(),
+    content: buildDemoDocument(type),
+  };
+
+  data.documents.unshift(documentItem);
+  visit.documentIds = Array.isArray(visit.documentIds) ? visit.documentIds : [];
+  visit.documentIds.unshift(documentItem.id);
+  persistDemoState();
+  return documentItem;
+}
+
+function renderDocumentHistory(visitDocuments) {
+  return `
+    <div class="document-history">
+      <strong>Сформированные документы</strong>
+      ${
+        visitDocuments.length
+          ? visitDocuments
+              .map(
+                (documentItem) => `
+                  <button class="document-history__row" data-open-document-id="${escapeHtml(documentItem.id)}">
+                    <span>${escapeHtml(documentItem.title)}</span>
+                    <small>${escapeHtml(formatDateTime(documentItem.createdAt))}</small>
+                  </button>
+                `,
+              )
+              .join("")
+          : `<p class="muted">Пока документов по этому обращению нет. Нажми нужную кнопку выше, чтобы сформировать.</p>`
+      }
+    </div>
+  `;
+}
+
+function renderDocumentsPage() {
+  const selectedClient = getSelectedClient();
+  const activeVisit = selectedClient ? getCurrentVisitForClient(selectedClient.id) : null;
+  const visitDocuments = activeVisit ? getDocumentsForVisit(activeVisit.id) : [];
+
+  return `
+    ${renderBlanksPage()}
+    <section class="card">
+      <h3>Документы по обращению</h3>
+      ${
+        selectedClient && activeVisit
+          ? `
+            <p class="muted">Клиент: ${escapeHtml(selectedClient.fullName)}. ${escapeHtml(getVisitTitle(activeVisit))}</p>
+            <div class="document-actions">
+              <button class="primary-button" data-generate-document="medical">Медицинская справка</button>
+              <button class="ghost-button" data-generate-document="driver">Водительская справка</button>
+              <button class="ghost-button" data-generate-document="xml">XML-файл</button>
+            </div>
+            ${renderDocumentHistory(visitDocuments)}
+          `
+          : `<p class="muted">Сначала на главной найди клиента и создай обращение. После этого здесь появится генерация документов по выбранному обращению.</p>`
+      }
+    </section>
+  `;
+}
+
+function openDemoDocument(typeOrId) {
+  const existingDocument = data.documents?.find((documentItem) => documentItem.id === typeOrId);
+  const documentItem = existingDocument || createDemoDocument(typeOrId);
+
+  if (!documentItem) {
+    showToast("Сначала выбери клиента и обращение");
+    return;
+  }
+
+  openActionModal(
+    documentItem.title,
+    `
+      <pre class="document-preview">${escapeHtml(documentItem.content)}</pre>
+      <div class="client-create-actions">
+        <button type="button" class="ghost-button" id="downloadDocumentPreview">Скачать</button>
+        <button type="button" class="primary-button" id="closeDocumentPreview">ОК</button>
+      </div>
+    `,
+  );
+
+  document.getElementById("downloadDocumentPreview")?.addEventListener("click", () => {
+    downloadDemoDocument(documentItem);
+  });
+
+  document.getElementById("closeDocumentPreview")?.addEventListener("click", () => {
+    actionModal.classList.add("hidden");
+    renderApp();
+  });
+}
+
+function downloadDemoDocument(documentItem) {
+  const extension = documentItem.type === "xml" ? "xml" : "txt";
+  const safeClient = String(getSelectedClient()?.fullName || "client")
+    .replace(/[^\dA-Za-zА-Яа-яЁё_-]+/g, "_")
+    .slice(0, 48);
+  const blob = new Blob([documentItem.content], {
+    type: documentItem.type === "xml" ? "application/xml;charset=utf-8" : "text/plain;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${safeClient}_${documentItem.type}_${documentItem.id}.${extension}`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function renderContent() {
@@ -1636,6 +1830,12 @@ function bindContentEvents() {
     });
   });
 
+  contentRoot.querySelectorAll("[data-open-document-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openDemoDocument(button.dataset.openDocumentId);
+    });
+  });
+
   contentRoot.querySelectorAll("[data-service-group]").forEach((button) => {
     button.addEventListener("click", () => {
       appState.serviceGroupFilter = button.dataset.serviceGroup;
@@ -1767,6 +1967,7 @@ window.getDoctorExam = getDoctorExam;
 window.getOrCreateDraftVisit = getOrCreateDraftVisit;
 window.getCurrentVisitForClient = getCurrentVisitForClient;
 window.createVisitForClient = createVisitForClient;
+window.createVisitForClientIfNeeded = createVisitForClientIfNeeded;
 window.calculateVisitAmount = calculateVisitAmount;
 window.persistDemoState = persistDemoState;
 window.markClientChanged = markClientChanged;
