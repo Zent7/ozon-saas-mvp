@@ -12,7 +12,7 @@ export function AppRouter() {
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route path="/" element={<DashboardPage />} />
+        <Route path="/" element={<ClientListPage />} />
         <Route path="/clients" element={<ClientListPage />} />
         <Route path="/encounters" element={<EncountersPage />} />
         <Route path="/documents" element={<DocumentsPage />} />

@@ -41,6 +41,19 @@ export type Encounter = {
   status: string;
 };
 
+export type EncounterService = {
+  id: number;
+  encounter_id: number;
+  service_id: number;
+  quantity: number;
+  unit_price: string;
+  line_total: string;
+  sequence_number?: string | null;
+  notes?: string | null;
+};
+
+export type EncounterServicePayload = Omit<EncounterService, "id">;
+
 export type Service = {
   id: number;
   code: string;
@@ -97,6 +110,8 @@ export const api = {
   getEncounters: () => request<Encounter[]>("/encounters"),
   createEncounter: (payload: Omit<Encounter, "id" | "status">) =>
     request<Encounter>("/encounters", { method: "POST", body: JSON.stringify(payload) }),
+  createEncounterService: (payload: EncounterServicePayload) =>
+    request<EncounterService>("/encounter-services", { method: "POST", body: JSON.stringify(payload) }),
   getServices: () => request<Service[]>("/services"),
   getRecalls: () => request<Recall[]>("/recalls"),
   getTemplates: () => request<DocumentTemplate[]>("/documents/templates"),

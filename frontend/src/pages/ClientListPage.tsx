@@ -1,9 +1,39 @@
 import type { FormEvent } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { api, type Client, type ClientPayload } from "../shared/api";
+import { api, type Client, type ClientPayload, type Service } from "../shared/api";
 
-const emptyForm: ClientPayload = {
+const doctors = [
+  "Гинеколог",
+  "Стоматолог",
+  "Дерматолог",
+  "Невролог",
+  "Хирург",
+  "Отоларинголог",
+  "Офтальмолог",
+  "Терапевт",
+  "Психиатр",
+  "Инфекционист",
+  "Фтизиатр",
+  "Узист",
+  "Председатель",
+];
+
+const sideActions = [
+  "Главное",
+  "Врачи",
+  "Услуги",
+  "Шаблоны",
+  "Загрузка",
+  "Сотрудник",
+  "Касса",
+  "XML",
+  "Бланки",
+  "Отчеты",
+  "Пункты вредности",
+];
+
+const emptyClientForm: ClientPayload = {
   last_name: "",
   first_name: "",
   middle_name: "",
@@ -21,6 +51,19 @@ const emptyForm: ClientPayload = {
   address_text: "",
   notes: "",
 };
+
+const today = new Date().toISOString().slice(0, 10);
+
+function fullName(client?: Client | null) {
+  if (!client) return "";
+  return [client.last_name, client.first_name, client.middle_name ?? ""].filter(Boolean).join(" ");
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("ru-RU").format(date);
+}
 
 function compactPayload(form: ClientPayload): ClientPayload {
   return Object.fromEntries(
@@ -49,16 +92,6 @@ function clientToForm(client: Client): ClientPayload {
   };
 }
 
-function fullName(client: Client) {
-  return [client.last_name, client.first_name, client.middle_name ?? ""].filter(Boolean).join(" ");
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return "-";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("ru-RU").format(date);
-}
-
 function parseApiError(error: unknown) {
   if (!(error instanceof Error)) return "Не удалось выполнить действие";
   try {
@@ -74,21 +107,46 @@ function parseApiError(error: unknown) {
   return error.message;
 }
 
+function servicePrice(service: Service) {
+  return Number(service.price || 0);
+}
+
 export function ClientListPage() {
   const [clients, setClients] = useState<Client[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
   const [search, setSearch] = useState("");
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
-  const [editingClientId, setEditingClientId] = useState<number | null>(null);
-  const [form, setForm] = useState<ClientPayload>(emptyForm);
+  const [clientForm, setClientForm] = useState<ClientPayload>(emptyClientForm);
+  const [isEditingClient, setIsEditingClient] = useState(false);
+  const [selectedServiceIds, setSelectedServiceIds] = useState<number[]>([]);
+  const [paymentType, setPaymentType] = useState("cash");
+  const [visitDate, setVisitDate] = useState(today);
+  const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
   const selectedClient = clients.find((client) => client.id === selectedClientId) ?? null;
+  const selectedServices = services.filter((service) => selectedServiceIds.includes(service.id));
+  const totalAmount = useMemo(
+    () => selectedServices.reduce((sum, service) => sum + servicePrice(service), 0),
+    [selectedServices],
+  );
+
+  async function loadServices() {
+    try {
+      const result = await api.getServices();
+      setServices(result);
+    } catch (err) {
+      setError(parseApiError(err));
+    }
+  }
 
   async function loadClients(value = search) {
     const trimmed = value.trim();
     setError("");
+    setNotice("");
     if (!trimmed) {
       setClients([]);
       setSelectedClientId(null);
@@ -111,42 +169,60 @@ export function ClientListPage() {
   }
 
   useEffect(() => {
+    void loadServices();
+  }, []);
+
+  useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       void loadClients(search);
     }, 250);
     return () => window.clearTimeout(timeoutId);
   }, [search]);
 
+  useEffect(() => {
+    if (selectedClient && !isEditingClient) {
+      setClientForm(clientToForm(selectedClient));
+    }
+  }, [selectedClientId, selectedClient, isEditingClient]);
+
   function startCreate() {
-    setEditingClientId(null);
     const parts = search.trim().split(/\s+/).filter(Boolean);
-    setForm({
-      ...emptyForm,
+    setIsEditingClient(true);
+    setSelectedClientId(null);
+    setClientForm({
+      ...emptyClientForm,
       last_name: parts[0] ?? "",
       first_name: parts[1] ?? "",
       middle_name: parts.slice(2).join(" "),
     });
   }
 
-  function startEdit(client: Client) {
-    setEditingClientId(client.id);
-    setSelectedClientId(client.id);
-    setForm(clientToForm(client));
+  function startEdit() {
+    if (!selectedClient) return;
+    setIsEditingClient(true);
+    setClientForm(clientToForm(selectedClient));
   }
 
-  async function submitForm(event: FormEvent<HTMLFormElement>) {
+  function cancelEdit() {
+    setIsEditingClient(false);
+    if (selectedClient) setClientForm(clientToForm(selectedClient));
+  }
+
+  async function saveClient(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
     setError("");
+    setNotice("");
     try {
-      const payload = compactPayload(form);
-      const saved = editingClientId
-        ? await api.updateClient(editingClientId, payload)
+      const payload = compactPayload(clientForm);
+      const saved = selectedClient && isEditingClient
+        ? await api.updateClient(selectedClient.id, payload)
         : await api.createClient(payload);
       setSearch(saved.last_name);
       setSelectedClientId(saved.id);
-      setEditingClientId(saved.id);
-      setForm(clientToForm(saved));
+      setClientForm(clientToForm(saved));
+      setIsEditingClient(false);
+      setNotice(`Клиент сохранен: № ${saved.patient_number}`);
       await loadClients(saved.last_name);
     } catch (err) {
       setError(parseApiError(err));
@@ -155,161 +231,314 @@ export function ClientListPage() {
     }
   }
 
-  return (
-    <section className="page page--desktop">
-      <div className="page-header">
-        <div>
-          <h1>Клиенты</h1>
-          <p>Поиск идет через backend по всей базе клиентов. На экран выводятся первые 25 совпадений.</p>
-        </div>
-        <div className="summary-strip">
-          <div className="summary-strip__item">
-            <span>Найдено</span>
-            <strong>{clients.length}</strong>
-          </div>
-          <div className="summary-strip__item">
-            <span>Выбран</span>
-            <strong>{selectedClient?.patient_number ?? "-"}</strong>
-          </div>
-        </div>
-      </div>
+  async function createVisit() {
+    if (!selectedClient) {
+      setError("Сначала выберите или создайте клиента.");
+      return;
+    }
+    if (selectedServiceIds.length === 0) {
+      setError("Выберите хотя бы одну услугу.");
+      return;
+    }
 
-      <div className="toolbar toolbar--desktop">
-        <div className="search-group">
+    setSaving(true);
+    setError("");
+    setNotice("");
+    try {
+      const encounter = await api.createEncounter({
+        center_id: 1,
+        client_id: selectedClient.id,
+        encounter_date: visitDate,
+        payment_type: paymentType,
+        total_amount: totalAmount.toFixed(2),
+        comment: comment || null,
+      });
+
+      await Promise.all(
+        selectedServices.map((service) =>
+          api.createEncounterService({
+            encounter_id: encounter.id,
+            service_id: service.id,
+            quantity: 1,
+            unit_price: service.price,
+            line_total: service.price,
+            sequence_number: null,
+            notes: null,
+          }),
+        ),
+      );
+
+      setNotice(`Обращение № ${encounter.id} оформлено. Сумма: ${totalAmount.toFixed(2)}`);
+      setComment("");
+      setSelectedServiceIds([]);
+    } catch (err) {
+      setError(parseApiError(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function toggleService(serviceId: number) {
+    setSelectedServiceIds((current) =>
+      current.includes(serviceId)
+        ? current.filter((id) => id !== serviceId)
+        : [...current, serviceId],
+    );
+  }
+
+  return (
+    <div className="operator-shell">
+      <aside className="operator-sidebar">
+        <div className="operator-logo">
+          <div className="operator-logo__mark">M</div>
+          <div>
+            <strong>MedCenters</strong>
+            <span>Рабочее место</span>
+          </div>
+        </div>
+
+        <div className="operator-menu">
+          {sideActions.map((item) => (
+            <button key={item} type="button" className="operator-menu__item">
+              {item}
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <main className="operator-main">
+        <header className="operator-header">
+          <div>
+            <div className="operator-eyebrow">Единая система для двух медцентров</div>
+            <h1>Главная</h1>
+          </div>
+          <div className="operator-status">PostgreSQL • backend • Alembic</div>
+        </header>
+
+        <section className="doctor-strip">
+          {doctors.map((doctor) => (
+            <button key={doctor} type="button" className="doctor-chip">
+              {doctor}
+            </button>
+          ))}
+        </section>
+
+        <section className="operator-search">
           <input
-            className="input input--compact"
-            placeholder="Полное ФИО, телефон, документ, СНИЛС, полис или №"
+            autoFocus
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            autoFocus
+            placeholder="ФИО, телефон, документ, СНИЛС, полис или № пациента"
           />
-          <button className="button" onClick={() => void loadClients(search)} type="button">
+          <button type="button" onClick={() => void loadClients(search)}>
             Найти
           </button>
-          <button className="button button--secondary" onClick={startCreate} type="button">
+          <button type="button" onClick={startCreate}>
             Добавить
           </button>
-        </div>
-        <span className="toolbar-note">Ищем по всей базе, но не грузим все 100 000 строк в браузер.</span>
-      </div>
+          <span>{loading ? "Идет поиск..." : search.trim() ? `Найдено: ${clients.length}` : "Введите строку поиска"}</span>
+        </section>
 
-      {error ? <div className="panel panel--error">{error}</div> : null}
+        {error ? <div className="operator-alert operator-alert--error">{error}</div> : null}
+        {notice ? <div className="operator-alert">{notice}</div> : null}
 
-      <div className="desktop-grid">
-        <section className="panel panel--table">
-          <div className="panel__heading">
-            <h2>Результаты поиска</h2>
-            <span>{loading ? "Загрузка..." : search.trim() ? `Показано: ${clients.length}` : "Введите запрос"}</span>
-          </div>
-
-          <div className="record-table record-table--clients">
-            <div className="record-table__header record-table__header--clients">
+        <section className="operator-table-card">
+          <div className="operator-table">
+            <div className="operator-row operator-row--head">
               <span>№</span>
               <span>ФИО</span>
               <span>Дата рождения</span>
-              <span>Телефон</span>
-              <span>Документ</span>
-              <span>СНИЛС</span>
+              <span>Регистрация</span>
+              <span>Категории и условия допуска</span>
+              <span>№ справки</span>
+              <span>Гинеколог</span>
+              <span>Стоматолог</span>
+              <span>Дерматолог</span>
+              <span>Невролог</span>
+              <span>Хирург</span>
+              <span>Отоларинголог</span>
+              <span>Офтальмолог</span>
+              <span>Терапевт</span>
+              <span>Психиатр</span>
+              <span>Инфекционист</span>
+              <span>Фтизиатр</span>
+              <span>Узист</span>
+              <span>Примечания</span>
+              <span>Дата обращения</span>
+              <span>Номер карты</span>
+              <span>б/н</span>
+              <span>ФГ</span>
+              <span>Организация</span>
+              <span>МКБ10</span>
+              <span>Реальная дата</span>
             </div>
-            <div className="record-table__body">
+
+            <div className="operator-table__body">
               {clients.map((client) => (
                 <button
                   key={client.id}
-                  className={client.id === selectedClientId ? "record-table__row record-table__row--active record-table__row--clients" : "record-table__row record-table__row--clients"}
                   type="button"
-                  onClick={() => setSelectedClientId(client.id)}
+                  className={client.id === selectedClientId ? "operator-row operator-row--active" : "operator-row"}
+                  onClick={() => {
+                    setSelectedClientId(client.id);
+                    setIsEditingClient(false);
+                  }}
                 >
                   <span>{client.patient_number}</span>
                   <span>{fullName(client)}</span>
                   <span>{formatDate(client.birth_date)}</span>
-                  <span>{client.phone || "-"}</span>
-                  <span>{[client.document_series, client.document_number].filter(Boolean).join(" ") || "-"}</span>
-                  <span>{client.snils || "-"}</span>
+                  <span>{client.address_text || "-"}</span>
+                  <span>-</span>
+                  <span>-</span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                  <span>{client.notes || ""}</span>
+                  <span>{visitDate}</span>
+                  <span>{client.patient_number}</span>
+                  <span>-</span>
+                  <span>-</span>
+                  <span>-</span>
+                  <span>-</span>
+                  <span>{new Date().toLocaleString("ru-RU")}</span>
                 </button>
               ))}
+
               {!loading && search.trim() && clients.length === 0 ? (
-                <div className="record-table__empty">Клиент не найден. Можно нажать “Добавить”.</div>
+                <div className="operator-empty">Клиент не найден. Нажмите “Добавить”, ФИО подтянется из поиска.</div>
               ) : null}
               {!search.trim() ? (
-                <div className="record-table__empty">Введите фамилию, телефон, дату рождения, документ или номер пациента.</div>
+                <div className="operator-empty">Без поиска таблица пустая, чтобы не грузить всю базу в браузер.</div>
               ) : null}
             </div>
           </div>
         </section>
 
-        <aside className="desktop-sidebar">
-          <section className="panel">
-            <div className="panel__heading">
-              <h2>Карточка клиента</h2>
-              <span>{selectedClient ? `№ ${selectedClient.patient_number}` : "Нет выбора"}</span>
-            </div>
-            {selectedClient ? (
-              <div className="details-card">
-                <div className="details-card__name">{fullName(selectedClient)}</div>
-                <div className="details-card__grid">
-                  <div><span>Дата рождения</span><strong>{formatDate(selectedClient.birth_date)}</strong></div>
-                  <div><span>Телефон</span><strong>{selectedClient.phone || "-"}</strong></div>
-                  <div><span>Документ</span><strong>{[selectedClient.document_series, selectedClient.document_number].filter(Boolean).join(" ") || "-"}</strong></div>
-                  <div><span>СНИЛС</span><strong>{selectedClient.snils || "-"}</strong></div>
-                  <div><span>Полис</span><strong>{selectedClient.oms_policy || "-"}</strong></div>
-                  <div><span>Email</span><strong>{selectedClient.email || "-"}</strong></div>
-                </div>
-                <div className="details-card__notes">
-                  <span>Адрес</span>
-                  <p>{selectedClient.address_text || "-"}</p>
-                </div>
-                <button className="button button--secondary" type="button" onClick={() => startEdit(selectedClient)}>
-                  Изменить
+        <section className="operator-bottom">
+          <form className="client-work-card" onSubmit={saveClient}>
+            <div className="work-card__head">
+              <h2>{isEditingClient ? "Информация о клиенте" : "Информация о клиенте"}</h2>
+              <div className="work-card__actions">
+                {selectedClient ? (
+                  <button type="button" onClick={startEdit}>
+                    Изменить
+                  </button>
+                ) : null}
+                {isEditingClient ? (
+                  <button type="button" onClick={cancelEdit}>
+                    Отмена
+                  </button>
+                ) : null}
+                <button type="submit" disabled={saving || !isEditingClient}>
+                  {saving ? "Сохраняю..." : "Сохранить"}
                 </button>
               </div>
-            ) : (
-              <div className="empty-card">Выберите клиента или создайте новую карточку.</div>
-            )}
-          </section>
-
-          <section className="panel">
-            <div className="panel__heading">
-              <h2>{editingClientId ? "Изменение клиента" : "Новый клиент"}</h2>
-              <span>Антидубли: полное ФИО</span>
             </div>
 
-            <form className="form-grid form-grid--dense" onSubmit={submitForm}>
-              <div className="form-row">
-                <input className="input input--compact" placeholder="Фамилия" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} required />
-                <input className="input input--compact" placeholder="Имя" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} required />
-              </div>
-              <input className="input input--compact" placeholder="Отчество" value={form.middle_name ?? ""} onChange={(e) => setForm({ ...form, middle_name: e.target.value })} />
-              <div className="form-row">
-                <input className="input input--compact" type="date" value={form.birth_date} onChange={(e) => setForm({ ...form, birth_date: e.target.value })} required />
-                <input className="input input--compact" placeholder="Пол" value={form.sex ?? ""} onChange={(e) => setForm({ ...form, sex: e.target.value })} />
-              </div>
-              <div className="form-row">
-                <input className="input input--compact" placeholder="Телефон" value={form.phone ?? ""} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-                <input className="input input--compact" placeholder="Email" value={form.email ?? ""} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-              </div>
-              <div className="form-row">
-                <input className="input input--compact" placeholder="Серия документа" value={form.document_series ?? ""} onChange={(e) => setForm({ ...form, document_series: e.target.value })} />
-                <input className="input input--compact" placeholder="Номер документа" value={form.document_number ?? ""} onChange={(e) => setForm({ ...form, document_number: e.target.value })} />
-              </div>
-              <input className="input input--compact" placeholder="Кем выдан" value={form.document_issued_by ?? ""} onChange={(e) => setForm({ ...form, document_issued_by: e.target.value })} />
-              <div className="form-row">
-                <input className="input input--compact" placeholder="СНИЛС" value={form.snils ?? ""} onChange={(e) => setForm({ ...form, snils: e.target.value })} />
-                <input className="input input--compact" placeholder="Полис" value={form.oms_policy ?? ""} onChange={(e) => setForm({ ...form, oms_policy: e.target.value })} />
-              </div>
-              <textarea className="input input--textarea" placeholder="Адрес" value={form.address_text ?? ""} onChange={(e) => setForm({ ...form, address_text: e.target.value })} />
-              <textarea className="input input--textarea" placeholder="Комментарий" value={form.notes ?? ""} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-              <div className="form-row">
-                <button className="button" type="submit" disabled={saving}>
-                  {saving ? "Сохранение..." : editingClientId ? "Сохранить изменения" : "Создать клиента"}
-                </button>
-                <button className="button button--secondary" type="button" onClick={startCreate}>
-                  Очистить
-                </button>
-              </div>
-            </form>
+            <div className="client-form-grid">
+              <label>
+                Фамилия
+                <input value={clientForm.last_name} onChange={(e) => setClientForm({ ...clientForm, last_name: e.target.value })} disabled={!isEditingClient} required />
+              </label>
+              <label>
+                Имя
+                <input value={clientForm.first_name} onChange={(e) => setClientForm({ ...clientForm, first_name: e.target.value })} disabled={!isEditingClient} required />
+              </label>
+              <label>
+                Отчество
+                <input value={clientForm.middle_name ?? ""} onChange={(e) => setClientForm({ ...clientForm, middle_name: e.target.value })} disabled={!isEditingClient} />
+              </label>
+              <label>
+                Дата рождения
+                <input type="date" value={clientForm.birth_date} onChange={(e) => setClientForm({ ...clientForm, birth_date: e.target.value })} disabled={!isEditingClient} required />
+              </label>
+              <label>
+                Телефон
+                <input value={clientForm.phone ?? ""} onChange={(e) => setClientForm({ ...clientForm, phone: e.target.value })} disabled={!isEditingClient} />
+              </label>
+              <label>
+                СНИЛС
+                <input value={clientForm.snils ?? ""} onChange={(e) => setClientForm({ ...clientForm, snils: e.target.value })} disabled={!isEditingClient} />
+              </label>
+              <label>
+                Документ
+                <input value={[clientForm.document_series, clientForm.document_number].filter(Boolean).join(" ")} disabled />
+              </label>
+              <label>
+                Полис
+                <input value={clientForm.oms_policy ?? ""} onChange={(e) => setClientForm({ ...clientForm, oms_policy: e.target.value })} disabled={!isEditingClient} />
+              </label>
+              <label className="client-form-grid__wide">
+                Регистрация
+                <input value={clientForm.address_text ?? ""} onChange={(e) => setClientForm({ ...clientForm, address_text: e.target.value })} disabled={!isEditingClient} />
+              </label>
+              <label className="client-form-grid__wide">
+                Комментарий
+                <textarea value={clientForm.notes ?? ""} onChange={(e) => setClientForm({ ...clientForm, notes: e.target.value })} disabled={!isEditingClient} />
+              </label>
+            </div>
+          </form>
+
+          <section className="visit-work-card">
+            <div className="work-card__head">
+              <h2>Оформление обращения</h2>
+              <strong>{selectedClient ? fullName(selectedClient) : "Клиент не выбран"}</strong>
+            </div>
+
+            <div className="visit-controls">
+              <label>
+                Дата
+                <input type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)} />
+              </label>
+              <label>
+                Оплата
+                <select value={paymentType} onChange={(e) => setPaymentType(e.target.value)}>
+                  <option value="cash">Наличные</option>
+                  <option value="card">Карта</option>
+                  <option value="invoice">Безнал</option>
+                </select>
+              </label>
+              <label>
+                Сумма
+                <input value={totalAmount.toFixed(2)} readOnly />
+              </label>
+            </div>
+
+            <div className="services-picker">
+              {services.map((service) => (
+                <label key={service.id} className={selectedServiceIds.includes(service.id) ? "service-pill service-pill--active" : "service-pill"}>
+                  <input
+                    type="checkbox"
+                    checked={selectedServiceIds.includes(service.id)}
+                    onChange={() => toggleService(service.id)}
+                  />
+                  <span>{service.name}</span>
+                  <strong>{service.price}</strong>
+                </label>
+              ))}
+            </div>
+
+            <textarea
+              className="visit-comment"
+              placeholder="Комментарий к обращению"
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+            />
+            <button className="primary-action" type="button" disabled={saving} onClick={() => void createVisit()}>
+              {saving ? "Оформляю..." : "Оформить обращение"}
+            </button>
           </section>
-        </aside>
-      </div>
-    </section>
+        </section>
+      </main>
+    </div>
   );
 }

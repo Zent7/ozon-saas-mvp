@@ -22,6 +22,10 @@ export function AppLayout() {
   const location = useLocation();
   const pageTitle = titles[location.pathname] ?? "Рабочее место регистратора";
 
+  if (location.pathname === "/" || location.pathname === "/clients") {
+    return <Outlet />;
+  }
+
   return (
     <div className="workspace">
       <header className="topbar">
