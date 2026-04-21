@@ -101,6 +101,13 @@ def list_clients(
         Client.oms_policy.ilike(pattern),
         Client.document_series.ilike(pattern),
         Client.document_number.ilike(pattern),
+        Client.registration_text.ilike(pattern),
+        Client.admission_category.ilike(pattern),
+        Client.reference_number.ilike(pattern),
+        Client.card_number.ilike(pattern),
+        Client.journal_number.ilike(pattern),
+        Client.organization.ilike(pattern),
+        Client.mkb10.ilike(pattern),
     ]
     if name_tokens:
         search_conditions.append(

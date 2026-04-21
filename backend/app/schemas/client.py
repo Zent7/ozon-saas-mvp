@@ -20,6 +20,31 @@ class ClientBase(BaseModel):
     oms_policy: str | None = None
     address_text: str | None = None
     notes: str | None = None
+    registration_text: str | None = None
+    admission_category: str | None = None
+    reference_number: str | None = None
+    doctor_gynecologist: str | None = None
+    doctor_stomatologist: str | None = None
+    doctor_dermatologist: str | None = None
+    doctor_neurologist: str | None = None
+    doctor_surgeon: str | None = None
+    doctor_otolaryngologist: str | None = None
+    doctor_ophthalmologist: str | None = None
+    doctor_therapist: str | None = None
+    doctor_psychiatrist: str | None = None
+    doctor_infectionist: str | None = None
+    doctor_phthisiatrician: str | None = None
+    doctor_uzist: str | None = None
+    indications: str | None = None
+    encounter_date_text: str | None = None
+    card_number: str | None = None
+    journal_number: str | None = None
+    no_number: str | None = None
+    flg: str | None = None
+    organization: str | None = None
+    mkb10: str | None = None
+    real_date_text: str | None = None
+    legacy_payload_json: dict | None = None
 
 
 class ClientCreate(ClientBase):

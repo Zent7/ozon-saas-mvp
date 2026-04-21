@@ -1,4 +1,4 @@
-import type { FormEvent } from "react";
+import type { CSSProperties, FormEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 import { api, type Client, type ClientPayload, type Service } from "../shared/api";
@@ -43,6 +43,7 @@ const columns = [
   { key: "note", label: "Примечания" },
   { key: "encounterDate", label: "Дата обращения" },
   { key: "cardNumber", label: "Номер карты" },
+  { key: "journalNumber", label: "Номер журнала" },
   { key: "noNumber", label: "б/н" },
   { key: "fg", label: "ФГ" },
   { key: "organization", label: "Организация" },
@@ -120,6 +121,31 @@ function clientToForm(client: Client): ClientPayload {
     oms_policy: client.oms_policy ?? "",
     address_text: client.address_text ?? "",
     notes: client.notes ?? "",
+    registration_text: client.registration_text ?? "",
+    admission_category: client.admission_category ?? "",
+    reference_number: client.reference_number ?? "",
+    doctor_gynecologist: client.doctor_gynecologist ?? "",
+    doctor_stomatologist: client.doctor_stomatologist ?? "",
+    doctor_dermatologist: client.doctor_dermatologist ?? "",
+    doctor_neurologist: client.doctor_neurologist ?? "",
+    doctor_surgeon: client.doctor_surgeon ?? "",
+    doctor_otolaryngologist: client.doctor_otolaryngologist ?? "",
+    doctor_ophthalmologist: client.doctor_ophthalmologist ?? "",
+    doctor_therapist: client.doctor_therapist ?? "",
+    doctor_psychiatrist: client.doctor_psychiatrist ?? "",
+    doctor_infectionist: client.doctor_infectionist ?? "",
+    doctor_phthisiatrician: client.doctor_phthisiatrician ?? "",
+    doctor_uzist: client.doctor_uzist ?? "",
+    indications: client.indications ?? "",
+    encounter_date_text: client.encounter_date_text ?? "",
+    card_number: client.card_number ?? "",
+    journal_number: client.journal_number ?? "",
+    no_number: client.no_number ?? "",
+    flg: client.flg ?? "",
+    organization: client.organization ?? "",
+    mkb10: client.mkb10 ?? "",
+    real_date_text: client.real_date_text ?? "",
+    legacy_payload_json: client.legacy_payload_json ?? null,
   };
 }
 
@@ -332,7 +358,7 @@ export function ClientListPage() {
     window.localStorage.setItem(columnStorageKey, JSON.stringify(columnWidths));
   }, [columnWidths]);
 
-  function startColumnResize(key: string, event: React.MouseEvent<HTMLButtonElement>) {
+  function startColumnResize(key: string, event: ReactMouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     event.stopPropagation();
     const root = document.documentElement;
@@ -359,7 +385,7 @@ export function ClientListPage() {
 
   const columnStyle = Object.fromEntries(
     Object.entries(columnWidths).map(([key, width]) => [`--excel-col-${key}`, `${width}px`]),
-  ) as React.CSSProperties;
+  ) as CSSProperties;
 
   return (
     <div className="operator-shell">
@@ -449,29 +475,30 @@ export function ClientListPage() {
                   <span>{client.patient_number}</span>
                   <span>{fullName(client)}</span>
                   <span>{formatDate(client.birth_date)}</span>
-                  <span>{client.address_text || "-"}</span>
-                  <span>-</span>
-                  <span>-</span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
+                  <span>{client.registration_text || client.address_text || "-"}</span>
+                  <span>{client.admission_category || ""}</span>
+                  <span>{client.reference_number || ""}</span>
+                  <span>{client.doctor_gynecologist || ""}</span>
+                  <span>{client.doctor_stomatologist || ""}</span>
+                  <span>{client.doctor_dermatologist || ""}</span>
+                  <span>{client.doctor_neurologist || ""}</span>
+                  <span>{client.doctor_surgeon || ""}</span>
+                  <span>{client.doctor_otolaryngologist || ""}</span>
+                  <span>{client.doctor_ophthalmologist || ""}</span>
+                  <span>{client.doctor_therapist || ""}</span>
+                  <span>{client.doctor_psychiatrist || ""}</span>
+                  <span>{client.doctor_infectionist || ""}</span>
+                  <span>{client.doctor_phthisiatrician || ""}</span>
+                  <span>{client.doctor_uzist || ""}</span>
                   <span>{client.notes || ""}</span>
-                  <span>{visitDate}</span>
-                  <span>{client.patient_number}</span>
-                  <span>-</span>
-                  <span>-</span>
-                  <span>-</span>
-                  <span>-</span>
-                  <span>{new Date().toLocaleString("ru-RU")}</span>
+                  <span>{client.encounter_date_text || ""}</span>
+                  <span>{client.card_number || client.patient_number}</span>
+                  <span>{client.journal_number || ""}</span>
+                  <span>{client.no_number || ""}</span>
+                  <span>{client.flg || ""}</span>
+                  <span>{client.organization || ""}</span>
+                  <span>{client.mkb10 || ""}</span>
+                  <span>{client.real_date_text || ""}</span>
                 </button>
               ))}
 

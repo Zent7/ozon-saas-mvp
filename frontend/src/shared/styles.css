@@ -29,6 +29,7 @@
   --excel-col-note: 165px;
   --excel-col-encounterDate: 72px;
   --excel-col-cardNumber: 68px;
+  --excel-col-journalNumber: 68px;
   --excel-col-noNumber: 22px;
   --excel-col-fg: 22px;
   --excel-col-organization: 88px;
@@ -889,7 +890,7 @@ textarea {
 }
 
 .sketch-table__grid {
-  min-width: 1622px;
+  min-width: 1690px;
   display: grid;
   grid-template-columns:
     var(--excel-col-number)
@@ -913,6 +914,7 @@ textarea {
     var(--excel-col-note)
     var(--excel-col-encounterDate)
     var(--excel-col-cardNumber)
+    var(--excel-col-journalNumber)
     var(--excel-col-noNumber)
     var(--excel-col-fg)
     var(--excel-col-organization)
@@ -988,8 +990,8 @@ textarea {
 }
 
 .sketch-table__grid--head > span:nth-child(n + 7):nth-child(-n + 18),
-.sketch-table__grid--head > span:nth-child(22),
-.sketch-table__grid--head > span:nth-child(23) {
+.sketch-table__grid--head > span:nth-child(23),
+.sketch-table__grid--head > span:nth-child(24) {
   writing-mode: vertical-rl;
   text-orientation: mixed;
   min-height: 104px;
@@ -1000,8 +1002,8 @@ textarea {
 }
 
 .sketch-table__grid--head > span:nth-child(n + 7):nth-child(-n + 18) .col-resize-handle,
-.sketch-table__grid--head > span:nth-child(22) .col-resize-handle,
-.sketch-table__grid--head > span:nth-child(23) .col-resize-handle {
+.sketch-table__grid--head > span:nth-child(23) .col-resize-handle,
+.sketch-table__grid--head > span:nth-child(24) .col-resize-handle {
   width: 8px;
 }
 

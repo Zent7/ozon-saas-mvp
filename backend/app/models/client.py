@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import JSON, Date, DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -29,6 +29,31 @@ class Client(TimestampMixin, Base):
     oms_policy: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
     address_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    registration_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    admission_category: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reference_number: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    doctor_gynecologist: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    doctor_stomatologist: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    doctor_dermatologist: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    doctor_neurologist: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    doctor_surgeon: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    doctor_otolaryngologist: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    doctor_ophthalmologist: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    doctor_therapist: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    doctor_psychiatrist: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    doctor_infectionist: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    doctor_phthisiatrician: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    doctor_uzist: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    indications: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encounter_date_text: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    card_number: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    journal_number: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    no_number: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    flg: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    organization: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    mkb10: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    real_date_text: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    legacy_payload_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
