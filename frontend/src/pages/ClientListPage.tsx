@@ -1,5 +1,5 @@
 import type { CSSProperties, FormEvent, MouseEvent as ReactMouseEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api, type Client, type ClientPayload, type Service } from "../shared/api";
 
@@ -194,6 +194,7 @@ export function ClientListPage() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => readSavedColumnWidths());
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const selectedClient = clients.find((client) => client.id === selectedClientId) ?? null;
   const selectedServices = services.filter((service) => selectedServiceIds.includes(service.id));
@@ -238,6 +239,14 @@ export function ClientListPage() {
 
   useEffect(() => {
     void loadServices();
+  }, []);
+
+  useEffect(() => {
+    const focusId = window.setTimeout(() => {
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    }, 0);
+    return () => window.clearTimeout(focusId);
   }, []);
 
   useEffect(() => {
@@ -429,6 +438,7 @@ export function ClientListPage() {
 
           <div className="operator-search">
             <input
+              ref={searchInputRef}
               autoFocus
               value={search}
               onChange={(event) => setSearch(event.target.value)}

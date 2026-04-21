@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     app_name: str = "MedCenters API"
     app_env: str = "dev"
     api_v1_prefix: str = "/api/v1"
-    database_url: str = "postgresql+psycopg://medcenters:medcenters@localhost:5432/medcenters"
+    database_url: str = "postgresql+psycopg://medcenters:medcenters@127.0.0.1:5434/medcenters"
     frontend_origin: str = "http://localhost:5173"
     generated_documents_dir: str = "storage/generated"
 
