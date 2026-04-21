@@ -49,8 +49,8 @@ function renderServicesPage() {
   }
 
   return `
-    <section class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap;">
+    <section class="card services-page">
+      <div class="services-page__header">
         <div>
           <h3 style="margin:0;">Услуги</h3>
           <p class="muted" style="margin:6px 0 0 0;">Справочник услуг для выбора и настройки</p>
@@ -80,8 +80,8 @@ function renderServicesPage() {
           .join("")}
       </div>
 
-      <div class="sketch-table sketch-table--excel">
-        <div class="sketch-table__grid sketch-table__grid--head" style="grid-template-columns: 80px 2fr 1.2fr 120px 1.5fr 2fr 120px;">
+      <div class="services-table">
+        <div class="services-table__grid services-table__grid--head">
           <span>ID</span>
           <span>Наименование</span>
           <span>Группа</span>
@@ -97,8 +97,7 @@ function renderServicesPage() {
                 .map(
                   (service) => `
                     <button
-                      class="sketch-table__grid sketch-table__grid--row"
-                      style="grid-template-columns: 80px 2fr 1.2fr 120px 1.5fr 2fr 120px; text-align:left;"
+                      class="services-table__grid services-table__grid--row"
                       data-service-id="${service.id}"
                     >
                       <span>${service.id}</span>
