@@ -168,6 +168,18 @@ function servicePrice(service: Service) {
   return Number(service.price || 0);
 }
 
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("ru-RU", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function displayValue(value?: string | number | null) {
+  if (value === null || value === undefined || value === "") return "не указано";
+  return String(value);
+}
+
 function readSavedColumnWidths() {
   try {
     const saved = window.localStorage.getItem(columnStorageKey);
@@ -363,6 +375,43 @@ export function ClientListPage() {
     );
   }
 
+  function downloadDemoDocument() {
+    if (!selectedClient) {
+      setError("Сначала выберите клиента.");
+      return;
+    }
+
+    const selectedServiceNames = selectedServices.map((service) => service.name).join(", ") || "услуги не выбраны";
+    const documentText = [
+      "МЕДИЦИНСКАЯ СПРАВКА",
+      "",
+      `Пациент: ${fullName(selectedClient)}`,
+      `№ пациента: ${selectedClient.patient_number}`,
+      `Дата рождения: ${formatDate(selectedClient.birth_date)}`,
+      `Регистрация: ${displayValue(selectedClient.registration_text || selectedClient.address_text)}`,
+      `Категории и условия допуска: ${displayValue(selectedClient.admission_category)}`,
+      `№ справки: ${displayValue(selectedClient.reference_number)}`,
+      `Дата обращения: ${displayValue(selectedClient.encounter_date_text || visitDate)}`,
+      `Организация: ${displayValue(selectedClient.organization)}`,
+      `МКБ10: ${displayValue(selectedClient.mkb10)}`,
+      "",
+      `Выбранные услуги: ${selectedServiceNames}`,
+      `Сумма: ${formatMoney(totalAmount)} руб.`,
+      "",
+      "Заключение: годен.",
+      "Документ сформирован в демонстрационной версии рабочего места оператора.",
+    ].join("\n");
+
+    const blob = new Blob([documentText], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `spravka-${selectedClient.patient_number}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setNotice(`Справка для ${fullName(selectedClient)} сформирована.`);
+  }
+
   useEffect(() => {
     window.localStorage.setItem(columnStorageKey, JSON.stringify(columnWidths));
   }, [columnWidths]);
@@ -400,11 +449,11 @@ export function ClientListPage() {
     <div className="operator-shell">
       <aside className="operator-sidebar">
         <div className="operator-logo">
-          <div className="operator-logo__mark">M</div>
-          <div>
-            <strong>MedCenters</strong>
-            <span>Рабочее место</span>
-          </div>
+            <div className="operator-logo__mark">M</div>
+            <div>
+              <strong>MedCenters</strong>
+              <span>Рабочее место</span>
+            </div>
         </div>
 
         <div className="operator-menu">
@@ -542,6 +591,41 @@ export function ClientListPage() {
               </div>
             </div>
 
+            <div className="client-summary-grid">
+              <div>
+                <span>№ пациента</span>
+                <strong>{selectedClient ? selectedClient.patient_number : "не выбран"}</strong>
+              </div>
+              <div>
+                <span>ФИО</span>
+                <strong>{selectedClient ? fullName(selectedClient) : "найдите клиента сверху"}</strong>
+              </div>
+              <div>
+                <span>Дата рождения</span>
+                <strong>{selectedClient ? formatDate(selectedClient.birth_date) : "не указано"}</strong>
+              </div>
+              <div>
+                <span>Категории</span>
+                <strong>{displayValue(selectedClient?.admission_category)}</strong>
+              </div>
+              <div className="client-summary-grid__wide">
+                <span>Регистрация</span>
+                <strong>{displayValue(selectedClient?.registration_text || selectedClient?.address_text)}</strong>
+              </div>
+              <div>
+                <span>Организация</span>
+                <strong>{displayValue(selectedClient?.organization)}</strong>
+              </div>
+              <div>
+                <span>МКБ10</span>
+                <strong>{displayValue(selectedClient?.mkb10)}</strong>
+              </div>
+              <div className="client-summary-grid__wide">
+                <span>Примечание</span>
+                <strong>{displayValue(selectedClient?.notes)}</strong>
+              </div>
+            </div>
+
             <div className="client-form-grid">
               <label>
                 Фамилия
@@ -589,7 +673,7 @@ export function ClientListPage() {
           <section className="visit-work-card">
             <div className="work-card__head">
               <h2>Оформление обращения</h2>
-              <strong>{selectedClient ? fullName(selectedClient) : "Клиент не выбран"}</strong>
+              <strong>{selectedClient ? fullName(selectedClient) : "Клиент не выбран"} · услуг: {services.length}</strong>
             </div>
 
             <div className="visit-controls">
@@ -612,6 +696,9 @@ export function ClientListPage() {
             </div>
 
             <div className="services-picker">
+              {services.length === 0 ? (
+                <div className="services-empty">Услуги не загрузились. Проверьте, что backend запущен на 8000.</div>
+              ) : null}
               {services.map((service) => (
                 <label key={service.id} className={selectedServiceIds.includes(service.id) ? "service-pill service-pill--active" : "service-pill"}>
                   <input
@@ -631,9 +718,14 @@ export function ClientListPage() {
               value={comment}
               onChange={(e) => setComment(e.target.value)}
             />
-            <button className="primary-action" type="button" disabled={saving} onClick={() => void createVisit()}>
-              {saving ? "Оформляю..." : "Оформить обращение"}
-            </button>
+            <div className="visit-actions">
+              <button className="primary-action" type="button" disabled={saving} onClick={() => void createVisit()}>
+                {saving ? "Оформляю..." : "Оформить обращение"}
+              </button>
+              <button className="secondary-action" type="button" disabled={!selectedClient} onClick={downloadDemoDocument}>
+                Сформировать справку
+              </button>
+            </div>
           </section>
         </section>
       </main>
