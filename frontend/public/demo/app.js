@@ -163,6 +163,8 @@ const data = {
   backendSearch: "",
   backendSearchLoading: false,
   backendSearchError: "",
+  serverServices: [],
+  serverServicesLoaded: false,
   clientOverrides: {},
   servicesDirty: false,
 };
@@ -375,7 +377,8 @@ function markClientChanged(client, isCreated = false) {
 }
 
 function refreshServiceCatalog() {
-  data.serviceCatalog = structuredServices
+  const source = data.serverServicesLoaded && data.serverServices.length ? data.serverServices : structuredServices;
+  data.serviceCatalog = source
     .filter((service) => service.isActive !== false)
     .slice()
     .sort((a, b) => {
@@ -450,7 +453,11 @@ function getSelectedClient() {
 }
 
 function getServiceByName(name) {
-  return structuredServices.find((service) => service.name === name) || null;
+  return (
+    data.serverServices.find((service) => service.name === name) ||
+    structuredServices.find((service) => service.name === name) ||
+    null
+  );
 }
 
 function getSortedServiceGroups() {
@@ -461,7 +468,8 @@ function getSortedServiceGroups() {
 }
 
 function getSortedServices() {
-  return structuredServices
+  const source = data.serverServicesLoaded && data.serverServices.length ? data.serverServices : structuredServices;
+  return source
     .filter((service) => service.isActive !== false)
     .slice()
     .sort((a, b) => {
@@ -472,6 +480,10 @@ function getSortedServices() {
 
 function calculateVisitAmount(serviceNames = []) {
   return serviceNames.reduce((total, name) => total + Number(getServiceByName(name)?.price || 0), 0);
+}
+
+function getServerServiceByName(name) {
+  return data.serverServices.find((service) => service.name === name) || null;
 }
 
 function formatDateTime(value = new Date()) {
@@ -544,6 +556,91 @@ function mapApiClient(client) {
     realDate: client.real_date_text || "",
     rawApiClient: client,
   };
+}
+
+function mapApiService(service) {
+  return {
+    id: service.id,
+    backendId: service.id,
+    legacySourceId: service.legacy_source_id,
+    name: service.name,
+    groupId: service.category_id,
+    price: Number(service.price || 0),
+    isActive: service.is_active,
+    requiresSequence: Boolean(service.requires_sequence),
+    recallAfterDays: service.recall_after_days || null,
+    sortOrder: service.legacy_source_id || service.id,
+    doctorRoleIds: [],
+  };
+}
+
+async function apiRequest(path, options = {}) {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
+
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const errorBody = await response.json();
+      detail = errorBody?.detail?.message || errorBody?.detail || "";
+    } catch {
+      detail = await response.text();
+    }
+    throw new Error(detail || `HTTP ${response.status}`);
+  }
+
+  if (response.status === 204) return null;
+  return response.json();
+}
+
+async function loadServicesFromBackend() {
+  try {
+    const services = await apiRequest("/services");
+    data.serverServices = Array.isArray(services) ? services.map(mapApiService) : [];
+    data.serverServicesLoaded = true;
+    refreshServiceCatalog();
+    renderApp();
+  } catch (error) {
+    data.serverServicesLoaded = false;
+    console.warn("Не удалось загрузить услуги с backend", error);
+  }
+}
+
+function parseRuDateToIso(value, fallback = "1900-01-01") {
+  const text = String(value || "").trim();
+  const match = text.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (match) return `${match[3]}-${match[2]}-${match[1]}`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  return fallback;
+}
+
+function upsertClientInMemory(client) {
+  if (!client) return null;
+  const mappedClient = client.rawApiClient ? client : mapApiClient(client);
+  const existingIndex = data.clients.findIndex(
+    (item) =>
+      String(item.backendId || item.id) === String(mappedClient.backendId || mappedClient.id) ||
+      String(item.patientNumber || "") === String(mappedClient.patientNumber || ""),
+  );
+  if (existingIndex >= 0) {
+    data.clients[existingIndex] = { ...data.clients[existingIndex], ...mappedClient };
+  } else {
+    data.clients.unshift(mappedClient);
+  }
+
+  const backendIndex = data.backendClients.findIndex((item) => String(item.id) === String(mappedClient.id));
+  if (backendIndex >= 0) {
+    data.backendClients[backendIndex] = mappedClient;
+  } else {
+    data.backendClients.unshift(mappedClient);
+  }
+
+  return mappedClient;
 }
 
 function getVisitTitle(visit) {
@@ -647,6 +744,7 @@ function createVisitForClient(clientId, options = {}) {
   appState.visitServiceGroupFilter = "all";
   appState.visitServiceSearch = "";
   persistDemoState();
+  syncVisitToBackend(visit, client);
 
   return visit;
 }
@@ -667,7 +765,58 @@ function updateVisit(visitId, patch = {}) {
   });
 
   persistDemoState();
+  const client = getClientPool().find((item) => String(item.id) === String(visit.clientId));
+  if (client) syncVisitToBackend(visit, client);
   return visit;
+}
+
+async function syncVisitToBackend(visit, client) {
+  if (!visit || !client || visit.__backendSyncing) return;
+  const clientId = client.backendId || client.id;
+  if (!clientId || !data.serverServicesLoaded) return;
+
+  visit.__backendSyncing = true;
+  try {
+    if (!visit.backendId) {
+      const encounter = await apiRequest("/encounters", {
+        method: "POST",
+        body: JSON.stringify({
+          center_id: 1,
+          client_id: Number(clientId),
+          encounter_date: new Date().toISOString().slice(0, 10),
+          payment_type: visit.paymentType || "cash",
+          total_amount: Number(visit.amount || calculateVisitAmount(visit.serviceNames || [])),
+          comment: visit.comment || "",
+        }),
+      });
+      visit.backendId = encounter.id;
+    }
+
+    if (!visit.__backendServicesSaved && Array.isArray(visit.serviceNames)) {
+      for (const serviceName of visit.serviceNames) {
+        const service = getServerServiceByName(serviceName);
+        if (!service?.backendId) continue;
+        const unitPrice = Number(service.price || 0);
+        await apiRequest("/encounter-services", {
+          method: "POST",
+          body: JSON.stringify({
+            encounter_id: visit.backendId,
+            service_id: service.backendId,
+            quantity: 1,
+            unit_price: unitPrice,
+            line_total: unitPrice,
+          }),
+        });
+      }
+      visit.__backendServicesSaved = true;
+    }
+
+    persistDemoState();
+  } catch (error) {
+    console.warn("Не удалось сохранить обращение в backend", error);
+  } finally {
+    visit.__backendSyncing = false;
+  }
 }
 
 function syncClientServicesFromVisit(client, visit) {
@@ -785,6 +934,32 @@ function saveDoctorExam(examId, updatedFields) {
   exam.status = "completed";
   rememberMkb10Value(exam.fields?.mkb10);
   persistDemoState();
+  syncDoctorExamToBackend(exam);
+}
+
+async function syncDoctorExamToBackend(exam) {
+  const client = getClientPool().find((item) => String(item.id) === String(exam.clientId));
+  const visit = data.visits.find((item) => String(item.id) === String(exam.visitId));
+  const clientId = client?.backendId || client?.id;
+  if (!clientId) return;
+
+  try {
+    const savedExam = await apiRequest("/doctor-exams", {
+      method: "POST",
+      body: JSON.stringify({
+        client_id: Number(clientId),
+        encounter_id: visit?.backendId ? Number(visit.backendId) : null,
+        doctor_role_id: exam.doctorRoleId,
+        doctor_name: getDoctorDisplayName(exam.doctorRoleId),
+        fields_json: exam.fields || {},
+        is_completed: Boolean(exam.isCompleted),
+      }),
+    });
+    exam.backendId = savedExam.id;
+    persistDemoState();
+  } catch (error) {
+    console.warn("Не удалось сохранить карточку врача в backend", error);
+  }
 }
 
 function getDoctorExamStatus(clientId, doctorRoleId) {
@@ -2138,6 +2313,7 @@ actionModal?.querySelector(".modal__backdrop")?.addEventListener("click", () => 
 
 window.appState = appState;
 window.data = data;
+window.getSelectedClient = getSelectedClient;
 window.getDoctorTemplate = getDoctorTemplate;
 window.getDoctorExam = getDoctorExam;
 window.getOrCreateDraftVisit = getOrCreateDraftVisit;
@@ -2151,5 +2327,12 @@ window.markServicesChanged = markServicesChanged;
 window.openDoctorExamCard = openDoctorExamCard;
 window.closeDoctorExamCard = closeDoctorExamCard;
 window.saveDoctorExam = saveDoctorExam;
+window.API_BASE_URL = API_BASE_URL;
+window.apiRequest = apiRequest;
+window.mapApiClient = mapApiClient;
+window.upsertClientInMemory = upsertClientInMemory;
+window.parseRuDateToIso = parseRuDateToIso;
+window.loadServicesFromBackend = loadServicesFromBackend;
 
 renderApp();
+loadServicesFromBackend();

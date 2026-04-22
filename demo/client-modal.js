@@ -93,7 +93,12 @@ function bindClientServiceGroupButtons() {
 }
 
 function openClientModal(clientId = null) {
-  const editingClient = clientId ? data.clients.find((client) => client.id === clientId) : null;
+  const selectedClient = window.getSelectedClient?.();
+  const editingClient = clientId
+    ? selectedClient && String(selectedClient.id) === String(clientId)
+      ? selectedClient
+      : data.clients.find((client) => String(client.id) === String(clientId))
+    : null;
   const raw = editingClient ? editingClient.fullName : appState.clientSearch.trim();
   const parts = raw.split(/\s+/).filter(Boolean);
   const [lastName = "", firstName = "", middleName = ""] = parts;
@@ -238,7 +243,7 @@ function openClientModal(clientId = null) {
     actionModal.classList.add("hidden");
   });
 
-  form?.addEventListener("submit", (event) => {
+  form?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(form);
     const center = appState.centerFilter === "all" ? "Медцентр 1" : appState.centerFilter;
@@ -252,7 +257,7 @@ function openClientModal(clientId = null) {
       .map((value) => String(value).trim())
       .filter(Boolean);
 
-    const targetClient =
+    let targetClient =
       editingClient ||
       {
         id: Math.max(...data.clients.map((client) => client.id)) + 1,
@@ -273,9 +278,62 @@ function openClientModal(clientId = null) {
       services: selectedServiceValues,
     });
 
+    try {
+      const addressText = [
+        formData.get("country"),
+        formData.get("city"),
+        formData.get("street"),
+        formData.get("house"),
+        formData.get("building"),
+        formData.get("flat"),
+      ]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+        .join(", ");
+      const backendId = editingClient?.backendId || (editingClient?.rawApiClient ? editingClient.id : null);
+      const savedClient = await window.apiRequest?.(backendId ? `/clients/${backendId}` : "/clients", {
+        method: backendId ? "PUT" : "POST",
+        body: JSON.stringify({
+          last_name: String(formData.get("lastName") || "").trim() || "Без фамилии",
+          first_name: String(formData.get("firstName") || "").trim() || "Без имени",
+          middle_name: String(formData.get("middleName") || "").trim() || null,
+          birth_date: window.parseRuDateToIso?.(formData.get("birthDate")) || "1900-01-01",
+          sex: String(formData.get("gender") || "").toLowerCase().startsWith("ж") ? "F" : "M",
+          phone: String(formData.get("phone") || "").trim() || null,
+          email: String(formData.get("email") || "").trim() || null,
+          document_type: String(formData.get("documentType") || "").trim() || null,
+          document_series: String(formData.get("passportSeries") || "").trim() || null,
+          document_number: String(formData.get("passportNumber") || "").trim() || null,
+          document_issued_by: String(formData.get("issuedBy") || "").trim() || null,
+          document_issued_date: window.parseRuDateToIso?.(formData.get("passportDate"), "") || null,
+          snils: String(formData.get("snils") || "").trim() || null,
+          address_text: addressText || null,
+          notes: String(formData.get("comment") || "").trim() || null,
+          registration_text: addressText || null,
+          legacy_payload_json: {
+            source: "demo-client-modal",
+            services: selectedServiceValues,
+          },
+        }),
+      });
+      if (savedClient) {
+        const savedMapped = window.upsertClientInMemory?.(savedClient);
+        if (savedMapped) {
+          Object.assign(savedMapped, targetClient, {
+            backendId: savedClient.id,
+            patientNumber: savedClient.patient_number,
+          });
+          targetClient = savedMapped;
+        }
+      }
+    } catch (error) {
+      console.warn("Client backend save failed", error);
+      showToast(`Backend не сохранил клиента: ${error.message || error}`);
+    }
+
     const isCreated = !editingClient;
 
-    if (isCreated) {
+    if (isCreated && !data.clients.some((client) => String(client.id) === String(targetClient.id))) {
       targetClient.__demoCreated = true;
       data.clients.unshift(targetClient);
     }

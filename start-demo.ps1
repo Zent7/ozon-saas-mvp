@@ -30,7 +30,32 @@ npm run dev -- --host 127.0.0.1 --port 5173
 "@
 
 Start-Process powershell.exe -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $backendCommand
-Start-Sleep -Seconds 4
+
+$backendReady = $false
+for ($i = 0; $i -lt 30; $i++) {
+  Start-Sleep -Seconds 1
+  try {
+    Invoke-WebRequest -Uri "http://127.0.0.1:8000/api/v1/health" -UseBasicParsing -TimeoutSec 2 | Out-Null
+    $backendReady = $true
+    break
+  } catch {
+    # Backend is still starting.
+  }
+}
+
+if (-not $backendReady) {
+  Write-Host "Backend did not become ready on http://127.0.0.1:8000. Check the backend PowerShell window." -ForegroundColor Red
+  throw "Backend startup failed"
+}
+
+try {
+  $importResult = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/api/v1/imports/demo-legacy" -TimeoutSec 120
+  Write-Host "Legacy demo DB synced. Created: $($importResult.created). Updated: $($importResult.updated). Total: $($importResult.total)." -ForegroundColor Green
+} catch {
+  Write-Host "Could not sync legacy demo DB. Search may use browser fallback only." -ForegroundColor Yellow
+  Write-Host $_.Exception.Message -ForegroundColor Yellow
+}
+
 Start-Process powershell.exe -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $frontendCommand
 Start-Sleep -Seconds 5
 Start-Process "http://127.0.0.1:5173/"

@@ -8,6 +8,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://medcenters:medcenters@127.0.0.1:5434/medcenters"
     frontend_origin: str = "http://localhost:5173"
     generated_documents_dir: str = "storage/generated"
+    deletion_notify_email: str | None = None
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

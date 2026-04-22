@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -36,7 +36,15 @@ def create_encounter_service(
     if service is None or not service.is_active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Услуга не найдена")
 
-    item = EncounterService(**payload.model_dump())
+    payload_data = payload.model_dump()
+    if service.requires_sequence and not payload_data.get("sequence_number"):
+        next_number = (
+            db.execute(select(func.count(EncounterService.id)).where(EncounterService.service_id == service.id)).scalar_one()
+            or 0
+        ) + 1
+        payload_data["sequence_number"] = str(next_number)
+
+    item = EncounterService(**payload_data)
     db.add(item)
     db.commit()
     db.refresh(item)

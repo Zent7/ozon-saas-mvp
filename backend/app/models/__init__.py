@@ -3,6 +3,7 @@ from app.models.center import Center
 from app.models.client import Client
 from app.models.client_document import ClientDocument
 from app.models.document_template import DocumentTemplate
+from app.models.doctor_exam import DoctorExam
 from app.models.encounter import Encounter
 from app.models.encounter_service import EncounterService
 from app.models.import_batch import ImportBatch
@@ -17,6 +18,7 @@ __all__ = [
     "Client",
     "ClientDocument",
     "DocumentTemplate",
+    "DoctorExam",
     "Encounter",
     "EncounterService",
     "ImportBatch",

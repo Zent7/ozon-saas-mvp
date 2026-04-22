@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import datetime, timezone
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, func, or_, select
@@ -9,6 +10,7 @@ from app.models.client import Client
 from app.schemas.client import ClientCreate, ClientRead, ClientUpdate
 from app.services.audit import write_audit_log
 from app.services.duplicates import build_duplicate_check_keys
+from app.services.notifications import send_deletion_notification
 
 router = APIRouter()
 
@@ -89,6 +91,8 @@ def list_clients(
         return []
 
     pattern = f"%{value}%"
+    compact_value = re.sub(r"\s+", "", value.lower())
+    compact_pattern = f"%{compact_value}%" if compact_value else pattern
     name_tokens = value.split()
     numeric_value = int(value) if value.isdigit() and len(value) <= 9 else None
     date_value = parse_search_date(value)
@@ -109,6 +113,16 @@ def list_clients(
         Client.organization.ilike(pattern),
         Client.mkb10.ilike(pattern),
     ]
+    full_name_expr = func.lower(
+        func.concat(Client.last_name, " ", Client.first_name, " ", func.coalesce(Client.middle_name, ""))
+    )
+    compact_name_expr = func.replace(full_name_expr, " ", "")
+    search_conditions.extend(
+        [
+            full_name_expr.ilike(pattern),
+            compact_name_expr.ilike(compact_pattern),
+        ]
+    )
     if name_tokens:
         search_conditions.append(
             and_(
@@ -130,7 +144,7 @@ def list_clients(
     query = (
         select(Client)
         .where(Client.deleted_at.is_(None), or_(*search_conditions))
-        .order_by(Client.patient_number.desc())
+        .order_by(Client.patient_number.asc())
         .limit(limit)
     )
     clients = db.execute(query).scalars().all()
@@ -195,3 +209,31 @@ def update_client(client_id: int, payload: ClientUpdate, db: Session = Depends(g
         payload_json={"full_name": f"{client.last_name} {client.first_name}"},
     )
     return ClientRead.model_validate(client)
+
+
+@router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_client(client_id: int, db: Session = Depends(get_db)) -> None:
+    client = db.get(Client, client_id)
+    if client is None or client.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Клиент не найден")
+
+    client.deleted_at = datetime.now(timezone.utc)
+    full_name = f"{client.last_name} {client.first_name} {client.middle_name or ''}".strip()
+    write_audit_log(
+        db,
+        entity_type="client",
+        entity_id=client.id,
+        action="delete",
+        user_id=1,
+        payload_json={"full_name": full_name, "patient_number": client.patient_number},
+    )
+    db.commit()
+
+    try:
+        send_deletion_notification(
+            subject=f"Удален клиент №{client.patient_number}",
+            body=f"Удален клиент: {full_name}\nID: {client.id}\nНомер пациента: {client.patient_number}",
+        )
+    except Exception:
+        # Email must not block the operator workflow; audit log already keeps the deletion.
+        pass
