@@ -803,22 +803,43 @@ function matchesCenter(center) {
 }
 
 function filteredClients() {
-  const search = appState.clientSearch.trim().toLowerCase();
+  const search = normalizeSearchValue(appState.clientSearch);
+  const compactSearch = search.replace(/\s+/g, "");
   if (!search) return [];
 
-  if (data.backendSearch === appState.clientSearch.trim() || data.backendSearchLoading || data.backendSearchError) {
-    return (data.backendClients || []).filter((client) => matchesCenter(client.center)).slice(0, 25);
-  }
-
-  return data.clients
+  const localClients = data.clients
     .filter((client) => {
       if (!matchesCenter(client.center)) return false;
-      return [client.patientNumber, client.fullName, client.phone, client.document, client.snils]
-        .join(" ")
-        .toLowerCase()
-        .includes(search);
+      const haystack = normalizeSearchValue([
+        client.patientNumber,
+        client.fullName,
+        client.phone,
+        client.document,
+        client.snils,
+        client.registration,
+        client.organization,
+        client.note,
+      ].join(" "));
+      return haystack.includes(search) || haystack.replace(/\s+/g, "").includes(compactSearch);
     })
     .slice(0, 25);
+
+  if (data.backendSearch === appState.clientSearch.trim() || data.backendSearchLoading || data.backendSearchError) {
+    const backendClients = (data.backendClients || []).filter((client) => matchesCenter(client.center));
+    if (!backendClients.length) return localClients;
+
+    const seen = new Set();
+    return [...backendClients, ...localClients]
+      .filter((client) => {
+        const key = `${client.patientNumber || ""}|${client.fullName || ""}|${client.birthDate || ""}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 25);
+  }
+
+  return localClients;
 }
 
 async function loadClientsFromBackend(searchValue) {
