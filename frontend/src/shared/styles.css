@@ -730,6 +730,30 @@ textarea {
   border-bottom: 0;
 }
 
+.operator-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.demo-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(12, 125, 123, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #0c5958;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: 0 12px 24px rgba(15, 31, 56, 0.08);
+}
+
+.demo-link-button:hover {
+  background: rgba(12, 125, 123, 0.08);
+}
+
 .operator-header h1 {
   margin: 8px 0 0;
   color: #17304a;

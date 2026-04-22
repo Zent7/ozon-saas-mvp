@@ -12,7 +12,13 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\start-demo.ps1
 ```
 
-The script starts PostgreSQL, backend, frontend, and opens:
+The script starts PostgreSQL, backend, frontend, and opens the exact UI prototype:
+
+```text
+http://127.0.0.1:5173/demo/index.html
+```
+
+The backend-connected React version is also available:
 
 ```text
 http://127.0.0.1:5173
@@ -29,7 +35,7 @@ Search examples:
 
 ## What to show the client
 
-1. The cursor is already in the client search field.
+1. Open `/demo/index.html` for the exact 1:1 demo UI with all demo templates, services, doctor cards, and styles.
 2. Search a client by surname.
 3. Select the row in the Excel-like table.
 4. Show the lower client card with real imported fields.
@@ -37,6 +43,8 @@ Search examples:
 6. Show automatic total amount.
 7. Click "Оформить обращение".
 8. Click "Сформировать справку".
+
+Use `/` to show the backend-connected working version with PostgreSQL search.
 
 ## Later production deployment
 

@@ -33,7 +33,8 @@ Start-Process powershell.exe -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypas
 Start-Sleep -Seconds 4
 Start-Process powershell.exe -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $frontendCommand
 Start-Sleep -Seconds 5
-Start-Process "http://127.0.0.1:5173"
+Start-Process "http://127.0.0.1:5173/demo/index.html"
 
-Write-Host "Demo opened: http://127.0.0.1:5173" -ForegroundColor Green
+Write-Host "Exact demo opened: http://127.0.0.1:5173/demo/index.html" -ForegroundColor Green
+Write-Host "Backend-connected React app: http://127.0.0.1:5173" -ForegroundColor Green
 Write-Host "Search examples: Efimov, Bobkov, Petrov, Starostenko (type in Russian in the browser)" -ForegroundColor Yellow

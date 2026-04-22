@@ -470,6 +470,11 @@ export function ClientListPage() {
             <div className="operator-eyebrow">Единая система для двух медцентров</div>
             <h1>Главная</h1>
           </div>
+          <div className="operator-header-actions">
+            <a className="demo-link-button" href="/demo/index.html" target="_blank" rel="noreferrer">
+              Открыть demo 1:1
+            </a>
+          </div>
         </header>
 
         {error ? <div className="operator-alert operator-alert--error">{error}</div> : null}
