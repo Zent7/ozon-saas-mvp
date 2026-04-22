@@ -1,3 +1,5 @@
+const API_BASE_URL = window.DEMO_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
+
 const appState = {
   page: "dashboard",
   selectedClientId: 1,
@@ -157,9 +159,16 @@ const data = {
   documents: [],
   doctorExams: [],
   mkb10History: [],
+  backendClients: [],
+  backendSearch: "",
+  backendSearchLoading: false,
+  backendSearchError: "",
   clientOverrides: {},
   servicesDirty: false,
 };
+
+let clientSearchTimer = null;
+let clientSearchRequestId = 0;
 
 const DEMO_STORAGE_KEY = "vova-medcenter-demo-state-v2";
 const COLUMN_WIDTHS_STORAGE_KEY = "vova-medcenter-column-widths-v1";
@@ -432,8 +441,12 @@ function getDoctorTemplate(doctorRoleId) {
   return getDoctorTemplates().find((item) => item.id === doctorRoleId) || null;
 }
 
+function getClientPool() {
+  return [...(data.backendClients || []), ...(data.clients || [])];
+}
+
 function getSelectedClient() {
-  return data.clients.find((client) => client.id === appState.selectedClientId) || null;
+  return getClientPool().find((client) => String(client.id) === String(appState.selectedClientId)) || null;
 }
 
 function getServiceByName(name) {
@@ -471,6 +484,66 @@ function formatDateTime(value = new Date()) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatApiDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function joinClientName(client) {
+  return [client?.last_name, client?.first_name, client?.middle_name].filter(Boolean).join(" ").trim();
+}
+
+function joinDocument(client) {
+  const number = [client?.document_series, client?.document_number].filter(Boolean).join(" ").trim();
+  return [client?.document_type, number].filter(Boolean).join(" ").trim();
+}
+
+function mapApiClient(client) {
+  return {
+    id: client.id,
+    backendId: client.id,
+    patientNumber: client.patient_number,
+    fullName: joinClientName(client) || `Пациент ${client.patient_number || client.id}`,
+    birthDate: formatApiDate(client.birth_date),
+    phone: client.phone || "",
+    center: client.center || "Медцентр 1",
+    document: joinDocument(client),
+    snils: client.snils || "",
+    note: client.notes || "",
+    lastVisit: client.real_date_text || client.encounter_date_text || "",
+    services: Array.isArray(client.services) ? client.services : [],
+    registration: client.registration_text || client.address_text || "",
+    category: client.admission_category || "",
+    referenceNumber: client.reference_number || "",
+    gynecologist: client.doctor_gynecologist || "",
+    stomatologist: client.doctor_stomatologist || "",
+    dermatologist: client.doctor_dermatologist || "",
+    neurologist: client.doctor_neurologist || "",
+    surgeon: client.doctor_surgeon || "",
+    otolaryngologist: client.doctor_otolaryngologist || "",
+    ophthalmologist: client.doctor_ophthalmologist || "",
+    therapist: client.doctor_therapist || "",
+    psychiatrist: client.doctor_psychiatrist || "",
+    infectionist: client.doctor_infectionist || "",
+    phthisiatrician: client.doctor_phthisiatrician || "",
+    uzist: client.doctor_uzist || "",
+    encounterDate: client.encounter_date_text || "",
+    cardNumber: client.card_number || "",
+    noNumber: client.no_number || "",
+    fg: client.flg || "",
+    organization: client.organization || "",
+    mkb10: client.mkb10 || "",
+    realDate: client.real_date_text || "",
+    rawApiClient: client,
+  };
 }
 
 function getVisitTitle(visit) {
@@ -545,7 +618,7 @@ function getCurrentVisitForClient(clientId) {
 
 function createVisitForClient(clientId, options = {}) {
   ensureVisitsStore();
-  const client = data.clients.find((item) => String(item.id) === String(clientId));
+  const client = getClientPool().find((item) => String(item.id) === String(clientId));
   if (!client) return null;
 
   const serviceNames = Array.isArray(options.serviceNames)
@@ -733,6 +806,10 @@ function filteredClients() {
   const search = appState.clientSearch.trim().toLowerCase();
   if (!search) return [];
 
+  if (data.backendSearch === appState.clientSearch.trim() || data.backendSearchLoading || data.backendSearchError) {
+    return (data.backendClients || []).filter((client) => matchesCenter(client.center)).slice(0, 25);
+  }
+
   return data.clients
     .filter((client) => {
       if (!matchesCenter(client.center)) return false;
@@ -742,6 +819,58 @@ function filteredClients() {
         .includes(search);
     })
     .slice(0, 25);
+}
+
+async function loadClientsFromBackend(searchValue) {
+  const search = String(searchValue || "").trim();
+  const requestId = ++clientSearchRequestId;
+
+  if (!search) {
+    data.backendClients = [];
+    data.backendSearch = "";
+    data.backendSearchError = "";
+    data.backendSearchLoading = false;
+    appState.selectedClientId = null;
+    renderApp();
+    return;
+  }
+
+  data.backendSearchLoading = true;
+  data.backendSearchError = "";
+  renderApp();
+
+  try {
+    const url = `${API_BASE_URL}/clients?search=${encodeURIComponent(search)}&limit=25`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const clients = await response.json();
+    if (requestId !== clientSearchRequestId) return;
+
+    data.backendClients = Array.isArray(clients) ? clients.map(mapApiClient) : [];
+    data.backendSearch = search;
+
+    if (!data.backendClients.some((client) => String(client.id) === String(appState.selectedClientId))) {
+      appState.selectedClientId = data.backendClients[0]?.id || null;
+      appState.activeVisitId = null;
+    }
+  } catch (error) {
+    if (requestId !== clientSearchRequestId) return;
+    data.backendClients = [];
+    data.backendSearch = search;
+    data.backendSearchError = "Backend недоступен. Проверь, что сервер запущен на http://127.0.0.1:8000";
+    console.error("Client search API error:", error);
+  } finally {
+    if (requestId !== clientSearchRequestId) return;
+    data.backendSearchLoading = false;
+    renderApp();
+  }
+}
+
+function scheduleClientSearch(searchValue) {
+  window.clearTimeout(clientSearchTimer);
+  clientSearchTimer = window.setTimeout(() => {
+    loadClientsFromBackend(searchValue);
+  }, 250);
 }
 
 function normalizeSearchValue(value) {
@@ -756,16 +885,16 @@ function findDuplicateCandidates(searchValue) {
   if (normalizedSearch.length < 2) return [];
 
   const searchParts = normalizedSearch.split(/\s+/).filter(Boolean);
-  return data.clients
+  if (searchParts.length < 2) return [];
+
+  return getClientPool()
     .filter((client) => matchesCenter(client.center))
     .map((client) => {
-      const haystack = normalizeSearchValue(
-        [client.patientNumber, client.birthDate, client.phone, client.document, client.snils].join(" "),
-      );
+      const haystack = normalizeSearchValue(client.fullName);
       const score = searchParts.reduce((total, part) => total + (haystack.includes(part) ? 1 : 0), 0);
       return { client, score };
     })
-    .filter((item) => item.score > 0)
+    .filter((item) => item.score === searchParts.length)
     .sort((a, b) => b.score - a.score || (a.client.patientNumber ?? a.client.id) - (b.client.patientNumber ?? b.client.id))
     .slice(0, 5)
     .map((item) => item.client);
@@ -841,34 +970,34 @@ function buildExcelRows(clients) {
   ];
   const organizations = ["-", "-", 'ООО "РАДУГА-2"', "-", "-", "-", "Самозанятый"];
 
-  return clients.slice(0, 7).map((client, index) => ({
+  return clients.slice(0, 25).map((client) => ({
     id: client.id,
     patientNumber: client.patientNumber ?? client.id,
     fullName: client.fullName,
     birthDate: client.birthDate,
-    registration: registrations[index] || client.document,
-    category: categories[index] || "B",
-    referenceNumber: "3E+05",
-    gynecologist: index === 2 ? "X" : "",
-    stomatologist: index === 3 ? "X" : "",
-    dermatologist: ["", "X", "", "", "", "", ""][index] || "",
-    neurologist: ["", "", "", "X", "X", "", ""][index] || "",
-    surgeon: ["", "", "", "", "X", "", ""][index] || "",
-    otolaryngologist: ["", "", "", "", "", "", "X"][index] || "",
-    ophthalmologist: ["", "", "", "", "X", "X", "X"][index] || "",
-    therapist: ["X", "X", "", "X", "X", "X", "X"][index] || "",
-    psychiatrist: ["", "", "", "", "", "X", ""][index] || "",
-    infectionist: "",
-    phthisiatrician: "",
-    uzist: "",
-    note: notes[index] || client.note,
-    encounterDate: "########",
-    cardNumber: "3E+05",
-    noNumber: index === 5 ? "X" : "",
-    fg: "",
-    organization: organizations[index] || "-",
-    mkb10: "",
-    realDate: client.lastVisit,
+    registration: client.registration || client.document || "",
+    category: client.category || "",
+    referenceNumber: client.referenceNumber || "",
+    gynecologist: client.gynecologist || "",
+    stomatologist: client.stomatologist || "",
+    dermatologist: client.dermatologist || "",
+    neurologist: client.neurologist || "",
+    surgeon: client.surgeon || "",
+    otolaryngologist: client.otolaryngologist || "",
+    ophthalmologist: client.ophthalmologist || "",
+    therapist: client.therapist || "",
+    psychiatrist: client.psychiatrist || "",
+    infectionist: client.infectionist || "",
+    phthisiatrician: client.phthisiatrician || "",
+    uzist: client.uzist || "",
+    note: client.note || "",
+    encounterDate: client.encounterDate || "",
+    cardNumber: client.cardNumber || "",
+    noNumber: client.noNumber || "",
+    fg: client.fg || "",
+    organization: client.organization || "",
+    mkb10: client.mkb10 || "",
+    realDate: client.realDate || client.lastVisit || "",
   }));
 }
 
@@ -956,6 +1085,9 @@ function renderSketchHome() {
             </label>
             <button class="primary-button sketch-add-button" id="addClientButton">Добавить</button>
           </div>
+
+          ${data.backendSearchLoading ? '<div class="muted" style="margin: 0 0 8px;">Идет поиск в PostgreSQL...</div>' : ""}
+          ${data.backendSearchError ? `<div class="empty" style="margin: 0 0 8px;">${escapeHtml(data.backendSearchError)}</div>` : ""}
 
           ${
             duplicateCandidates.length
@@ -1341,7 +1473,7 @@ function renderBlanksPage() {
   `;
 }
 
-function renderDocumentsPage() {
+function renderDocumentsPageLegacy() {
   const selectedClient = getSelectedClient();
   const activeVisit = selectedClient ? getCurrentVisitForClient(selectedClient.id) : null;
   const visitDocuments = activeVisit ? getDocumentsForVisit(activeVisit.id) : [];
@@ -1366,7 +1498,7 @@ function renderDocumentsPage() {
   `;
 }
 
-function buildDemoDocument(type) {
+function buildDemoDocumentLegacy(type) {
   const client = getSelectedClient();
   const visit = client ? getCurrentVisitForClient(client.id) : null;
   if (!client || !visit) return "";
@@ -1393,7 +1525,7 @@ function buildDemoDocument(type) {
   ].join("\n");
 }
 
-function openDemoDocument(type) {
+function openDemoDocumentLegacy(type) {
   const content = buildDemoDocument(type);
   if (!content) {
     showToast("Сначала выбери клиента и обращение");
@@ -1732,6 +1864,7 @@ function bindContentEvents() {
   if (clientSearchInput) {
     clientSearchInput.addEventListener("input", (event) => {
       appState.clientSearch = event.target.value;
+      scheduleClientSearch(event.target.value);
       rerenderAndRestoreInput("clientSearchInput", event.target.value, event.target.selectionStart || event.target.value.length);
     });
   }
