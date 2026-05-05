@@ -58,7 +58,7 @@ window.servicesData = {
     },
     {
       id: 7,
-      name: "Тракторная справка форма 071у",
+      name: "071У",
       groupId: 2,
       price: 4000,
       notes: "",
@@ -127,16 +127,6 @@ window.servicesData = {
       notes: "",
       isActive: true,
       sortOrder: 10,
-      doctorRoleIds: [4]
-    },
-    {
-      id: 36,
-      name: "Повторный приём врача НЕВРОЛОГА",
-      groupId: 5,
-      price: 1800,
-      notes: "ПРОВЕРИТЬ ДУБЛЬ",
-      isActive: true,
-      sortOrder: 20,
       doctorRoleIds: [4]
     },
     {

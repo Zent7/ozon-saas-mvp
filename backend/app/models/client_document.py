@@ -15,6 +15,8 @@ class ClientDocument(TimestampMixin, Base):
     document_type: Mapped[str] = mapped_column(String(100), index=True)
     series: Mapped[str | None] = mapped_column(String(30), nullable=True)
     number: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+    blank_form_id: Mapped[int | None] = mapped_column(ForeignKey("blank_forms.id"), nullable=True, index=True)
+    blank_number_snapshot: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     issued_by: Mapped[str | None] = mapped_column(String(255), nullable=True)
     issued_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -96,3 +98,21 @@ def update_doctor_exam(exam_id: int, payload: DoctorExamUpdate, db: Session = De
         payload_json={"client_id": exam.client_id, "doctor_role_id": exam.doctor_role_id},
     )
     return DoctorExamRead.model_validate(exam)
+
+
+@router.delete("/{exam_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_doctor_exam(exam_id: int, db: Session = Depends(get_db)) -> None:
+    exam = db.get(DoctorExam, exam_id)
+    if exam is None or exam.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="РћСЃРјРѕС‚СЂ РЅРµ РЅР°Р№РґРµРЅ")
+
+    exam.deleted_at = datetime.utcnow()
+    db.commit()
+    write_audit_log(
+        db,
+        entity_type="doctor_exam",
+        entity_id=exam.id,
+        action="delete",
+        user_id=1,
+        payload_json={"client_id": exam.client_id, "doctor_role_id": exam.doctor_role_id},
+    )

@@ -533,6 +533,10 @@ textarea {
   color: #24394f;
 }
 
+.button--small {
+  padding: 8px 12px;
+}
+
 .table {
   display: grid;
   gap: 10px;
@@ -1177,6 +1181,38 @@ textarea {
   gap: 8px;
 }
 
+.visit-print-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid rgba(12, 125, 123, 0.18);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(12, 125, 123, 0.08), rgba(12, 125, 123, 0.03));
+}
+
+.visit-print-bar__text {
+  display: grid;
+  gap: 4px;
+}
+
+.visit-print-bar__text strong {
+  color: #0f3047;
+}
+
+.visit-print-bar__text span {
+  color: #476172;
+  font-size: 13px;
+}
+
+.visit-print-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .visit-controls {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
@@ -1259,6 +1295,171 @@ textarea {
   padding: 10px 16px;
 }
 
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(420px, 0.8fr);
+  background:
+    radial-gradient(circle at top left, rgba(12, 125, 123, 0.22), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(43, 95, 150, 0.16), transparent 28%),
+    linear-gradient(180deg, #f4fafb 0%, #edf3f8 100%);
+}
+
+.login-hero,
+.login-panel {
+  padding: 48px;
+}
+
+.login-hero {
+  display: grid;
+  align-content: center;
+  gap: 20px;
+}
+
+.login-hero__eyebrow,
+.login-card__eyebrow {
+  color: #49667a;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.login-hero h1 {
+  margin: 0;
+  max-width: 740px;
+  font-size: clamp(40px, 5vw, 68px);
+  line-height: 0.98;
+  color: #13314a;
+}
+
+.login-hero p,
+.login-card p {
+  margin: 0;
+  max-width: 660px;
+  color: #567186;
+  font-size: 18px;
+  line-height: 1.55;
+}
+
+.login-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.login-preview__card,
+.login-card {
+  border: 1px solid rgba(23, 48, 74, 0.1);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: 0 24px 60px rgba(15, 31, 56, 0.1);
+  backdrop-filter: blur(12px);
+}
+
+.login-preview__card {
+  display: grid;
+  gap: 6px;
+  padding: 18px 20px;
+}
+
+.login-preview__card strong {
+  color: #14324a;
+  font-size: 20px;
+}
+
+.login-preview__card span {
+  color: #0c6a69;
+  font-weight: 700;
+}
+
+.login-preview__card p {
+  font-size: 14px;
+}
+
+.login-panel {
+  display: grid;
+  align-content: center;
+  gap: 16px;
+  background: linear-gradient(180deg, rgba(19, 49, 74, 0.04) 0%, rgba(19, 49, 74, 0.1) 100%);
+}
+
+.login-panel__switch {
+  display: flex;
+  gap: 10px;
+}
+
+.login-switch {
+  border: 1px solid rgba(23, 48, 74, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  color: #3d596f;
+  padding: 10px 16px;
+  font-weight: 800;
+}
+
+.login-switch:disabled {
+  opacity: 0.56;
+}
+
+.login-switch--active {
+  border-color: rgba(12, 125, 123, 0.26);
+  background: rgba(12, 125, 123, 0.12);
+  color: #0c6765;
+}
+
+.login-card {
+  display: grid;
+  gap: 16px;
+  padding: 28px;
+}
+
+.login-card h2 {
+  margin: 6px 0 8px;
+  color: #17304a;
+  font-size: 36px;
+}
+
+.login-field {
+  display: grid;
+  gap: 6px;
+}
+
+.login-field span {
+  color: #49667a;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.login-error {
+  border: 1px solid rgba(157, 47, 47, 0.22);
+  border-radius: 16px;
+  background: #fff4f3;
+  color: #8d2119;
+  padding: 12px 14px;
+  font-weight: 700;
+}
+
+.login-submit,
+.staff-form__submit {
+  min-height: 48px;
+}
+
+.staff-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.staff-form__submit {
+  width: fit-content;
+}
+
+.staff-row {
+  grid-template-columns: 1.5fr 0.8fr 0.8fr 1fr 0.7fr;
+  align-items: center;
+}
+
 @media (max-width: 1100px) {
   .operator-shell,
   .operator-bottom {
@@ -1271,5 +1472,24 @@ textarea {
 
   .client-form-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .visit-print-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .visit-print-bar__actions {
+    justify-content: stretch;
+  }
+
+  .login-shell,
+  .login-preview,
+  .staff-form {
+    grid-template-columns: 1fr;
+  }
+
+  .login-hero,
+  .login-panel {
+    padding: 24px;
   }
 }

@@ -1,16 +1,18 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.client import Client
+from app.models.medical_record import MedicalRecord
 from app.schemas.client import ClientCreate, ClientRead, ClientUpdate
 from app.services.audit import write_audit_log
 from app.services.duplicates import build_duplicate_check_keys
 from app.services.notifications import send_deletion_notification
+from app.services.system_user import get_system_user_id
 
 router = APIRouter()
 
@@ -67,6 +69,18 @@ def find_duplicate(
     return db.execute(query).scalars().first()
 
 
+def get_next_patient_number(db: Session) -> int:
+    patient_numbers = db.execute(select(Client.patient_number).order_by(Client.patient_number.asc())).scalars()
+    expected_number = 1
+    for patient_number in patient_numbers:
+        if patient_number is None or patient_number < expected_number:
+            continue
+        if patient_number > expected_number:
+            break
+        expected_number += 1
+    return expected_number
+
+
 def duplicate_error(payload: ClientCreate | ClientUpdate, client: Client) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
@@ -110,6 +124,8 @@ def list_clients(
         Client.reference_number.ilike(pattern),
         Client.card_number.ilike(pattern),
         Client.journal_number.ilike(pattern),
+        Client.profession.ilike(pattern),
+        Client.work_place.ilike(pattern),
         Client.organization.ilike(pattern),
         Client.mkb10.ilike(pattern),
     ]
@@ -141,10 +157,19 @@ def list_clients(
     if date_value is not None:
         search_conditions.insert(0, Client.birth_date == date_value)
 
+    lower_value = value.lower()
+    surname_rank = case(
+        (func.lower(Client.last_name) == lower_value, 0),
+        (Client.last_name.ilike(f"{value}%"), 1),
+        (Client.last_name.ilike(pattern), 2),
+        (full_name_expr.ilike(f"{value.lower()}%"), 3),
+        else_=9,
+    )
+
     query = (
         select(Client)
         .where(Client.deleted_at.is_(None), or_(*search_conditions))
-        .order_by(Client.patient_number.asc())
+        .order_by(surname_rank.asc(), Client.last_name.asc(), Client.first_name.asc(), Client.patient_number.asc())
         .limit(limit)
     )
     clients = db.execute(query).scalars().all()
@@ -167,9 +192,25 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db)) -> Clien
     if possible_duplicate is not None:
         raise duplicate_error(normalized_payload, possible_duplicate)
 
-    next_patient_number = (db.execute(select(func.max(Client.patient_number))).scalar_one() or 0) + 1
-    client = Client(**normalized_data, patient_number=next_patient_number, created_by_user_id=1)
+    next_patient_number = get_next_patient_number(db)
+    normalized_data["card_number"] = normalized_data.get("card_number") or f"{next_patient_number:07d}"
+    actor_user_id = get_system_user_id(db)
+    client = Client(**normalized_data, patient_number=next_patient_number, created_by_user_id=actor_user_id)
     db.add(client)
+    db.flush()
+    db.add(
+        MedicalRecord(
+            client_id=client.id,
+            card_number=client.card_number or f"{client.patient_number:07d}",
+            opened_at=date.today(),
+            oms_policy=client.oms_policy,
+            work_place=client.work_place or client.organization,
+            position=client.profession,
+            diagnosis=client.indications,
+            mkb10=client.mkb10,
+            notes=client.notes,
+        )
+    )
     db.commit()
     db.refresh(client)
     write_audit_log(
@@ -177,7 +218,7 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db)) -> Clien
         entity_type="client",
         entity_id=client.id,
         action="create",
-        user_id=1,
+        user_id=actor_user_id,
         payload_json={"full_name": f"{client.last_name} {client.first_name}"},
     )
     return ClientRead.model_validate(client)
@@ -198,6 +239,7 @@ def update_client(client_id: int, payload: ClientUpdate, db: Session = Depends(g
     for key, value in normalized_data.items():
         setattr(client, key, value)
 
+    actor_user_id = get_system_user_id(db)
     db.commit()
     db.refresh(client)
     write_audit_log(
@@ -205,7 +247,7 @@ def update_client(client_id: int, payload: ClientUpdate, db: Session = Depends(g
         entity_type="client",
         entity_id=client.id,
         action="update",
-        user_id=1,
+        user_id=actor_user_id,
         payload_json={"full_name": f"{client.last_name} {client.first_name}"},
     )
     return ClientRead.model_validate(client)
@@ -219,12 +261,13 @@ def delete_client(client_id: int, db: Session = Depends(get_db)) -> None:
 
     client.deleted_at = datetime.now(timezone.utc)
     full_name = f"{client.last_name} {client.first_name} {client.middle_name or ''}".strip()
+    actor_user_id = get_system_user_id(db)
     write_audit_log(
         db,
         entity_type="client",
         entity_id=client.id,
         action="delete",
-        user_id=1,
+        user_id=actor_user_id,
         payload_json={"full_name": full_name, "patient_number": client.patient_number},
     )
     db.commit()

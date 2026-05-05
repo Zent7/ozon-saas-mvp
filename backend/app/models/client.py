@@ -50,6 +50,8 @@ class Client(TimestampMixin, Base):
     journal_number: Mapped[str | None] = mapped_column(String(80), nullable=True)
     no_number: Mapped[str | None] = mapped_column(String(80), nullable=True)
     flg: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    profession: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    work_place: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     organization: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     mkb10: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     real_date_text: Mapped[str | None] = mapped_column(String(120), nullable=True)

@@ -49,3 +49,20 @@ def create_encounter_service(
     db.commit()
     db.refresh(item)
     return EncounterServiceRead.model_validate(item)
+
+
+@router.delete("", status_code=status.HTTP_204_NO_CONTENT)
+def delete_encounter_services(
+    encounter_id: int = Query(...),
+    db: Session = Depends(get_db),
+) -> None:
+    encounter = db.get(Encounter, encounter_id)
+    if encounter is None or encounter.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Обращение не найдено")
+
+    items = db.execute(
+        select(EncounterService).where(EncounterService.encounter_id == encounter_id)
+    ).scalars().all()
+    for item in items:
+        db.delete(item)
+    db.commit()

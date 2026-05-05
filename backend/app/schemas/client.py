@@ -41,6 +41,8 @@ class ClientBase(BaseModel):
     journal_number: str | None = None
     no_number: str | None = None
     flg: str | None = None
+    profession: str | None = None
+    work_place: str | None = None
     organization: str | None = None
     mkb10: str | None = None
     real_date_text: str | None = None

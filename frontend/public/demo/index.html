@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MedCenters Demo</title>
-    <link rel="stylesheet" href="./styles.css?v=20260421-psy-services-fix" />
+    <link rel="stylesheet" href="./styles.css?v=20260505-client-modal-polish" />
   </head>
   <body>
     <div class="app-shell">
@@ -44,13 +44,14 @@
         <div class="login-card">
           <label class="field">
             <span>Логин</span>
-            <input value="admin" readonly />
+            <input id="loginInput" value="chairman" />
           </label>
           <label class="field">
             <span>Пароль</span>
-            <input value="admin123" readonly />
+            <input id="passwordInput" type="password" value="chairman123" />
           </label>
-          <button class="primary-button">Войти</button>
+          <div class="note">Для доступа к сотрудникам используйте председателя: `chairman / chairman123`.</div>
+          <button class="primary-button" id="performLogin">Войти</button>
         </div>
       </div>
     </div>
@@ -66,13 +67,13 @@
       </div>
     </div>
 
-    <script src="./legacy-data.js"></script>
-    <script src="./services-data.js"></script>
-    <script src="./doctor-templates.js"></script>
-    <script src="./app.js?v=20260421-psy-services-fix"></script>
-    <script src="./services-page.js?v=20260421-psy-services-fix"></script>
-    <script src="./client-modal.js?v=20260421-psy-services-fix"></script>
-    <script src="./doctor-exam-modal.js?v=20260421-psy-services-fix"></script>
+    <script src="./doctor-presets.js?v=20260505-presets"></script>
+    <script src="./doctor-templates.js?v=20260505-presets"></script>
+    <script src="./service-cards.js?v=20260505-service-cards"></script>
+    <script src="./app.js?v=20260505-dashboard-on-refresh-fix"></script>
+    <script src="./services-page.js?v=20260427-service-order-2"></script>
+    <script src="./client-modal.js?v=20260505-client-modal-polish"></script>
+    <script src="./doctor-exam-modal.js?v=20260505-doctor-modal-close-fix"></script>
   </body>
 </html>
 

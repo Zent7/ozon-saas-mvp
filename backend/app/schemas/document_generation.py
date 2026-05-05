@@ -13,4 +13,12 @@ class DocumentGenerateResponse(BaseModel):
     template_type: str
     output_file_name: str
     output_file_path: str
+    generated_document_id: int | None = None
+    blank_form_id: int | None = None
+    blank_number: str | None = None
     generated_fields: dict[str, str]
+
+
+class DocumentPrintResponse(DocumentGenerateResponse):
+    printed: bool = True
+    message: str

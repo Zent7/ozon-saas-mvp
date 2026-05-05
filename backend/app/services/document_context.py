@@ -1,92 +1,297 @@
+from __future__ import annotations
+
 from datetime import date
+import re
+from typing import Any
 
 from app.models.client import Client
 from app.models.encounter import Encounter
 
 
-def format_date_parts(value: date | None) -> tuple[str, str, str]:
+MONTH_NAMES = {
+    1: "января",
+    2: "февраля",
+    3: "марта",
+    4: "апреля",
+    5: "мая",
+    6: "июня",
+    7: "июля",
+    8: "августа",
+    9: "сентября",
+    10: "октября",
+    11: "ноября",
+    12: "декабря",
+}
+
+
+def _text(value: Any) -> str:
     if value is None:
-        return "", "", ""
-    return value.strftime("%d"), value.strftime("%m"), value.strftime("%Y")
+        return ""
+    return str(value).strip()
 
 
-def build_document_context(client: Client, encounter: Encounter | None = None) -> dict[str, str]:
-    birth_day, birth_month, birth_year = format_date_parts(client.birth_date)
-    visit_day, visit_month, visit_year = format_date_parts(encounter.encounter_date if encounter else None)
+def _date(value: date | None) -> str:
+    return value.strftime("%d.%m.%Y") if value else ""
+
+
+def _date_parts(value: date | None) -> tuple[str, str, str, str]:
+    if value is None:
+        return "", "", "", ""
+    return value.strftime("%d"), value.strftime("%m"), str(value.year), MONTH_NAMES.get(value.month, "")
+
+
+def _first_legacy_value(client: Client, *keys: str) -> str:
+    payload = client.legacy_payload_json or {}
+    lowered = {str(key).lower(): value for key, value in payload.items()}
+    for key in keys:
+        value = payload.get(key)
+        if value in (None, ""):
+            value = lowered.get(key.lower())
+        if value not in (None, ""):
+            return _text(value)
+    return ""
+
+
+def _split_address(address: str) -> dict[str, str]:
+    parts = [part.strip() for part in re.split(r",|\n", address or "") if part.strip()]
+    result = {
+        "subject": parts[0] if parts else "",
+        "district": "",
+        "city": "",
+        "street": "",
+        "house": "",
+        "body": "",
+        "apartment": "",
+    }
+    for part in parts:
+        lower = part.lower()
+        if any(marker in lower for marker in ("г ", "г.", "город", "п ", "п.", "дер ", "дер.")):
+            result["city"] = part
+        elif any(marker in lower for marker in ("ул ", "ул.", "улица", "пр ", "пр.", "пер ", "пер.")):
+            result["street"] = part
+        elif any(marker in lower for marker in ("д ", "д.", "дом")):
+            result["house"] = re.sub(r"(?i)\b(д|дом)\.?\s*", "", part).strip()
+        elif any(marker in lower for marker in ("корп", "к.")):
+            result["body"] = re.sub(r"(?i)\b(корпус|корп|к)\.?\s*", "", part).strip()
+        elif any(marker in lower for marker in ("кв ", "кв.", "квартира")):
+            result["apartment"] = re.sub(r"(?i)\b(квартира|кв)\.?\s*", "", part).strip()
+    return result
+
+
+def _status(value: str | None) -> str:
+    return {
+        "draft": "Черновик",
+        "completed": "Оформлено",
+        "closed": "Закрыто",
+    }.get(_text(value), "Создано")
+
+
+def _payment_type(value: str | None) -> str:
+    return {
+        "cash": "наличные",
+        "card": "карта",
+        "invoice": "безналичный расчет",
+    }.get(_text(value), _text(value))
+
+
+def _category_context(category_text: str) -> dict[str, str]:
+    categories = {
+        "A": "",
+        "B": "",
+        "C": "",
+        "D": "",
+        "BE": "",
+        "CE": "",
+        "DE": "",
+        "Tm": "",
+        "Tb": "",
+        "M": "",
+        "1A": "",
+        "1B": "",
+        "1C": "",
+        "1D": "",
+        "1CE": "",
+        "1DE": "",
+    }
+    source = category_text.upper()
+    for key in categories:
+        if re.search(rf"(^|[^A-Z0-9]){re.escape(key.upper())}([^A-Z0-9]|$)", source):
+            categories[key] = "X"
+
+    context: dict[str, str] = {}
+    for key, value in categories.items():
+        context[f"Category{key}"] = value
+        context[f"Category{key}1"] = value
+        context[f"{key}Calc"] = value
+        context[f"Category{key}Calc"] = value
+    return context
+
+
+def build_document_context(
+    client: Client,
+    encounter: Encounter | None = None,
+    *,
+    service_names: list[str] | None = None,
+    doctor_name: str | None = None,
+    diagnosis: str | None = None,
+    mkb10: str | None = None,
+) -> dict[str, str]:
+    birth_day, birth_month, birth_year, birth_month_name = _date_parts(client.birth_date)
+    visit_day, visit_month, visit_year, visit_month_name = _date_parts(encounter.encounter_date if encounter else None)
+    doc_day, doc_month, doc_year, doc_month_name = _date_parts(client.document_issued_date)
 
     full_name = " ".join(part for part in [client.last_name, client.first_name, client.middle_name] if part).strip()
     first_middle = " ".join(part for part in [client.first_name, client.middle_name] if part).strip()
-    visit_date = encounter.encounter_date.strftime("%d.%m.%Y") if encounter else ""
-    total_amount = str(encounter.total_amount) if encounter else ""
-    payment_type = encounter.payment_type if encounter else ""
-    notes = encounter.comment if encounter and encounter.comment else ""
-    sex_value = client.sex or ""
-    sex_label = {"M": "муж", "F": "жен"}.get(sex_value.upper(), sex_value) if sex_value else ""
+    address = client.registration_text or client.address_text or ""
+    address_parts = _split_address(address)
+    services = ", ".join(name for name in (service_names or []) if name) or "Базовая услуга"
+    visit_date = _date(encounter.encounter_date) if encounter else ""
+    contract_date = visit_date or _date(date.today())
+    total_amount = _text(encounter.total_amount) if encounter else ""
+    notes = _text(encounter.comment) if encounter else _text(client.notes)
+    sex = _text(client.sex).upper()
+    sex_label = {"M": "муж", "MALE": "муж", "F": "жен", "FEMALE": "жен"}.get(sex, _text(client.sex))
+    organization = _text(client.organization) or _first_legacy_value(client, "Организация", "organization", "CompanyName")
+    work_place = organization or _first_legacy_value(client, "Место работы", "WorkPlace", "qdfMain.WorkPlace")
+    post = _first_legacy_value(client, "Должность", "Post", "qdfMain.Post") or "не указано"
+    document_series = _text(client.document_series) or _first_legacy_value(client, "DocumentSeries", "qdfMain.DocumentSeries")
+    document_number = _text(client.document_number) or _first_legacy_value(client, "DocumentNumber", "qdfMain.DocumentNumber")
+    document_issued_by = _text(client.document_issued_by) or _first_legacy_value(client, "WhoGive", "qdfMain.WhoGive")
+    document_issued_date = _date(client.document_issued_date) or _first_legacy_value(client, "DocumentDate", "qdfMain.DocumentDate")
+    resolved_mkb10 = _text(mkb10) or _text(client.mkb10)
+    resolved_diagnosis = _text(diagnosis) or "Здоров"
+    resolved_doctor = _text(doctor_name) or "Врач"
+    reference_number = _text(client.reference_number) or str(encounter.id if encounter else client.patient_number or client.id)
+    category_values = _category_context(_text(client.admission_category))
 
     context = {
         "ID": str(encounter.id if encounter else client.id),
         "ClientID": str(client.id),
+        "PatientNumber": _text(client.patient_number),
+        "CardNumber": _text(client.card_number),
+        "Client": full_name,
+        "FullName": full_name,
+        "FIO": full_name,
         "ClientCalc": full_name,
-        "LastNameCalc": client.last_name,
-        "FirstNameCalc": client.first_name,
-        "PatronymicCalc": client.middle_name or "",
+        "LastName": _text(client.last_name),
+        "LastNameCalc": _text(client.last_name),
+        "FirstName": _text(client.first_name),
+        "FirstNameCalc": _text(client.first_name),
+        "MiddleName": _text(client.middle_name),
+        "PatronymicCalc": _text(client.middle_name),
         "FirstMiddleCalc": first_middle,
-        "ReferenceNumber": str(encounter.id if encounter else client.id),
-        "SeriesNumberCalc": str(encounter.id if encounter else client.id),
-        "BirthDateCalc": client.birth_date.strftime("%d.%m.%Y") if client.birth_date else "",
-        "BirthCalc": client.birth_date.strftime("%d.%m.%Y") if client.birth_date else "",
-        "VisitDate_DATEFULL": visit_date,
+        "ReferenceNumber": reference_number,
+        "SeriesNumberCalc": reference_number,
+        "BirthDate": _date(client.birth_date),
+        "BirthDateCalc": _date(client.birth_date),
+        "BirthCalc": _date(client.birth_date),
         "BirthDateCalc_DAY": birth_day,
         "MonthBirthDateCalc": birth_month,
+        "BirthDateCalc_MONTH": birth_month,
+        "BirthDateCalc_DATEMONTH": birth_month_name,
         "BirthDateCalc_YEAR": birth_year,
         "BirthDateCalc_DAY1": birth_day,
         "MonthBirthDateCalc1": birth_month,
+        "BirthDateCalc_MONTH1": birth_month,
+        "BirthDateCalc_DATEMONTH1": birth_month_name,
         "BirthDateCalc_YEAR1": birth_year,
         "VisitDate": visit_date,
-        "VisitDate_DAY": visit_day,
-        "MonthCalc": visit_month,
-        "VisitDate_YEAR": visit_year,
-        "VisitDate_DAY1": visit_day,
-        "MonthCalc1": visit_month,
-        "VisitDate_YEAR1": visit_year,
-        "SubjectCalc": client.address_text or "",
-        "SubjectCalc1": client.address_text or "",
-        "SubDistrCalc": client.address_text or "",
-        "AddressEndCalc": client.address_text or "",
-        "AddressCalc": client.address_text or "",
-        "DistrictCalc": "",
-        "DistrictCalc1": "",
-        "CityCalc": "",
-        "CityCalc1": "",
-        "StreetCalc": "",
-        "StreetCalc1": "",
-        "HouseNumberCalc": "",
-        "HouseNumberCalc1": "",
-        "HouseBodyCalc": "",
-        "HouseBodyCalc1": "",
-        "ApartmentNumberCalc": "",
-        "ApartmentNumberCalc1": "",
-        "SexCalc": sex_label,
-        "RegistrType": "постоянная",
-        "UserName": "Администратор системы",
+        "ContractDate": contract_date,
+        "VisitDate_DATEFULL": visit_date,
         "DateCalc": visit_date,
         "ServiceDateCalc": visit_date,
         "ServiceDateCalc1": visit_date,
-        "StatusCalc": "Завершено" if encounter else "Создано",
+        "VisitDate_DAY": visit_day,
+        "MonthCalc": visit_month,
+        "VisitDate_MONTH": visit_month,
+        "VisitDate_DATEMONTH": visit_month_name,
+        "VisitDate_YEAR": visit_year,
+        "VisitDate_DAY1": visit_day,
+        "MonthCalc1": visit_month,
+        "VisitDate_MONTH1": visit_month,
+        "VisitDate_DATEMONTH1": visit_month_name,
+        "VisitDate_YEAR1": visit_year,
+        "SubjectCalc": address_parts["subject"] or address,
+        "SubjectCalc1": address_parts["subject"] or address,
+        "SubDistrCalc": address_parts["district"],
+        "AddressEndCalc": address,
+        "AddressCalc": address,
+        "DistrictCalc": address_parts["district"],
+        "DistrictCalc1": address_parts["district"],
+        "CityCalc": address_parts["city"],
+        "CityCalc1": address_parts["city"],
+        "StreetCalc": address_parts["street"],
+        "StreetCalc1": address_parts["street"],
+        "HouseNumberCalc": address_parts["house"],
+        "HouseNumberCalc1": address_parts["house"],
+        "HouseBodyCalc": address_parts["body"],
+        "HouseBodyCalc1": address_parts["body"],
+        "ApartmentNumberCalc": address_parts["apartment"],
+        "ApartmentNumberCalc1": address_parts["apartment"],
+        "Sex": sex_label,
+        "SexCalc": sex_label,
+        "RegistrType": "постоянная",
+        "UserName": "Администратор системы",
+        "StatusCalc": _status(encounter.status if encounter else None),
         "VisitAmount": total_amount,
         "AllPayment": total_amount,
-        "PaymentType": payment_type,
+        "PaymentType": _payment_type(encounter.payment_type if encounter else None),
         "Notes": notes,
-        "OrderService": "Базовая услуга",
-        "qdfOrderServices": "Базовая услуга",
-        "Post": "Не указано",
-        "CompanyName": "Не указано",
-        "qdfMain.AddressCalc": client.address_text or "",
-        "qdfMain.PolisOMS": client.oms_policy or "",
-        "qdfMain.SNILS": client.snils or "",
+        "Comment": notes,
+        "OrderService": services,
+        "qdfOrderServices": services,
+        "Services": services,
+        "ServiceName": services,
+        "Post": post,
+        "CompanyName": work_place or "не указано",
+        "Organization": organization,
+        "WorkPlace": work_place,
+        "Phone": _text(client.phone),
+        "Email": _text(client.email),
+        "SNILS": _text(client.snils),
+        "PolisOMS": _text(client.oms_policy),
+        "DocumentSeries": document_series,
+        "DocumentNumber": document_number,
+        "DocumentDate": document_issued_date,
+        "DocumentDate_DAY": doc_day,
+        "DocumentDate_MONTH": doc_month,
+        "DocumentDate_DATEMONTH": doc_month_name,
+        "DocumentDate_YEAR": doc_year,
+        "WhoGive": document_issued_by,
+        "MKB10": resolved_mkb10,
+        "Mkb10": resolved_mkb10,
+        "Diagnosis": resolved_diagnosis,
+        "Diagnoz": resolved_diagnosis,
+        "Doctor": resolved_doctor,
+        "DoctorName": resolved_doctor,
+        "qdfMain.AddressCalc": address,
+        "qdfMain.Subject": address_parts["subject"] or address,
+        "qdfMain.District": address_parts["district"],
+        "qdfMain.City": address_parts["city"],
+        "qdfMain.Street": address_parts["street"],
+        "qdfMain.HouseNumber": address_parts["house"],
+        "qdfMain.HouseBody": address_parts["body"],
+        "qdfMain.ApartmentNumber": address_parts["apartment"],
+        "qdfMain.BirthDate": _date(client.birth_date),
+        "qdfMain.PolisOMS": _text(client.oms_policy),
+        "qdfMain.SNILS": _text(client.snils),
+        "qdfMain.Phone": _text(client.phone),
+        "qdfMain.DocumentDate": document_issued_date,
+        "qdfMain.DocumentNumber": document_number,
+        "qdfMain.DocumentSeries": document_series,
+        "qdfMain.Post": post,
+        "qdfMain.WhoGive": document_issued_by,
+        "qdfMain.WorkPlace": work_place,
+        "qdfMain_Subject": address_parts["subject"] or address,
+        "qdfMain_District": address_parts["district"],
+        "qdfMain_City": address_parts["city"],
+        "qdfMain_Street": address_parts["street"],
+        "qdfMain_ApartmentNumber": address_parts["apartment"],
+        "qdfMain_HouseBody": address_parts["body"],
+        "qdfMain_HouseNumber": address_parts["house"],
         "ContractNumber": f"Д-{encounter.id if encounter else client.id}",
         "MainDoctorCalc": "Главный врач",
-        "Harmfulness": "Не указано",
+        "Harmfulness": _text(client.indications) or "не указано",
         "Therapist": "Терапевт",
         "TherapistCalc": "Терапевт",
         "Ophthalmolog": "Офтальмолог",
@@ -100,57 +305,6 @@ def build_document_context(client: Client, encounter: Encounter | None = None) -
         "LaboratoryStudy": "Без отклонений",
         "LaboratoryStudyCalc": "Без отклонений",
         "Conclusion": "Годен",
-        "CategoryA": "",
-        "CategoryB": "",
-        "CategoryC": "",
-        "CategoryD": "",
-        "CategoryBE": "",
-        "CategoryCE": "",
-        "CategoryDE": "",
-        "CategoryTm": "",
-        "CategoryTb": "",
-        "CategoryM": "",
-        "Category1A": "",
-        "Category1B": "",
-        "Category1C": "",
-        "Category1D": "",
-        "Category1CE": "",
-        "Category1DE": "",
-        "CategoryA1": "",
-        "CategoryB1": "",
-        "CategoryC1": "",
-        "CategoryD1": "",
-        "CategoryBE1": "",
-        "CategoryCE1": "",
-        "CategoryDE1": "",
-        "CategoryTm1": "",
-        "CategoryTb1": "",
-        "CategoryM1": "",
-        "Category1A1": "",
-        "Category1B1": "",
-        "Category1C1": "",
-        "Category1D1": "",
-        "Category1CE1": "",
-        "Category1DE1": "",
-        "ACalc": "",
-        "BCalc": "",
-        "CCalc": "",
-        "DCalc": "",
-        "BECalc": "",
-        "CECalc": "",
-        "DECalc": "",
-        "TmCalc": "",
-        "TbCalc": "",
-        "MCalc": "",
-        "A1Calc": "",
-        "B1Calc": "",
-        "C1Calc": "",
-        "D1Calc": "",
-        "C1ECalc": "",
-        "D1ECalc": "",
-        "CategoryACalc": "",
-        "CategoryBCalc": "",
-        "CategoryCCalc": "",
         "DriveShipCalc": "",
         "ManualControlCalc": "",
         "AutomaticTransmissionCalc": "",
@@ -164,5 +318,16 @@ def build_document_context(client: Client, encounter: Encounter | None = None) -
         "TCA": "",
         "TCB": "",
         "TCC": "",
+        "A1Calc": category_values.get("Category1A", ""),
+        "B1Calc": category_values.get("Category1B", ""),
+        "C1Calc": category_values.get("Category1C", ""),
+        "D1Calc": category_values.get("Category1D", ""),
+        "C1ECalc": category_values.get("Category1CE", ""),
+        "D1ECalc": category_values.get("Category1DE", ""),
+        "RANGE!C2": "",
+        "RANGE!C5": "",
+        "RANGE!K14": "",
+        "RANGE!X14": "",
     }
-    return context
+    context.update(category_values)
+    return {key: _text(value) for key, value in context.items()}

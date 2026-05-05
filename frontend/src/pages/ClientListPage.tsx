@@ -1,7 +1,15 @@
 import type { CSSProperties, FormEvent, MouseEvent as ReactMouseEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { api, type Client, type ClientPayload, type Service } from "../shared/api";
+import {
+  api,
+  buildGeneratedDocumentUrl,
+  type Client,
+  type ClientPayload,
+  type DocumentTemplate,
+  type Encounter,
+  type Service,
+} from "../shared/api";
 
 const doctors = [
   "Гинеколог",
@@ -16,7 +24,6 @@ const doctors = [
   "Инфекционист",
   "Фтизиатр",
   "Узист",
-  "Председатель",
 ];
 
 const columnStorageKey = "vova-medcenter-column-widths-v2";
@@ -80,6 +87,9 @@ const emptyClientForm: ClientPayload = {
   snils: "",
   oms_policy: "",
   address_text: "",
+  profession: "",
+  work_place: "",
+  organization: "",
   notes: "",
 };
 
@@ -141,6 +151,8 @@ function clientToForm(client: Client): ClientPayload {
     journal_number: client.journal_number ?? "",
     no_number: client.no_number ?? "",
     flg: client.flg ?? "",
+    profession: client.profession ?? "",
+    work_place: client.work_place ?? "",
     organization: client.organization ?? "",
     mkb10: client.mkb10 ?? "",
     real_date_text: client.real_date_text ?? "",
@@ -179,6 +191,11 @@ function displayValue(value?: string | number | null) {
   return String(value);
 }
 
+function isAmbulatoryTemplate(template: DocumentTemplate) {
+  const source = `${template.name} ${template.file_name}`.toLowerCase();
+  return source.includes("амб") && template.template_type === "xls";
+}
+
 function readSavedColumnWidths() {
   try {
     const saved = window.localStorage.getItem(columnStorageKey);
@@ -192,6 +209,8 @@ function readSavedColumnWidths() {
 export function ClientListPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [templates, setTemplates] = useState<DocumentTemplate[]>([]);
+  const [clientEncounters, setClientEncounters] = useState<Encounter[]>([]);
   const [search, setSearch] = useState("");
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [clientForm, setClientForm] = useState<ClientPayload>(emptyClientForm);
@@ -202,6 +221,8 @@ export function ClientListPage() {
   const [comment, setComment] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [printing, setPrinting] = useState(false);
+  const [downloadingDocument, setDownloadingDocument] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => readSavedColumnWidths());
@@ -209,6 +230,11 @@ export function ClientListPage() {
 
   const selectedClient = clients.find((client) => client.id === selectedClientId) ?? null;
   const selectedServices = services.filter((service) => selectedServiceIds.includes(service.id));
+  const ambulatoryTemplate = useMemo(
+    () => templates.find((template) => isAmbulatoryTemplate(template)) ?? null,
+    [templates],
+  );
+  const latestEncounter = clientEncounters[0] ?? null;
   const totalAmount = useMemo(
     () => selectedServices.reduce((sum, service) => sum + servicePrice(service), 0),
     [selectedServices],
@@ -218,6 +244,24 @@ export function ClientListPage() {
     try {
       const result = await api.getServices();
       setServices(result);
+    } catch (err) {
+      setError(parseApiError(err));
+    }
+  }
+
+  async function loadTemplates() {
+    try {
+      const result = await api.getTemplates();
+      setTemplates(result);
+    } catch (err) {
+      setError(parseApiError(err));
+    }
+  }
+
+  async function loadClientEncounters(clientId: number) {
+    try {
+      const result = await api.getEncounters(clientId);
+      setClientEncounters(result);
     } catch (err) {
       setError(parseApiError(err));
     }
@@ -250,6 +294,7 @@ export function ClientListPage() {
 
   useEffect(() => {
     void loadServices();
+    void loadTemplates();
   }, []);
 
   useEffect(() => {
@@ -272,6 +317,14 @@ export function ClientListPage() {
       setClientForm(clientToForm(selectedClient));
     }
   }, [selectedClientId, selectedClient, isEditingClient]);
+
+  useEffect(() => {
+    if (!selectedClientId) {
+      setClientEncounters([]);
+      return;
+    }
+    void loadClientEncounters(selectedClientId);
+  }, [selectedClientId]);
 
   function startCreate() {
     const parts = search.trim().split(/\s+/).filter(Boolean);
@@ -357,6 +410,12 @@ export function ClientListPage() {
       );
 
       setNotice(`Обращение № ${encounter.id} оформлено. Сумма: ${totalAmount.toFixed(2)}`);
+      setClients((current) =>
+        current.map((client) =>
+          client.id === selectedClient.id ? { ...client, encounter_date_text: visitDate } : client,
+        ),
+      );
+      setClientEncounters((current) => [encounter, ...current.filter((item) => item.id !== encounter.id)]);
       setComment("");
       setSelectedServiceIds([]);
     } catch (err) {
@@ -414,6 +473,61 @@ export function ClientListPage() {
   useEffect(() => {
     window.localStorage.setItem(columnStorageKey, JSON.stringify(columnWidths));
   }, [columnWidths]);
+
+  async function printAmbulatoryCard() {
+    if (!selectedClient) {
+      setError("Сначала выберите клиента.");
+      return;
+    }
+    if (!ambulatoryTemplate) {
+      setError("Шаблон амбулаторной карты Excel не найден.");
+      return;
+    }
+
+    setPrinting(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await api.printDocument({
+        template_id: ambulatoryTemplate.id,
+        client_id: selectedClient.id,
+        encounter_id: latestEncounter?.id ?? null,
+      });
+      setNotice(response.message);
+    } catch (err) {
+      setError(parseApiError(err));
+    } finally {
+      setPrinting(false);
+    }
+  }
+
+  async function downloadAmbulatoryCard() {
+    if (!selectedClient) {
+      setError("Сначала выберите клиента.");
+      return;
+    }
+    if (!ambulatoryTemplate) {
+      setError("Шаблон амбулаторной карты Excel не найден.");
+      return;
+    }
+
+    setDownloadingDocument(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await api.generateDocument({
+        template_id: ambulatoryTemplate.id,
+        client_id: selectedClient.id,
+        encounter_id: latestEncounter?.id ?? null,
+      });
+      window.open(buildGeneratedDocumentUrl(response.output_file_name), "_blank", "noopener,noreferrer");
+      setNotice(`Амбулаторная карта ${response.output_file_name} сформирована.`);
+    } catch (err) {
+      setError(parseApiError(err));
+    } finally {
+      setDownloadingDocument(false);
+    }
+  }
 
   function startColumnResize(key: string, event: ReactMouseEvent<HTMLButtonElement>) {
     event.preventDefault();
@@ -554,7 +668,7 @@ export function ClientListPage() {
                   <span>{client.doctor_phthisiatrician || ""}</span>
                   <span>{client.doctor_uzist || ""}</span>
                   <span>{client.notes || ""}</span>
-                  <span>{client.encounter_date_text || ""}</span>
+                  <span>{formatDate(client.encounter_date_text) || client.encounter_date_text || ""}</span>
                   <span>{client.card_number || client.patient_number}</span>
                   <span>{client.no_number || ""}</span>
                   <span>{client.flg || ""}</span>
@@ -617,6 +731,14 @@ export function ClientListPage() {
               </div>
               <div>
                 <span>Организация</span>
+                <strong>{displayValue(selectedClient?.profession)}</strong>
+              </div>
+              <div>
+                <span>Место работы</span>
+                <strong>{displayValue(selectedClient?.work_place)}</strong>
+              </div>
+              <div>
+                <span>Профессия</span>
                 <strong>{displayValue(selectedClient?.organization)}</strong>
               </div>
               <div>
@@ -666,6 +788,18 @@ export function ClientListPage() {
                 Регистрация
                 <input value={clientForm.address_text ?? ""} onChange={(e) => setClientForm({ ...clientForm, address_text: e.target.value })} disabled={!isEditingClient} />
               </label>
+              <label>
+                Профессия
+                <input value={clientForm.profession ?? ""} onChange={(e) => setClientForm({ ...clientForm, profession: e.target.value })} disabled={!isEditingClient} />
+              </label>
+              <label>
+                Место работы
+                <input value={clientForm.work_place ?? ""} onChange={(e) => setClientForm({ ...clientForm, work_place: e.target.value })} disabled={!isEditingClient} />
+              </label>
+              <label>
+                Организация
+                <input value={clientForm.organization ?? ""} onChange={(e) => setClientForm({ ...clientForm, organization: e.target.value })} disabled={!isEditingClient} />
+              </label>
               <label className="client-form-grid__wide">
                 Комментарий
                 <textarea value={clientForm.notes ?? ""} onChange={(e) => setClientForm({ ...clientForm, notes: e.target.value })} disabled={!isEditingClient} />
@@ -677,6 +811,30 @@ export function ClientListPage() {
             <div className="work-card__head">
               <h2>Оформление обращения</h2>
               <strong>{selectedClient ? fullName(selectedClient) : "Клиент не выбран"} · услуг: {services.length}</strong>
+            </div>
+
+            <div className="visit-print-bar">
+              <div className="visit-print-bar__text">
+                <strong>Амбулаторная карта</strong>
+                <span>
+                  {latestEncounter
+                    ? `Для обращения № ${latestEncounter.id} от ${formatDate(latestEncounter.encounter_date)}`
+                    : "Будет сформирована по карточке клиента без выбранного обращения"}
+                </span>
+              </div>
+              <div className="visit-print-bar__actions">
+                <button className="secondary-action" type="button" disabled={!selectedClient || printing} onClick={() => void printAmbulatoryCard()}>
+                  {printing ? "Печатаю..." : "Распечатать амбулаторную"}
+                </button>
+                <button
+                  className="secondary-action"
+                  type="button"
+                  disabled={!selectedClient || downloadingDocument}
+                  onClick={() => void downloadAmbulatoryCard()}
+                >
+                  {downloadingDocument ? "Формирую Excel..." : "Скачать Excel"}
+                </button>
+              </div>
             </div>
 
             <div className="visit-controls">

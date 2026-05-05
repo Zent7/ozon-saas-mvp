@@ -1,8 +1,9 @@
 from app.db.base import Base
 from app.db.session import engine, SessionLocal
+from app.models.blank_form import BLANK_TYPE_DRIVER_MEDICAL_CERTIFICATE
 from app.models import *  # noqa: F401,F403
 from app.services.seed import seed_reference_data
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, select, text
 
 
 LEGACY_IMPORT_COLUMNS = {
@@ -21,6 +22,37 @@ CLIENT_PROFILE_COLUMNS = {
     "document_issued_by": "VARCHAR(500)",
     "document_issued_date": "DATE",
 }
+
+SPORT_CONCLUSION_PHRASES = [
+    "Допущен к участию в соревнованиях",
+    "Допущен к участию в соревнованиях по спорту \"Трофи-Рейд-Квадроциклы\".",
+    "Допущен к участию в соревнованиях по гиревому спорту.",
+    "Допущен к участию в соревнованиях по гребле на дистанцию 70 км",
+    "Допущен к участию в соревнованиях по бегу на дистанцию 10 км",
+    "Допущен к участию в соревнованиях по бегу с препятствиями на дистанции до 10 км",
+    "Допущен к участию в соревнованиях по велоспорту на дистанцию 40 км",
+    "Допущен к участию в соревнованиях по футболу",
+    "Допущена к занятиям спортом, участию в соревнованиях по велоспорту на дистанции до 20 км",
+    "Допущена к участию в соревнованиях по бегу",
+    "Допущена к участию в соревнованиях по бегу на дистанции 10 км",
+    "Допущена к участию в соревнованиях по бегу на дистанции 5 км",
+    "Допущена к участию в соревнованиях по спорту ушу.",
+    "Допущена к фигурному катанию",
+    "Допущен к соревнованиям по велоспорту на дистанции 40 км",
+    "Допущен к участию в соревнованиях по функциональному многоборью",
+    "Допущена к соревнованиям на велогонку на дистанции 20 км и к соревнованиям по бегу на 10 км",
+    "Допущена к соревнованиям по велоспорту на дистанции 20 км и к соревнованиям по бегу на 10 км",
+    "Физической культуры по программе ВУЗа допущен; группа здоровья - основная",
+    "Допущен к соревнованиям по фитнесу и бодибилдингу",
+    "Допущен к соревнованиям по практической стрельбе",
+    "Допущен к соревнованиям по спортивному парапланеризму",
+    "Допущен к соревнованиям по спортивному туризму",
+    "Допущен к соревнованиям по спортивному туризму на средствах передвижения",
+    "Допущен к соревнованиям по стрельбе",
+    "Допущен к соревнованиям по кэндо",
+    "Допущен к соревнованиям по спортивным бальным танцам",
+    "Допущен к соревнованиям по тхэквондо",
+]
 
 
 def add_integer_column_if_missing(connection, dialect: str, table_name: str, column_name: str) -> None:
@@ -117,6 +149,87 @@ def ensure_client_profile_columns() -> None:
         )
 
 
+def ensure_blank_form_tables() -> None:
+    inspector = inspect(engine)
+    blank_table_names = {"blank_types", "blank_batches", "blank_forms"}
+    existing_blank_tables = {name for name in blank_table_names if inspector.has_table(name)}
+    if existing_blank_tables != blank_table_names:
+        blank_tables = [Base.metadata.tables[name] for name in sorted(blank_table_names) if name in Base.metadata.tables]
+        Base.metadata.create_all(engine, tables=blank_tables, checkfirst=True)
+
+    dialect = engine.dialect.name
+    with engine.begin() as connection:
+        generated_columns = {column["name"] for column in inspector.get_columns("generated_documents")} if inspector.has_table("generated_documents") else set()
+        if inspector.has_table("generated_documents"):
+            if "blank_form_id" not in generated_columns:
+                add_integer_column_if_missing(connection, dialect, "generated_documents", "blank_form_id")
+            if "blank_number_snapshot" not in generated_columns:
+                add_column_if_missing(connection, dialect, "generated_documents", "blank_number_snapshot", "VARCHAR(80)")
+            if "cancelled_at" not in generated_columns:
+                add_column_if_missing(connection, dialect, "generated_documents", "cancelled_at", "TIMESTAMP WITH TIME ZONE")
+            if "cancelled_by_user_id" not in generated_columns:
+                add_integer_column_if_missing(connection, dialect, "generated_documents", "cancelled_by_user_id")
+            if "cancelled_reason" not in generated_columns:
+                add_column_if_missing(connection, dialect, "generated_documents", "cancelled_reason", "VARCHAR(500)")
+            create_index_if_possible(connection, dialect, "ix_generated_documents_blank_form_id", "generated_documents", "blank_form_id")
+            create_index_if_possible(connection, dialect, "ix_generated_documents_blank_number_snapshot", "generated_documents", "blank_number_snapshot")
+
+        client_document_columns = {column["name"] for column in inspector.get_columns("client_documents")} if inspector.has_table("client_documents") else set()
+        if inspector.has_table("client_documents"):
+            if "blank_form_id" not in client_document_columns:
+                add_integer_column_if_missing(connection, dialect, "client_documents", "blank_form_id")
+            if "blank_number_snapshot" not in client_document_columns:
+                add_column_if_missing(connection, dialect, "client_documents", "blank_number_snapshot", "VARCHAR(80)")
+            create_index_if_possible(connection, dialect, "ix_client_documents_blank_form_id", "client_documents", "blank_form_id")
+            create_index_if_possible(connection, dialect, "ix_client_documents_blank_number_snapshot", "client_documents", "blank_number_snapshot")
+
+
+def seed_blank_types() -> None:
+    if not inspect(engine).has_table("blank_types"):
+        return
+
+    with SessionLocal() as db:
+        existing = db.execute(select(BlankType).where(BlankType.code == BLANK_TYPE_DRIVER_MEDICAL_CERTIFICATE)).scalar_one_or_none()
+        if existing is None:
+            db.add(
+                BlankType(
+                    code=BLANK_TYPE_DRIVER_MEDICAL_CERTIFICATE,
+                    name="Медицинское заключение для водительского удостоверения",
+                    is_active=True,
+                )
+            )
+            db.commit()
+
+
+def seed_sport_conclusion_phrases() -> None:
+    if not inspect(engine).has_table("template_phrases"):
+        return
+
+    with SessionLocal() as db:
+        for phrase_text in SPORT_CONCLUSION_PHRASES:
+            exists = db.execute(
+                select(TemplatePhrase).where(
+                    TemplatePhrase.code == "sport_conclusion",
+                    TemplatePhrase.text == phrase_text,
+                )
+            ).scalar_one_or_none()
+            if exists is not None:
+                continue
+            db.add(
+                TemplatePhrase(
+                    code="sport_conclusion",
+                    name=phrase_text[:100],
+                    text=phrase_text,
+                    is_default=False,
+                    is_active=True,
+                )
+            )
+        db.commit()
+
+
 def init_db() -> None:
+    ensure_blank_form_tables()
+    seed_blank_types()
+    seed_sport_conclusion_phrases()
     with SessionLocal() as db:
         seed_reference_data(db)

@@ -13,5 +13,16 @@ class ServiceRead(BaseModel):
     is_active: bool
     requires_sequence: bool = False
     recall_after_days: int | None = None
+    doctor_role_ids: list[int] = []
 
     model_config = {"from_attributes": True}
+
+
+class ServiceUpdate(BaseModel):
+    category_id: int | None = None
+    name: str | None = None
+    price: Decimal | None = None
+    is_active: bool | None = None
+    requires_sequence: bool | None = None
+    recall_after_days: int | None = None
+    doctor_role_ids: list[int] | None = None

@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:mb="http://iac.spb.ru/mb#" xmlns:xd="http://www.w3.org/2000/09/xmldsig#">
+   <soapenv:Header/>
+   <soapenv:Body>
+      <mb:fillGibddBlankV4Request xmlns:mb="http://iac.spb.ru/mb#">
+         <mb:blankInfo>
+            <mb:id>777</mb:id>
+            <mb:moId>111125</mb:moId>
+            <mb:isSpoiled>false</mb:isSpoiled>
+            <mb:duplicate>
+               <mb:isDuplicated>false</mb:isDuplicated>
+               <mb:duplicateId></mb:duplicateId>
+            </mb:duplicate>
+            <mb:dateFormat>dd.MM.yyyy</mb:dateFormat>
+          </mb:blankInfo>
+         <mb:clientInfo>
+            <mb:surname>Документ</mb:surname>
+            <mb:name>Тест</mb:name>
+            <mb:patronymic>Проверка</mb:patronymic>
+            <mb:birthday>15.01.1990</mb:birthday>
+            <mb:address>
+               <mb:type>1</mb:type>
+               <mb:place>Россия</mb:place>
+               <mb:area></mb:area>
+               <mb:city>г. Покров</mb:city>
+               <mb:town></mb:town>
+               <mb:street>ул. Восточная</mb:street>
+               <mb:house>2</mb:house>
+               <mb:building></mb:building>
+               <mb:flat>10</mb:flat>
+            </mb:address>
+         </mb:clientInfo>
+         <mb:conclusion>
+            <mb:inspectionResult>
+               <mb:therapist>Терапевт</mb:therapist>
+               <mb:ophthalmologist>Офтальмолог</mb:ophthalmologist>
+               <mb:psychiatrist>Обследование врачом-психиатром</mb:psychiatrist>
+               <mb:narcologist>Обследование врачом-психиатром-наркологом</mb:narcologist>
+               <mb:neurologist>Невролог</mb:neurologist>
+               <mb:otorhinolaryngologist>Отоларинголог</mb:otorhinolaryngologist>
+               <mb:instrumentalResearch>Без отклонений</mb:instrumentalResearch>
+               <mb:laboratoryTest>Без отклонений</mb:laboratoryTest>
+            </mb:inspectionResult>
+            <mb:medConclusion>
+               <mb:contraindication>false</mb:contraindication>
+               <mb:indication>false</mb:indication>
+               <mb:restriction>false</mb:restriction> 
+               <mb:returnLicence>false</mb:returnLicence>
+               <mb:dateConclusion>22.04.2026</mb:dateConclusion>
+               <mb:fioDoctor>Главный врач</mb:fioDoctor>
+            </mb:medConclusion>
+         </mb:conclusion>
+         <mb:category>
+            <mb:category>
+               <mb:categoryA>X</mb:categoryA>
+               <mb:categoryB>X</mb:categoryB>
+               <mb:categoryC>X</mb:categoryC>
+               <mb:categoryD>X</mb:categoryD>
+               <mb:categoryBE></mb:categoryBE>
+               <mb:categoryCE></mb:categoryCE>
+               <mb:categoryDE></mb:categoryDE>
+               <mb:categoryTm></mb:categoryTm>
+               <mb:categoryTb></mb:categoryTb>
+               <mb:categoryM></mb:categoryM>
+               <mb:cat_tractor>false</mb:cat_tractor>
+               <mb:cat_vehicle>false</mb:cat_vehicle>
+               <mb:cat_ship></mb:cat_ship>>
+            </mb:category>
+            <mb:subCategory>
+               <mb:subCategoryA1></mb:subCategoryA1>
+               <mb:subCategoryB1></mb:subCategoryB1>
+               <mb:subCategoryC1></mb:subCategoryC1>
+               <mb:subCategoryD1></mb:subCategoryD1>
+               <mb:subCategoryC1E></mb:subCategoryC1E>
+               <mb:subCategoryD1E></mb:subCategoryD1E>
+            </mb:subCategory>
+         </mb:category>
+         <mb:restrictions>
+               <mb:catAM>X</mb:catAM>
+               <mb:catBBE>X</mb:catBBE>
+               <mb:catCCED>X</mb:catCCED>
+         </mb:restrictions>
+         <mb:indications>
+               <mb:manual></mb:manual>
+               <mb:automatic></mb:automatic>
+               <mb:parktronic></mb:parktronic>
+               <mb:correctVision></mb:correctVision>
+               <mb:lossHearing></mb:lossHearing>
+         </mb:indications>
+      </mb:fillGibddBlankV4Request>
+   </soapenv:Body>
+</soapenv:Envelope>

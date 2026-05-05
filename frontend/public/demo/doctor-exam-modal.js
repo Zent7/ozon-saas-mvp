@@ -194,6 +194,397 @@
     `;
   }
 
+  function renderTherapistClassic(template, exam, client) {
+    const fields = exam.fields || {};
+    const fullName = client?.fullName || client?.name || client?.fio || "Клиент";
+
+    const fieldOptions = (key) => template.fields.find((f) => f.key === key)?.options || [];
+    const fieldDefault = (key) => template.fields.find((f) => f.key === key)?.defaultValue ?? "";
+    const fieldValue = (key) => fields[key] ?? fieldDefault(key);
+
+    return `
+      <div class="doctor-classic-backdrop" data-doctor-exam-modal>
+        <div class="doctor-classic-window therapist-window">
+          <div class="doctor-classic-titlebar">
+            <div class="doctor-classic-title">${escapeHtml(template.name)}</div>
+            <button type="button" class="doctor-classic-close" data-doctor-exam-close>×</button>
+          </div>
+
+          <form
+            class="doctor-classic-form therapist-form"
+            data-doctor-exam-form
+            data-exam-id="${escapeHtml(exam.id)}"
+            data-doctor-role-id="${escapeHtml(template.id)}"
+          >
+            <div class="doctor-classic-body therapist-body">
+              <div class="doctor-classic-main therapist-main">
+                <div class="doctor-classic-row doctor-classic-row--fio therapist-row">
+                  <div class="doctor-classic-label">Ф.И.О.</div>
+                  <div class="doctor-classic-field">
+                    <input
+                      class="doctor-classic-input doctor-classic-input--fio"
+                      type="text"
+                      name="patientFullName"
+                      value="${escapeHtml(fullName)}"
+                      readonly
+                    />
+                  </div>
+                </div>
+
+                <div class="doctor-classic-row doctor-classic-row--complaints therapist-row">
+                  <div class="doctor-classic-label">Жалобы:</div>
+                  <div class="doctor-classic-field doctor-classic-field--complaints">
+                    <div class="doctor-classic-complaints-left">
+                      <select class="doctor-classic-select" name="complaintsPreset">
+                        ${fieldOptions("complaintsPreset")
+                          .map(
+                            (option) => `
+                              <option value="${escapeHtml(option)}" ${
+                                option === fieldValue("complaintsPreset") ? "selected" : ""
+                              }>
+                                ${escapeHtml(option)}
+                              </option>
+                            `,
+                          )
+                          .join("")}
+                      </select>
+                    </div>
+                    <div class="doctor-classic-complaints-right">
+                      <input
+                        class="doctor-classic-input"
+                        type="text"
+                        name="complaints"
+                        value="${escapeHtml(fieldValue("complaints"))}"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="doctor-classic-row therapist-row">
+                  <div class="doctor-classic-label">Анамнез:</div>
+                  <div class="doctor-classic-field">
+                    <textarea class="doctor-classic-textarea therapist-textarea--short" name="anamnesis">${escapeHtml(fieldValue("anamnesis"))}</textarea>
+                  </div>
+                </div>
+
+                <div class="doctor-classic-row therapist-row">
+                  <div class="doctor-classic-label">Эпиданамнез:</div>
+                  <div class="doctor-classic-field">
+                    <textarea class="doctor-classic-textarea therapist-textarea--short" name="epidemiologicalAnamnesis">${escapeHtml(fieldValue("epidemiologicalAnamnesis"))}</textarea>
+                  </div>
+                </div>
+
+                <div class="doctor-classic-row therapist-row">
+                  <div class="doctor-classic-label">Аллергологический анамнез:</div>
+                  <div class="doctor-classic-field">
+                    <textarea class="doctor-classic-textarea therapist-textarea--short" name="allergicAnamnesis">${escapeHtml(fieldValue("allergicAnamnesis"))}</textarea>
+                  </div>
+                </div>
+
+                <div class="therapist-section-label">Объективно:</div>
+                <div class="therapist-objective-grid">
+                  <div class="therapist-field">
+                    <label>Состояние:</label>
+                    <input class="doctor-classic-input" type="text" name="generalCondition" value="${escapeHtml(fieldValue("generalCondition"))}" />
+                  </div>
+                  <div class="therapist-field">
+                    <label>Лимфоузлы:</label>
+                    <input class="doctor-classic-input" type="text" name="lymphNodes" value="${escapeHtml(fieldValue("lymphNodes"))}" />
+                  </div>
+                  <div class="therapist-field">
+                    <label>Кожные покровы:</label>
+                    <input class="doctor-classic-input" type="text" name="skin" value="${escapeHtml(fieldValue("skin"))}" />
+                  </div>
+                  <div class="therapist-field">
+                    <label>Пульс:</label>
+                    <input class="doctor-classic-input" type="text" name="pulse" value="${escapeHtml(fieldValue("pulse"))}" />
+                  </div>
+                  <div class="therapist-field">
+                    <label>АД:</label>
+                    <input class="doctor-classic-input" type="text" name="bloodPressure" value="${escapeHtml(fieldValue("bloodPressure"))}" />
+                  </div>
+                  <div class="therapist-field">
+                    <label>Дыхание:</label>
+                    <input class="doctor-classic-input" type="text" name="breathing" value="${escapeHtml(fieldValue("breathing"))}" />
+                  </div>
+                  <div class="therapist-field">
+                    <label>Тоны сердца:</label>
+                    <input class="doctor-classic-input" type="text" name="heartSounds" value="${escapeHtml(fieldValue("heartSounds"))}" />
+                  </div>
+                  <div class="therapist-field">
+                    <label>Живот:</label>
+                    <input class="doctor-classic-input" type="text" name="abdomen" value="${escapeHtml(fieldValue("abdomen"))}" />
+                  </div>
+                  <div class="therapist-field">
+                    <label>Язык:</label>
+                    <input class="doctor-classic-input" type="text" name="tongue" value="${escapeHtml(fieldValue("tongue"))}" />
+                  </div>
+                  <div class="therapist-field">
+                    <label>Глюкоза:</label>
+                    <input class="doctor-classic-input" type="text" name="glucose" value="${escapeHtml(fieldValue("glucose"))}" />
+                  </div>
+                  <div class="therapist-field">
+                    <label>Холестерин:</label>
+                    <input class="doctor-classic-input" type="text" name="cholesterol" value="${escapeHtml(fieldValue("cholesterol"))}" />
+                  </div>
+                  <div class="therapist-field">
+                    <label>Вес:</label>
+                    <input class="doctor-classic-input" type="text" name="weight" value="${escapeHtml(fieldValue("weight"))}" />
+                  </div>
+                  <div class="therapist-field">
+                    <label>Рост:</label>
+                    <input class="doctor-classic-input" type="text" name="height" value="${escapeHtml(fieldValue("height"))}" />
+                  </div>
+                </div>
+
+                <div class="doctor-classic-row therapist-row therapist-row--diagnosis">
+                  <div class="doctor-classic-label">Диагноз:</div>
+                  <div class="doctor-classic-field">
+                    <textarea class="doctor-classic-textarea doctor-classic-textarea--diagnosis" name="diagnosis">${escapeHtml(fieldValue("diagnosis"))}</textarea>
+                  </div>
+                </div>
+
+                <div class="doctor-classic-row doctor-classic-row--conclusion therapist-row">
+                  <div class="doctor-classic-label">Заключение:</div>
+                  <div class="doctor-classic-field">
+                    <div class="doctor-classic-bottom-line therapist-bottom-line">
+                      <div class="doctor-classic-bottom-item doctor-classic-bottom-item--validity">
+                        <label class="doctor-classic-inline-label">Срок:</label>
+                        <select class="doctor-classic-select doctor-classic-select--small" name="validity">
+                          ${fieldOptions("validity")
+                            .map(
+                              (option) => `
+                                <option value="${escapeHtml(option)}" ${option === fieldValue("validity") ? "selected" : ""}>
+                                  ${escapeHtml(option)}
+                                </option>
+                              `,
+                            )
+                            .join("")}
+                        </select>
+                      </div>
+
+                      ${renderClassicRadio("conclusion", fieldValue("conclusion"), fieldOptions("conclusion"))}
+
+                      <div class="doctor-classic-bottom-item doctor-classic-bottom-item--mkb">
+                        <label class="doctor-classic-inline-label">МКБ10:</label>
+                        <input
+                          class="doctor-classic-input doctor-classic-input--mkb"
+                          type="text"
+                          name="mkb10"
+                          value="${escapeHtml(fieldValue("mkb10"))}"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="doctor-classic-row doctor-classic-row--note therapist-row">
+                  <div class="doctor-classic-label">Примечание:</div>
+                  <div class="doctor-classic-field">
+                    <textarea class="doctor-classic-textarea doctor-classic-textarea--note" name="note">${escapeHtml(fieldValue("note"))}</textarea>
+                  </div>
+                </div>
+              </div>
+
+              <div class="doctor-classic-sidebar">
+                <button type="submit" class="doctor-classic-sidebtn">ОК</button>
+                <button type="button" class="doctor-classic-sidebtn" data-doctor-exam-close>Отмена</button>
+                <button type="button" class="doctor-classic-sidebtn doctor-classic-sidebtn--danger" data-doctor-exam-delete>Удаление</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderSectionedClassic(template, exam, client, config) {
+    const fields = exam.fields || {};
+    const fullName = client?.fullName || client?.name || client?.fio || "Клиент";
+    const fieldOptions = (key) => template.fields.find((f) => f.key === key)?.options || [];
+    const fieldDefault = (key) => template.fields.find((f) => f.key === key)?.defaultValue ?? "";
+    const fieldValue = (key) => fields[key] ?? fieldDefault(key);
+    const sections = config.sections || [];
+
+    return `
+      <div class="doctor-classic-backdrop" data-doctor-exam-modal>
+        <div class="doctor-classic-window sectioned-doctor-window">
+          <div class="doctor-classic-titlebar">
+            <div class="doctor-classic-title">${escapeHtml(template.name)}</div>
+            <button type="button" class="doctor-classic-close" data-doctor-exam-close>×</button>
+          </div>
+
+          <form
+            class="doctor-classic-form"
+            data-doctor-exam-form
+            data-exam-id="${escapeHtml(exam.id)}"
+            data-doctor-role-id="${escapeHtml(template.id)}"
+          >
+            <div class="doctor-classic-body sectioned-doctor-body">
+              <div class="doctor-classic-main sectioned-doctor-main">
+                <div class="doctor-classic-row doctor-classic-row--fio sectioned-doctor-row">
+                  <div class="doctor-classic-label">Ф.И.О.</div>
+                  <div class="doctor-classic-field">
+                    <input class="doctor-classic-input doctor-classic-input--fio" type="text" name="patientFullName" value="${escapeHtml(fullName)}" readonly />
+                  </div>
+                </div>
+
+                <div class="doctor-classic-row doctor-classic-row--complaints sectioned-doctor-row">
+                  <div class="doctor-classic-label">Жалобы:</div>
+                  <div class="doctor-classic-field doctor-classic-field--complaints">
+                    <div class="doctor-classic-complaints-left">
+                      <select class="doctor-classic-select" name="complaintsPreset">
+                        ${fieldOptions("complaintsPreset")
+                          .map(
+                            (option) => `
+                              <option value="${escapeHtml(option)}" ${option === fieldValue("complaintsPreset") ? "selected" : ""}>
+                                ${escapeHtml(option)}
+                              </option>
+                            `,
+                          )
+                          .join("")}
+                      </select>
+                    </div>
+                    <div class="doctor-classic-complaints-right">
+                      <input class="doctor-classic-input" type="text" name="complaints" value="${escapeHtml(fieldValue("complaints"))}" />
+                    </div>
+                  </div>
+                </div>
+
+                <div class="doctor-classic-row sectioned-doctor-row">
+                  <div class="doctor-classic-label">Анамнез:</div>
+                  <div class="doctor-classic-field">
+                    <textarea class="doctor-classic-textarea therapist-textarea--short" name="anamnesis">${escapeHtml(fieldValue("anamnesis"))}</textarea>
+                  </div>
+                </div>
+
+                ${sections
+                  .map((section) => `
+                    <div class="sectioned-doctor-section">
+                      <div class="therapist-section-label">${escapeHtml(section.title)}</div>
+                      <div class="sectioned-doctor-grid ${section.columns === 1 ? "sectioned-doctor-grid--single" : ""}">
+                        ${(section.items || [])
+                          .map((item) => `
+                            <div class="sectioned-doctor-field ${item.type === "textarea" ? "sectioned-doctor-field--full" : ""}">
+                              <label>${escapeHtml(item.label)}</label>
+                              ${item.type === "textarea"
+                                ? `<textarea class="doctor-classic-textarea sectioned-doctor-textarea" name="${escapeHtml(item.key)}">${escapeHtml(fieldValue(item.key))}</textarea>`
+                                : `<input class="doctor-classic-input" type="text" name="${escapeHtml(item.key)}" value="${escapeHtml(fieldValue(item.key))}" />`}
+                            </div>
+                          `)
+                          .join("")}
+                      </div>
+                    </div>
+                  `)
+                  .join("")}
+
+                <div class="doctor-classic-row sectioned-doctor-row">
+                  <div class="doctor-classic-label">Диагноз:</div>
+                  <div class="doctor-classic-field">
+                    <textarea class="doctor-classic-textarea doctor-classic-textarea--diagnosis" name="diagnosis">${escapeHtml(fieldValue("diagnosis"))}</textarea>
+                  </div>
+                </div>
+
+                <div class="doctor-classic-row doctor-classic-row--conclusion sectioned-doctor-row">
+                  <div class="doctor-classic-label">Заключение:</div>
+                  <div class="doctor-classic-field">
+                    <div class="doctor-classic-bottom-line sectioned-doctor-bottom-line">
+                      <div class="doctor-classic-bottom-item doctor-classic-bottom-item--validity">
+                        <label class="doctor-classic-inline-label">Срок:</label>
+                        <select class="doctor-classic-select doctor-classic-select--small" name="validity">
+                          ${fieldOptions("validity")
+                            .map(
+                              (option) => `
+                                <option value="${escapeHtml(option)}" ${option === fieldValue("validity") ? "selected" : ""}>
+                                  ${escapeHtml(option)}
+                                </option>
+                              `,
+                            )
+                            .join("")}
+                        </select>
+                      </div>
+
+                      ${renderClassicRadio("conclusion", fieldValue("conclusion"), fieldOptions("conclusion"))}
+
+                      <div class="doctor-classic-bottom-item doctor-classic-bottom-item--mkb">
+                        <label class="doctor-classic-inline-label">МКБ10:</label>
+                        <input class="doctor-classic-input doctor-classic-input--mkb" type="text" name="mkb10" value="${escapeHtml(fieldValue("mkb10"))}" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="doctor-classic-row doctor-classic-row--note sectioned-doctor-row">
+                  <div class="doctor-classic-label">Примечание:</div>
+                  <div class="doctor-classic-field">
+                    <textarea class="doctor-classic-textarea doctor-classic-textarea--note" name="note">${escapeHtml(fieldValue("note"))}</textarea>
+                  </div>
+                </div>
+              </div>
+
+              <div class="doctor-classic-sidebar">
+                <button type="submit" class="doctor-classic-sidebtn">ОК</button>
+                <button type="button" class="doctor-classic-sidebtn" data-doctor-exam-close>Отмена</button>
+                <button type="button" class="doctor-classic-sidebtn doctor-classic-sidebtn--danger" data-doctor-exam-delete>Удаление</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderOtolaryngologistClassic(template, exam, client) {
+    return renderSectionedClassic(template, exam, client, {
+      sections: [
+        {
+          title: "Объективно:",
+          items: [
+            { key: "objective", label: "Описание", type: "textarea" },
+            { key: "earRight", label: "AD" },
+            { key: "earLeft", label: "AS" },
+            { key: "op", label: "OP" },
+            { key: "vestibular", label: "Вестиб." },
+          ],
+        },
+      ],
+    });
+  }
+
+  function renderOphthalmologistClassic(template, exam, client) {
+    return renderSectionedClassic(template, exam, client, {
+      sections: [
+        {
+          title: "Объективно:",
+          items: [
+            { key: "visualAcuityRight", label: "Острота зрения OD" },
+            { key: "visualAcuityLeft", label: "Острота зрения OS" },
+            { key: "visualFieldsRight", label: "Поля зрения OD" },
+            { key: "visualFieldsLeft", label: "Поля зрения OS" },
+            { key: "colorVision", label: "Цветоощущение" },
+            { key: "ocularFundus", label: "Глазное дно" },
+          ],
+        },
+      ],
+    });
+  }
+
+  function renderUzistClassic(template, exam, client) {
+    return renderSectionedClassic(template, exam, client, {
+      sections: [
+        {
+          title: "Исследование:",
+          items: [
+            { key: "studyName", label: "Исследование" },
+            { key: "objective", label: "Описание УЗИ", type: "textarea" },
+            { key: "recommendation", label: "Рекомендации", type: "textarea" },
+          ],
+          columns: 1,
+        },
+      ],
+    });
+  }
+
   function renderChairmanClassic(template, exam, client) {
     const fields = exam.fields || {};
     const fullName = client?.fullName || client?.name || client?.fio || "Клиент";
@@ -873,15 +1264,40 @@
     const modal = document.querySelector("[data-doctor-exam-modal]");
     if (!modal) return;
 
+    modal.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+
+    modal.addEventListener("mousedown", (event) => {
+      event.stopPropagation();
+    });
+
     modal.querySelectorAll("[data-doctor-exam-close]").forEach((button) => {
-      button.addEventListener("click", () => {
-        window.closeDoctorExamCard();
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        window.setTimeout(() => {
+          window.closeDoctorExamCard();
+        }, 0);
       });
     });
 
     modal.querySelectorAll("[data-doctor-exam-delete]").forEach((button) => {
-      button.addEventListener("click", () => {
-        alert("Удаление осмотра потом добавим отдельно.");
+      button.hidden = true;
+      button.setAttribute("aria-hidden", "true");
+      button.tabIndex = -1;
+    });
+
+    modal.querySelectorAll("[data-doctor-exam-delete]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const form = modal.querySelector("[data-doctor-exam-form]");
+        const examId = form?.dataset.examId;
+        if (!examId) return;
+        if (!window.confirm("Удалить карточку врача?")) return;
+        const deleted = await window.deleteDoctorExam?.(examId);
+        if (deleted) {
+          window.closeDoctorExamCard();
+        }
       });
     });
 
@@ -890,6 +1306,7 @@
 
     form.addEventListener("submit", (event) => {
       event.preventDefault();
+      event.stopPropagation();
 
       const examId = form.dataset.examId;
       const doctorRoleId = form.dataset.doctorRoleId;
@@ -897,9 +1314,30 @@
       if (!template) return;
 
       const values = collectFormData(form, template);
-      window.saveDoctorExam(examId, values);
       window.closeDoctorExamCard();
+      window.saveDoctorExam(examId, values);
     });
+
+    // Применение пресета жалоб: при смене select[name=complaintsPreset] подставляем
+    // соответствующие значения полей из window.doctorPresets.
+    const presetSelect = form.querySelector('select[name="complaintsPreset"]');
+    if (presetSelect) {
+      presetSelect.addEventListener("change", () => {
+        const doctorRoleId = form.dataset.doctorRoleId;
+        const presetName = presetSelect.value;
+        const presets = (window.doctorPresets || {})[doctorRoleId];
+        const preset = presets ? presets[presetName] : null;
+        if (!preset) return;
+
+        Object.entries(preset).forEach(([fieldKey, value]) => {
+          const elements = form.elements[fieldKey];
+          if (!elements) return;
+          const el = elements.length && elements.tagName === undefined ? elements[0] : elements;
+          if (!el || el.type === "radio" || el.type === "checkbox") return;
+          el.value = value == null ? "" : String(value);
+        });
+      });
+    }
 
     modal.querySelectorAll("[data-psy-tab]").forEach((button) => {
       button.addEventListener("click", () => {
@@ -972,6 +1410,22 @@
 
     if (template.layout === "phthisiatristClassic") {
       return renderPhthisiatristClassic(template, exam, client);
+    }
+
+    if (template.layout === "therapistClassic") {
+      return renderTherapistClassic(template, exam, client);
+    }
+
+    if (template.layout === "otolaryngologistClassic") {
+      return renderOtolaryngologistClassic(template, exam, client);
+    }
+
+    if (template.layout === "ophthalmologistClassic") {
+      return renderOphthalmologistClassic(template, exam, client);
+    }
+
+    if (template.layout === "uzistClassic") {
+      return renderUzistClassic(template, exam, client);
     }
 
     if (template.layout === "chairmanClassic") {

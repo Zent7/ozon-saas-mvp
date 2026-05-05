@@ -1,24 +1,74 @@
 from __future__ import annotations
 
+import base64
+import io
 import json
 import re
+import zipfile
+from collections import OrderedDict
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from xml.etree import ElementTree as ET
 
+import xlrd
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.client import Client
 from app.services.audit import write_audit_log
+from app.services.system_user import get_system_user_id
+from app.schemas.imports import (
+    ClientImportExcelRequest,
+    ClientImportPreviewResponse,
+    ClientImportPreviewRow,
+    ClientImportResultResponse,
+)
 
 router = APIRouter()
 
 
 ROOT_DIR = Path(__file__).resolve().parents[5]
-LEGACY_DATA_PATH = ROOT_DIR / "demo" / "legacy-data.js"
+LEGACY_DATA_PATHS = [
+    ROOT_DIR / "demo" / "legacy-data.js",
+    ROOT_DIR / "frontend" / "public" / "demo" / "legacy-data.js",
+]
+
+CLIENT_IMPORT_HEADERS = OrderedDict(
+    [
+        ("patient_number", "№ пациента"),
+        ("last_name", "Фамилия"),
+        ("first_name", "Имя"),
+        ("middle_name", "Отчество"),
+        ("birth_date", "Дата рождения"),
+        ("sex", "Пол"),
+        ("phone", "Телефон"),
+        ("email", "E-mail"),
+        ("document_type", "Тип документа"),
+        ("document_series", "Серия документа"),
+        ("document_number", "Номер документа"),
+        ("document_issued_by", "Кем выдан"),
+        ("document_issued_date", "Дата выдачи"),
+        ("snils", "СНИЛС"),
+        ("registration_text", "Регистрация"),
+        ("address_text", "Адрес проживания"),
+        ("organization", "Организация"),
+        ("admission_category", "Категория допуска"),
+        ("reference_number", "№ справки"),
+        ("notes", "Примечание"),
+    ]
+)
+HEADER_TO_FIELD = {
+    re.sub(r"\s+", " ", header.strip().lower()): field
+    for field, header in CLIENT_IMPORT_HEADERS.items()
+}
+XLSX_NS = {
+    "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+    "rel": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+    "pkg": "http://schemas.openxmlformats.org/package/2006/relationships",
+}
 
 
 def extract_window_json(source: str, variable_name: str) -> Any:
@@ -46,6 +96,18 @@ def parse_date(value: str | None) -> date:
     return date(1900, 1, 1)
 
 
+def parse_optional_date(value: str | None) -> date | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    for date_format in ("%d.%m.%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, date_format).date()
+        except ValueError:
+            continue
+    return None
+
+
 def normalize_text(value: Any) -> str | None:
     if value is None:
         return None
@@ -53,34 +115,298 @@ def normalize_text(value: Any) -> str | None:
     return text or None
 
 
-@router.post("/demo-legacy")
-def import_demo_legacy(db: Session = Depends(get_db)) -> dict[str, int | str]:
-    if not LEGACY_DATA_PATH.exists():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Файл demo-базы не найден: {LEGACY_DATA_PATH}",
-        )
+def normalize_header(value: str | None) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
 
-    source = LEGACY_DATA_PATH.read_text(encoding="utf-8")
+
+def parse_int(value: Any) -> int | None:
+    text = normalize_text(value)
+    if not text:
+        return None
     try:
-        clients = extract_window_json(source, "LEGACY_CLIENTS")
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        return int(float(text.replace(",", ".")))
+    except ValueError:
+        return None
 
-    created = 0
-    updated = 0
 
+def column_letters_to_index(value: str) -> int:
+    result = 0
+    for char in value:
+        if not char.isalpha():
+            break
+        result = result * 26 + (ord(char.upper()) - 64)
+    return result - 1
+
+
+def read_xlsx_shared_strings(archive: zipfile.ZipFile) -> list[str]:
+    if "xl/sharedStrings.xml" not in archive.namelist():
+        return []
+    root = ET.fromstring(archive.read("xl/sharedStrings.xml"))
+    values: list[str] = []
+    for item in root.findall("main:si", XLSX_NS):
+        texts = [node.text or "" for node in item.findall(".//main:t", XLSX_NS)]
+        values.append("".join(texts))
+    return values
+
+
+def resolve_first_sheet_path(archive: zipfile.ZipFile) -> str:
+    workbook_root = ET.fromstring(archive.read("xl/workbook.xml"))
+    workbook_rels = ET.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
+    rel_targets = {
+        rel.attrib["Id"]: rel.attrib["Target"]
+        for rel in workbook_rels.findall("pkg:Relationship", XLSX_NS)
+    }
+    sheet = workbook_root.find("main:sheets/main:sheet", XLSX_NS)
+    if sheet is None:
+        raise ValueError("В Excel-файле не найден лист с данными")
+    relation_id = sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+    target = rel_targets.get(relation_id or "")
+    if not target:
+        raise ValueError("Не удалось открыть первый лист Excel-файла")
+    normalized_target = target.lstrip("/")
+    return normalized_target if normalized_target.startswith("xl/") else f"xl/{normalized_target}"
+
+
+def read_xlsx_rows(content: bytes) -> list[dict[str, Any]]:
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        shared_strings = read_xlsx_shared_strings(archive)
+        sheet_path = resolve_first_sheet_path(archive)
+        root = ET.fromstring(archive.read(sheet_path))
+
+    rows: list[dict[int, str | None]] = []
+    for row in root.findall(".//main:sheetData/main:row", XLSX_NS):
+        cells: dict[int, str | None] = {}
+        for cell in row.findall("main:c", XLSX_NS):
+            ref = cell.attrib.get("r", "")
+            column_index = column_letters_to_index(ref)
+            cell_type = cell.attrib.get("t")
+            value = None
+            if cell_type == "s":
+                index_text = cell.findtext("main:v", default="", namespaces=XLSX_NS)
+                if index_text:
+                    value = shared_strings[int(index_text)]
+            elif cell_type == "inlineStr":
+                texts = [node.text or "" for node in cell.findall(".//main:t", XLSX_NS)]
+                value = "".join(texts)
+            else:
+                value = cell.findtext("main:v", default=None, namespaces=XLSX_NS)
+            cells[column_index] = normalize_text(value)
+        rows.append(cells)
+
+    return rows_to_client_records(rows)
+
+
+def read_xls_rows(content: bytes) -> list[dict[str, Any]]:
+    book = xlrd.open_workbook(file_contents=content)
+    sheet = book.sheet_by_index(0)
+    rows: list[dict[int, str | None]] = []
+    for row_index in range(sheet.nrows):
+        cells: dict[int, str | None] = {}
+        for column_index in range(sheet.ncols):
+            cell = sheet.cell(row_index, column_index)
+            if cell.ctype in {xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK}:
+                cells[column_index] = None
+            elif cell.ctype == xlrd.XL_CELL_DATE:
+                cells[column_index] = xlrd.xldate_as_datetime(cell.value, book.datemode).strftime("%d.%m.%Y")
+            elif cell.ctype == xlrd.XL_CELL_NUMBER:
+                number = float(cell.value)
+                cells[column_index] = str(int(number)) if number.is_integer() else str(number)
+            else:
+                cells[column_index] = normalize_text(cell.value)
+        rows.append(cells)
+    return rows_to_client_records(rows)
+
+
+def rows_to_client_records(rows: list[dict[int, str | None]]) -> list[dict[str, Any]]:
+    if not rows:
+        return []
+
+    header_row = rows[0]
+    columns: dict[int, str] = {}
+    for index, value in header_row.items():
+        field_name = HEADER_TO_FIELD.get(normalize_header(value))
+        if field_name:
+            columns[index] = field_name
+
+    if "last_name" not in columns.values() or "first_name" not in columns.values():
+        raise ValueError("В Excel-шаблоне не хватает обязательных колонок Фамилия и Имя")
+
+    records: list[dict[str, Any]] = []
+    for row_number, row in enumerate(rows[1:], start=2):
+        payload: dict[str, Any] = {"row_number": row_number}
+        has_any_value = False
+        for column_index, field_name in columns.items():
+            value = normalize_text(row.get(column_index))
+            if value:
+                has_any_value = True
+            payload[field_name] = value
+
+        if not has_any_value:
+            continue
+
+        payload["patient_number"] = parse_int(payload.get("patient_number"))
+        payload["birth_date"] = parse_optional_date(payload.get("birth_date"))
+        payload["document_issued_date"] = parse_optional_date(payload.get("document_issued_date"))
+        records.append(payload)
+
+    return records
+
+
+def decode_excel_payload(payload: ClientImportExcelRequest) -> bytes:
+    try:
+        return base64.b64decode(payload.file_content_base64)
+    except Exception as exc:  # pragma: no cover - invalid input from client
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Не удалось прочитать содержимое файла") from exc
+
+
+def read_client_excel_rows(payload: ClientImportExcelRequest) -> list[dict[str, Any]]:
+    content = decode_excel_payload(payload)
+    suffix = Path(payload.file_name).suffix.lower()
+    if suffix == ".xlsx":
+        return read_xlsx_rows(content)
+    if suffix == ".xls":
+        return read_xls_rows(content)
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Поддерживаются только файлы .xlsx и .xls",
+    )
+
+
+def dedupe_legacy_clients(clients: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_legacy_key: OrderedDict[int | str, dict[str, Any]] = OrderedDict()
     for item in clients:
         legacy_source_id = int(item.get("id") or 0) or None
         patient_number = int(item.get("patientNumber") or 0)
         if not patient_number:
             continue
+        by_legacy_key[legacy_source_id or f"patient:{patient_number}"] = item
 
-        client = None
-        if legacy_source_id is not None:
-            client = db.execute(select(Client).where(Client.legacy_source_id == legacy_source_id)).scalar_one_or_none()
+    by_patient_number: OrderedDict[int, dict[str, Any]] = OrderedDict()
+    for item in by_legacy_key.values():
+        patient_number = int(item.get("patientNumber") or 0)
+        by_patient_number[patient_number] = item
+    return list(by_patient_number.values())
+
+
+def find_existing_client_for_import(db: Session, row: dict[str, Any]) -> tuple[Client | None, str | None]:
+    patient_number = row.get("patient_number")
+    if patient_number:
+        client = db.execute(select(Client).where(Client.patient_number == patient_number)).scalar_one_or_none()
+        if client is not None:
+            return client, "по № пациента"
+
+    snils = normalize_text(row.get("snils"))
+    if snils:
+        client = db.execute(select(Client).where(Client.snils == snils)).scalar_one_or_none()
+        if client is not None:
+            return client, "по СНИЛС"
+
+    document_series = normalize_text(row.get("document_series"))
+    document_number = normalize_text(row.get("document_number"))
+    if document_series and document_number:
+        client = db.execute(
+            select(Client).where(
+                Client.document_series == document_series,
+                Client.document_number == document_number,
+            )
+        ).scalar_one_or_none()
+        if client is not None:
+            return client, "по документу"
+
+    last_name = normalize_text(row.get("last_name"))
+    first_name = normalize_text(row.get("first_name"))
+    middle_name = normalize_text(row.get("middle_name"))
+    birth_date = row.get("birth_date")
+    if last_name and first_name and birth_date:
+        client = db.execute(
+            select(Client).where(
+                func.lower(Client.last_name) == last_name.lower(),
+                func.lower(Client.first_name) == first_name.lower(),
+                func.lower(func.coalesce(Client.middle_name, "")) == (middle_name or "").lower(),
+                Client.birth_date == birth_date,
+            )
+        ).scalar_one_or_none()
+        if client is not None:
+            return client, "по ФИО и дате рождения"
+
+    return None, None
+
+
+def get_next_patient_number(db: Session, used_numbers: set[int]) -> int:
+    patient_numbers = db.execute(select(Client.patient_number).order_by(Client.patient_number.asc())).scalars()
+    expected_number = 1
+    existing_numbers = set(item for item in patient_numbers if item is not None)
+    existing_numbers.update(used_numbers)
+    while expected_number in existing_numbers:
+        expected_number += 1
+    used_numbers.add(expected_number)
+    return expected_number
+
+
+def build_client_payload(row: dict[str, Any], patient_number: int) -> dict[str, Any]:
+    return {
+        "patient_number": patient_number,
+        "last_name": normalize_text(row.get("last_name")) or "Без фамилии",
+        "first_name": normalize_text(row.get("first_name")) or "Без имени",
+        "middle_name": normalize_text(row.get("middle_name")),
+        "birth_date": row.get("birth_date") or date(1900, 1, 1),
+        "sex": normalize_text(row.get("sex")),
+        "phone": normalize_text(row.get("phone")),
+        "email": normalize_text(row.get("email")),
+        "document_type": normalize_text(row.get("document_type")),
+        "document_series": normalize_text(row.get("document_series")),
+        "document_number": normalize_text(row.get("document_number")),
+        "document_issued_by": normalize_text(row.get("document_issued_by")),
+        "document_issued_date": row.get("document_issued_date"),
+        "snils": normalize_text(row.get("snils")),
+        "registration_text": normalize_text(row.get("registration_text")),
+        "address_text": normalize_text(row.get("address_text")) or normalize_text(row.get("registration_text")),
+        "organization": normalize_text(row.get("organization")),
+        "admission_category": normalize_text(row.get("admission_category")),
+        "reference_number": normalize_text(row.get("reference_number")),
+        "notes": normalize_text(row.get("notes")),
+        "legacy_payload_json": row,
+    }
+
+
+@router.post("/demo-legacy")
+def import_demo_legacy(db: Session = Depends(get_db)) -> dict[str, int | str]:
+    legacy_data_path = next((path for path in LEGACY_DATA_PATHS if path.exists()), None)
+    if legacy_data_path is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Файл demo-базы не найден: {', '.join(str(path) for path in LEGACY_DATA_PATHS)}",
+        )
+
+    source = legacy_data_path.read_text(encoding="utf-8")
+    try:
+        clients = extract_window_json(source, "LEGACY_CLIENTS")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    import_items = dedupe_legacy_clients(clients)
+    created = 0
+    updated = 0
+    actor_user_id = get_system_user_id(db)
+
+    existing_by_legacy = {
+        item.legacy_source_id: item
+        for item in db.execute(select(Client).where(Client.legacy_source_id.is_not(None))).scalars().all()
+    }
+    existing_by_patient = {
+        item.patient_number: item
+        for item in db.execute(select(Client)).scalars().all()
+    }
+
+    for item in import_items:
+        legacy_source_id = int(item.get("id") or 0) or None
+        patient_number = int(item.get("patientNumber") or 0)
+        if not patient_number:
+            continue
+
+        client = existing_by_legacy.get(legacy_source_id) if legacy_source_id is not None else None
         if client is None:
-            client = db.execute(select(Client).where(Client.patient_number == patient_number)).scalar_one_or_none()
+            client = existing_by_patient.get(patient_number)
 
         last_name, first_name, middle_name = split_full_name(item.get("fullName"))
         payload = {
@@ -101,11 +427,18 @@ def import_demo_legacy(db: Session = Depends(get_db)) -> dict[str, int | str]:
         }
 
         if client is None:
-            db.add(Client(created_by_user_id=1, **payload))
+            client = Client(created_by_user_id=actor_user_id, **payload)
+            db.add(client)
+            existing_by_patient[patient_number] = client
+            if legacy_source_id is not None:
+                existing_by_legacy[legacy_source_id] = client
             created += 1
         else:
             for key, value in payload.items():
                 setattr(client, key, value)
+            existing_by_patient[patient_number] = client
+            if legacy_source_id is not None:
+                existing_by_legacy[legacy_source_id] = client
             updated += 1
 
     db.commit()
@@ -114,12 +447,115 @@ def import_demo_legacy(db: Session = Depends(get_db)) -> dict[str, int | str]:
         entity_type="import",
         entity_id=0,
         action="demo_legacy_import",
-        user_id=1,
-        payload_json={"created": created, "updated": updated, "source": str(LEGACY_DATA_PATH)},
+        user_id=actor_user_id,
+        payload_json={"created": created, "updated": updated, "source": str(legacy_data_path)},
     )
     return {
-        "source": str(LEGACY_DATA_PATH),
+        "source": str(legacy_data_path),
         "created": created,
         "updated": updated,
         "total": len(clients),
+        "imported": len(import_items),
     }
+
+
+@router.post("/clients-excel/preview", response_model=ClientImportPreviewResponse)
+def preview_client_excel_import(payload: ClientImportExcelRequest, db: Session = Depends(get_db)) -> ClientImportPreviewResponse:
+    try:
+        rows = read_client_excel_rows(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    preview_rows: list[ClientImportPreviewRow] = []
+    created_candidates = 0
+    update_candidates = 0
+
+    for row in rows[:20]:
+        existing_client, match_reason = find_existing_client_for_import(db, row)
+        status_label = "update" if existing_client is not None else "create"
+        if existing_client is not None:
+            update_candidates += 1
+        else:
+            created_candidates += 1
+        preview_rows.append(
+            ClientImportPreviewRow(
+                row_number=row["row_number"],
+                patient_number=row.get("patient_number"),
+                full_name=" ".join(
+                    part for part in [row.get("last_name"), row.get("first_name"), row.get("middle_name")] if part
+                ),
+                birth_date=row.get("birth_date").strftime("%d.%m.%Y") if row.get("birth_date") else None,
+                organization=row.get("organization"),
+                status=status_label,
+                match_reason=match_reason,
+            )
+        )
+
+    if len(rows) > 20:
+        for row in rows[20:]:
+            existing_client, _ = find_existing_client_for_import(db, row)
+            if existing_client is not None:
+                update_candidates += 1
+            else:
+                created_candidates += 1
+
+    return ClientImportPreviewResponse(
+        file_name=payload.file_name,
+        parsed_rows=len(rows),
+        created_candidates=created_candidates,
+        update_candidates=update_candidates,
+        preview_rows=preview_rows,
+    )
+
+
+@router.post("/clients-excel/commit", response_model=ClientImportResultResponse)
+def commit_client_excel_import(payload: ClientImportExcelRequest, db: Session = Depends(get_db)) -> ClientImportResultResponse:
+    try:
+        rows = read_client_excel_rows(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    actor_user_id = get_system_user_id(db)
+    used_numbers: set[int] = set()
+    created = 0
+    updated = 0
+
+    for row in rows:
+        existing_client, _ = find_existing_client_for_import(db, row)
+        patient_number = row.get("patient_number")
+        if existing_client is not None:
+            patient_number = existing_client.patient_number
+        elif patient_number is None:
+            patient_number = get_next_patient_number(db, used_numbers)
+        else:
+            used_numbers.add(patient_number)
+
+        client_payload = build_client_payload(row, patient_number)
+
+        if existing_client is None:
+            client = Client(created_by_user_id=actor_user_id, **client_payload)
+            db.add(client)
+            created += 1
+        else:
+            for key, value in client_payload.items():
+                setattr(existing_client, key, value)
+            updated += 1
+
+    db.commit()
+    write_audit_log(
+        db,
+        entity_type="import",
+        entity_id=0,
+        action="client_excel_import",
+        user_id=actor_user_id,
+        payload_json={
+            "file_name": payload.file_name,
+            "parsed_rows": len(rows),
+            "created": created,
+            "updated": updated,
+        },
+    )
+    return ClientImportResultResponse(
+        file_name=payload.file_name,
+        parsed_rows=len(rows),
+        created=created,
+        updated=updated,
+    )

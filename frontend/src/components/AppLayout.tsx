@@ -1,5 +1,7 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
+import { useAuth } from "../shared/auth";
+
 const items = [
   { to: "/", label: "Главная" },
   { to: "/clients", label: "Картотека" },
@@ -20,11 +22,8 @@ const titles: Record<string, string> = {
 
 export function AppLayout() {
   const location = useLocation();
-  const pageTitle = titles[location.pathname] ?? "Рабочее место регистратора";
-
-  if (location.pathname === "/" || location.pathname === "/clients") {
-    return <Outlet />;
-  }
+  const { session, signOut } = useAuth();
+  const pageTitle = titles[location.pathname] ?? "Рабочее место сотрудника";
 
   return (
     <div className="workspace">
@@ -34,8 +33,11 @@ export function AppLayout() {
           <div className="topbar__title">{pageTitle}</div>
         </div>
         <div className="topbar__meta">
-          <span className="status-pill">Офис 1</span>
-          <span className="status-pill status-pill--accent">База подключена</span>
+          <span className="status-pill">{session?.userName ?? "Сотрудник"}</span>
+          <span className="status-pill status-pill--accent">{session?.roleName ?? "Без роли"}</span>
+          <button className="button button--secondary button--small" onClick={signOut} type="button">
+            Выйти
+          </button>
         </div>
       </header>
 
@@ -43,7 +45,7 @@ export function AppLayout() {
         <aside className="sidebar">
           <div className="brand">
             <span className="brand__title">Реестр пациентов</span>
-            <span className="brand__subtitle">Интерфейс в стиле рабочей базы, а не витрины</span>
+            <span className="brand__subtitle">Навигация и рабочие разделы для сотрудников медцентра</span>
           </div>
           <nav className="nav">
             {items.map((item) => (

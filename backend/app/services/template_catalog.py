@@ -2,7 +2,7 @@ from pathlib import Path
 import re
 
 
-SUPPORTED_TEMPLATE_EXTENSIONS = {".docx", ".xml"}
+SUPPORTED_TEMPLATE_EXTENSIONS = {".docx", ".xml", ".xls"}
 
 
 def get_templates_root() -> Path:

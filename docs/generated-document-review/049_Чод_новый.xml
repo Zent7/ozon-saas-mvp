@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<BlankSecurity>
+   <Request>
+      <blankInfo>
+         <id>777</id>
+         <duplicate>
+            <duplicateId/>
+            <isDuplicated>false</isDuplicated>
+         </duplicate>
+         <isSpoiled>false</isSpoiled>
+         
+      </blankInfo>
+   </Request>
+   <SecurityBlank>
+      <userInfo>
+         <surname>Документ</surname>
+         <name>Тест</name>
+         <patronymic>Проверка</patronymic>
+         <birthday>15.01.1990</birthday>
+      </userInfo>
+      <address>
+		 <place>Россия</place>
+         <area></area>
+         <city>г. Покров</city>
+		 <town></town>
+         <street>ул. Восточная</street>
+		 <house>2</house>
+         <building></building>
+         <flat>10</flat>
+      </address>
+      <medConclusion>
+         <conclusion>текст медицинского заключения</conclusion>
+         <dateConclusion>22.04.2026</dateConclusion>
+         <fioDoctor>Главный врач</fioDoctor>
+      </medConclusion>
+   </SecurityBlank>
+</BlankSecurity>

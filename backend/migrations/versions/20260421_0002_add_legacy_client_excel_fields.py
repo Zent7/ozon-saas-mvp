@@ -17,36 +17,53 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+CLIENT_COLUMNS = [
+    sa.Column("registration_text", sa.Text(), nullable=True),
+    sa.Column("admission_category", sa.String(length=255), nullable=True),
+    sa.Column("reference_number", sa.String(length=80), nullable=True),
+    sa.Column("doctor_gynecologist", sa.String(length=80), nullable=True),
+    sa.Column("doctor_stomatologist", sa.String(length=80), nullable=True),
+    sa.Column("doctor_dermatologist", sa.String(length=80), nullable=True),
+    sa.Column("doctor_neurologist", sa.String(length=80), nullable=True),
+    sa.Column("doctor_surgeon", sa.String(length=80), nullable=True),
+    sa.Column("doctor_otolaryngologist", sa.String(length=80), nullable=True),
+    sa.Column("doctor_ophthalmologist", sa.String(length=80), nullable=True),
+    sa.Column("doctor_therapist", sa.String(length=80), nullable=True),
+    sa.Column("doctor_psychiatrist", sa.String(length=80), nullable=True),
+    sa.Column("doctor_infectionist", sa.String(length=80), nullable=True),
+    sa.Column("doctor_phthisiatrician", sa.String(length=80), nullable=True),
+    sa.Column("doctor_uzist", sa.String(length=80), nullable=True),
+    sa.Column("indications", sa.Text(), nullable=True),
+    sa.Column("encounter_date_text", sa.String(length=120), nullable=True),
+    sa.Column("card_number", sa.String(length=80), nullable=True),
+    sa.Column("journal_number", sa.String(length=80), nullable=True),
+    sa.Column("no_number", sa.String(length=80), nullable=True),
+    sa.Column("flg", sa.String(length=80), nullable=True),
+    sa.Column("organization", sa.String(length=255), nullable=True),
+    sa.Column("mkb10", sa.String(length=80), nullable=True),
+    sa.Column("real_date_text", sa.String(length=120), nullable=True),
+    sa.Column("legacy_payload_json", sa.JSON(), nullable=True),
+]
+
+CLIENT_INDEXES = [
+    ("ix_clients_reference_number", ["reference_number"]),
+    ("ix_clients_card_number", ["card_number"]),
+    ("ix_clients_organization", ["organization"]),
+    ("ix_clients_mkb10", ["mkb10"]),
+]
+
+
 def upgrade() -> None:
-    op.add_column("clients", sa.Column("registration_text", sa.Text(), nullable=True))
-    op.add_column("clients", sa.Column("admission_category", sa.String(length=255), nullable=True))
-    op.add_column("clients", sa.Column("reference_number", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("doctor_gynecologist", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("doctor_stomatologist", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("doctor_dermatologist", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("doctor_neurologist", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("doctor_surgeon", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("doctor_otolaryngologist", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("doctor_ophthalmologist", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("doctor_therapist", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("doctor_psychiatrist", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("doctor_infectionist", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("doctor_phthisiatrician", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("doctor_uzist", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("indications", sa.Text(), nullable=True))
-    op.add_column("clients", sa.Column("encounter_date_text", sa.String(length=120), nullable=True))
-    op.add_column("clients", sa.Column("card_number", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("journal_number", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("no_number", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("flg", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("organization", sa.String(length=255), nullable=True))
-    op.add_column("clients", sa.Column("mkb10", sa.String(length=80), nullable=True))
-    op.add_column("clients", sa.Column("real_date_text", sa.String(length=120), nullable=True))
-    op.add_column("clients", sa.Column("legacy_payload_json", sa.JSON(), nullable=True))
-    op.create_index("ix_clients_reference_number", "clients", ["reference_number"])
-    op.create_index("ix_clients_card_number", "clients", ["card_number"])
-    op.create_index("ix_clients_organization", "clients", ["organization"])
-    op.create_index("ix_clients_mkb10", "clients", ["mkb10"])
+    inspector = sa.inspect(op.get_bind())
+    existing_columns = {column["name"] for column in inspector.get_columns("clients")}
+    for column in CLIENT_COLUMNS:
+        if column.name not in existing_columns:
+            op.add_column("clients", column)
+
+    existing_indexes = {index["name"] for index in inspector.get_indexes("clients")}
+    for index_name, columns in CLIENT_INDEXES:
+        if index_name not in existing_indexes:
+            op.create_index(index_name, "clients", columns)
 
 
 def downgrade() -> None:

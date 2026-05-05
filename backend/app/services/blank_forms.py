@@ -1,0 +1,579 @@
+"""Бизнес-логика учёта номерных бланков.
+
+Сервис отвечает за:
+* создание партии бланков (массовое создание blank_forms внутри диапазона);
+* выдачу следующего свободного номера в транзакции с блокировкой строки
+  (SELECT ... FOR UPDATE SKIP LOCKED);
+* пометку бланка как испорченного;
+* идемпотентную выдачу номера для одного и того же документа.
+
+Сервис не зависит от FastAPI — его легко вызывать из любого роутера или
+другого сервиса (например, из `services/document_generator.py`).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import Iterable
+
+from sqlalchemy import and_, func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from app.models.blank_form import (
+    BLANK_STATUS_CANCELLED,
+    BLANK_STATUS_FREE,
+    BLANK_STATUS_ISSUED,
+    BLANK_STATUS_SPOILED,
+    BlankBatch,
+    BlankForm,
+    BlankType,
+)
+from app.models.client import Client
+from app.models.encounter import Encounter
+from app.models.generated_document import GeneratedDocument
+from app.models.user import User
+from app.services.audit import write_audit_log
+
+
+class BlankServiceError(Exception):
+    """Базовая ошибка сервиса бланков."""
+
+
+class NoFreeBlankError(BlankServiceError):
+    """Свободных бланков для выдачи не осталось."""
+
+
+class BlankRangeOverlapError(BlankServiceError):
+    """Диапазон номеров пересекается с уже существующим."""
+
+
+class BlankRangeInvalidError(BlankServiceError):
+    """Невалидный диапазон номеров."""
+
+
+@dataclass
+class IssueRequest:
+    blank_type: str
+    client_id: int
+    center_id: int | None
+    encounter_id: int | None
+    generated_document_id: int | None
+    client_document_id: int | None
+    user_id: int | None
+
+
+def format_full_number(series: str | None, number_value: int, width: int) -> str:
+    """Собирает полный номер бланка с ведущими нулями."""
+
+    width = max(1, int(width or 1))
+    body = f"{int(number_value):0{width}d}"
+    series_part = (series or "").strip()
+    return f"{series_part}{body}" if series_part else body
+
+
+def detect_number_width(value: str | int | None, fallback: int = 6) -> int:
+    """Определяет ширину номера по строке вида "000001"."""
+
+    if value is None:
+        return fallback
+    text = str(value).strip()
+    if not text:
+        return fallback
+    digits = "".join(ch for ch in text if ch.isdigit())
+    return max(len(digits), fallback)
+
+
+def parse_number_input(value: str | int | None) -> int:
+    """Преобразует строковое представление номера в целое число.
+
+    Допустимы значения вида ``"000001"`` — ведущие нули отбрасываются для
+    хранения в базе, но сохраняются в ширине номера для последующей
+    сборки полного номера.
+    """
+
+    if value is None:
+        raise BlankRangeInvalidError("Не указан номер")
+    if isinstance(value, int):
+        return int(value)
+    text = str(value).strip()
+    if not text:
+        raise BlankRangeInvalidError("Не указан номер")
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if not digits:
+        raise BlankRangeInvalidError(f"Номер должен быть числом: {value!r}")
+    return int(digits)
+
+
+def list_blank_types(db: Session) -> list[BlankType]:
+    return list(
+        db.execute(
+            select(BlankType).where(BlankType.is_active.is_(True)).order_by(BlankType.id.asc())
+        ).scalars()
+    )
+
+
+def get_blank_type(db: Session, code: str) -> BlankType | None:
+    return db.execute(select(BlankType).where(BlankType.code == code)).scalar_one_or_none()
+
+
+def _aggregate_status_counts(rows: Iterable[tuple[int, str, int]]) -> dict[int, dict[str, int]]:
+    result: dict[int, dict[str, int]] = {}
+    for batch_id, status, count in rows:
+        bucket = result.setdefault(
+            batch_id,
+            {
+                "free": 0,
+                "issued": 0,
+                "spoiled": 0,
+                "cancelled": 0,
+            },
+        )
+        if status in bucket:
+            bucket[status] = int(count or 0)
+    return result
+
+
+def list_batches(
+    db: Session,
+    *,
+    blank_type: str | None = None,
+    center_id: int | None = None,
+) -> list[tuple[BlankBatch, dict[str, int]]]:
+    query = (
+        select(BlankBatch)
+        .where(BlankBatch.deleted_at.is_(None))
+        .order_by(BlankBatch.created_at.desc(), BlankBatch.id.desc())
+    )
+    if blank_type:
+        query = query.where(BlankBatch.blank_type == blank_type)
+    if center_id is not None:
+        query = query.where(BlankBatch.center_id == center_id)
+    batches = list(db.execute(query).scalars())
+
+    if not batches:
+        return []
+
+    batch_ids = [batch.id for batch in batches]
+    rows = db.execute(
+        select(BlankForm.batch_id, BlankForm.status, func.count(BlankForm.id))
+        .where(BlankForm.batch_id.in_(batch_ids))
+        .group_by(BlankForm.batch_id, BlankForm.status)
+    ).all()
+    counts = _aggregate_status_counts(rows)
+
+    result: list[tuple[BlankBatch, dict[str, int]]] = []
+    for batch in batches:
+        result.append((batch, counts.get(batch.id, {"free": 0, "issued": 0, "spoiled": 0, "cancelled": 0})))
+    return result
+
+
+def create_batch(
+    db: Session,
+    *,
+    blank_type: str,
+    series: str | None,
+    number_from_input: str | int,
+    number_to_input: str | int,
+    received_at: date | None,
+    comment: str | None,
+    center_id: int | None,
+    user_id: int | None,
+) -> BlankBatch:
+    blank_type_record = get_blank_type(db, blank_type)
+    if blank_type_record is None or not blank_type_record.is_active:
+        raise BlankServiceError(f"Неизвестный тип бланка: {blank_type}")
+
+    number_from = parse_number_input(number_from_input)
+    number_to = parse_number_input(number_to_input)
+    if number_to < number_from:
+        raise BlankRangeInvalidError("Конечный номер партии меньше начального")
+    quantity = number_to - number_from + 1
+    if quantity <= 0:
+        raise BlankRangeInvalidError("Партия не должна быть пустой")
+
+    width = max(
+        detect_number_width(number_from_input, fallback=6),
+        detect_number_width(number_to_input, fallback=6),
+    )
+    series_clean = (series or "").strip() or None
+
+    # Проверка пересечения диапазонов в рамках того же center+series+type.
+    overlap = db.execute(
+        select(BlankForm.full_number)
+        .where(
+            and_(
+                BlankForm.blank_type == blank_type,
+                BlankForm.center_id.is_(center_id) if center_id is None else BlankForm.center_id == center_id,
+                BlankForm.series.is_(series_clean) if series_clean is None else BlankForm.series == series_clean,
+                BlankForm.number_value >= number_from,
+                BlankForm.number_value <= number_to,
+            )
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if overlap is not None:
+        raise BlankRangeOverlapError(
+            f"Диапазон пересекается с уже существующим номером {overlap}"
+        )
+
+    batch = BlankBatch(
+        center_id=center_id,
+        blank_type=blank_type,
+        series=series_clean,
+        number_from=number_from,
+        number_to=number_to,
+        number_width=width,
+        quantity=quantity,
+        received_at=received_at,
+        comment=comment,
+        created_by_user_id=user_id,
+    )
+    db.add(batch)
+    db.flush()
+
+    forms = [
+        BlankForm(
+            batch_id=batch.id,
+            center_id=center_id,
+            blank_type=blank_type,
+            series=series_clean,
+            number_value=value,
+            full_number=format_full_number(series_clean, value, width),
+            status=BLANK_STATUS_FREE,
+        )
+        for value in range(number_from, number_to + 1)
+    ]
+    db.bulk_save_objects(forms)
+
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise BlankRangeOverlapError(
+            "Один из номеров уже существует в базе. Партия не создана."
+        ) from exc
+
+    write_audit_log(
+        db,
+        entity_type="blank_batch",
+        entity_id=batch.id,
+        action="create",
+        user_id=user_id or 1,
+        center_id=center_id,
+        payload_json={
+            "blank_type": blank_type,
+            "series": series_clean,
+            "number_from": number_from,
+            "number_to": number_to,
+            "quantity": quantity,
+        },
+    )
+    return batch
+
+
+def list_forms(
+    db: Session,
+    *,
+    blank_type: str | None = None,
+    batch_id: int | None = None,
+    status: str | None = None,
+    center_id: int | None = None,
+    search: str | None = None,
+    limit: int = 200,
+) -> list[BlankForm]:
+    query = select(BlankForm)
+    if blank_type:
+        query = query.where(BlankForm.blank_type == blank_type)
+    if batch_id is not None:
+        query = query.where(BlankForm.batch_id == batch_id)
+    if status:
+        query = query.where(BlankForm.status == status)
+    if center_id is not None:
+        query = query.where(BlankForm.center_id == center_id)
+    if search:
+        like = f"%{search.strip()}%"
+        query = query.where(BlankForm.full_number.ilike(like))
+    query = query.order_by(BlankForm.number_value.asc(), BlankForm.id.asc()).limit(limit)
+    return list(db.execute(query).scalars())
+
+
+def stats(db: Session, *, center_id: int | None = None) -> list[dict[str, object]]:
+    types = list_blank_types(db)
+    if not types:
+        return []
+    type_codes = [bt.code for bt in types]
+
+    query = select(BlankForm.blank_type, BlankForm.status, func.count(BlankForm.id)).where(
+        BlankForm.blank_type.in_(type_codes)
+    )
+    if center_id is not None:
+        query = query.where(BlankForm.center_id == center_id)
+    rows = db.execute(query.group_by(BlankForm.blank_type, BlankForm.status)).all()
+
+    by_type: dict[str, dict[str, int]] = {
+        bt.code: {"free": 0, "issued": 0, "spoiled": 0, "cancelled": 0} for bt in types
+    }
+    for blank_type, status, count in rows:
+        if blank_type in by_type and status in by_type[blank_type]:
+            by_type[blank_type][status] = int(count or 0)
+
+    result = []
+    for bt in types:
+        bucket = by_type.get(bt.code, {"free": 0, "issued": 0, "spoiled": 0, "cancelled": 0})
+        total = sum(bucket.values())
+        result.append(
+            {
+                "blank_type": bt.code,
+                "blank_type_name": bt.name,
+                "total": total,
+                **bucket,
+            }
+        )
+    return result
+
+
+def spoil_form(
+    db: Session,
+    *,
+    form_id: int,
+    reason: str | None,
+    user_id: int | None,
+) -> BlankForm:
+    form = db.get(BlankForm, form_id)
+    if form is None:
+        raise BlankServiceError("Бланк не найден")
+    if form.status != BLANK_STATUS_FREE:
+        raise BlankServiceError(
+            "Помечать как испорченный можно только свободный бланк. "
+            "Для выданных используйте аннулирование документа."
+        )
+
+    form.status = BLANK_STATUS_SPOILED
+    form.spoiled_at = datetime.utcnow()
+    form.spoiled_by_user_id = user_id
+    form.spoiled_reason = (reason or "").strip() or None
+    db.flush()
+
+    write_audit_log(
+        db,
+        entity_type="blank_form",
+        entity_id=form.id,
+        action="spoil",
+        user_id=user_id or 1,
+        center_id=form.center_id,
+        payload_json={
+            "blank_type": form.blank_type,
+            "full_number": form.full_number,
+            "reason": form.spoiled_reason,
+        },
+    )
+    return form
+
+
+def issue_next_blank(
+    db: Session,
+    *,
+    blank_type: str,
+    client_id: int,
+    center_id: int | None,
+    encounter_id: int | None = None,
+    generated_document_id: int | None = None,
+    client_document_id: int | None = None,
+    user_id: int | None = None,
+) -> BlankForm:
+    """Выдаёт следующий свободный номер бланка.
+
+    Идемпотентность:
+    * если ``generated_document_id`` уже привязан к бланку — возвращаем его
+      без новой выдачи;
+    * аналогично для ``client_document_id``.
+    """
+
+    if generated_document_id is not None:
+        existing = db.execute(
+            select(BlankForm).where(BlankForm.generated_document_id == generated_document_id)
+        ).scalar_one_or_none()
+        if existing is not None:
+            return existing
+    if client_document_id is not None:
+        existing = db.execute(
+            select(BlankForm).where(BlankForm.client_document_id == client_document_id)
+        ).scalar_one_or_none()
+        if existing is not None:
+            return existing
+
+    blank_type_record = get_blank_type(db, blank_type)
+    if blank_type_record is None or not blank_type_record.is_active:
+        raise BlankServiceError(f"Неизвестный тип бланка: {blank_type}")
+
+    # PostgreSQL: SELECT ... FOR UPDATE SKIP LOCKED — конкурентные транзакции
+    # пропускают заблокированные строки и выдают разные номера.
+    query = (
+        select(BlankForm)
+        .where(
+            BlankForm.blank_type == blank_type,
+            BlankForm.status == BLANK_STATUS_FREE,
+        )
+        .order_by(BlankForm.number_value.asc(), BlankForm.id.asc())
+        .limit(1)
+        .with_for_update(skip_locked=True)
+    )
+    if center_id is not None:
+        query = query.where(BlankForm.center_id == center_id)
+
+    form: BlankForm | None = db.execute(query).scalar_one_or_none()
+    if form is None:
+        raise NoFreeBlankError(
+            "Нет свободных бланков для медицинского заключения "
+            "водительского удостоверения. Добавьте новую партию в разделе «Бланки»."
+        )
+
+    form.status = BLANK_STATUS_ISSUED
+    form.client_id = client_id
+    form.encounter_id = encounter_id
+    form.generated_document_id = generated_document_id
+    form.client_document_id = client_document_id
+    form.issued_at = datetime.utcnow()
+    form.issued_by_user_id = user_id
+    db.flush()
+
+    write_audit_log(
+        db,
+        entity_type="blank_form",
+        entity_id=form.id,
+        action="issue",
+        user_id=user_id or 1,
+        center_id=form.center_id,
+        payload_json={
+            "blank_type": form.blank_type,
+            "full_number": form.full_number,
+            "client_id": client_id,
+            "encounter_id": encounter_id,
+            "generated_document_id": generated_document_id,
+            "client_document_id": client_document_id,
+        },
+    )
+    return form
+
+
+def cancel_for_generated_document(
+    db: Session,
+    *,
+    generated_document_id: int,
+    reason: str | None,
+    user_id: int | None,
+) -> BlankForm | None:
+    form = db.execute(
+        select(BlankForm).where(BlankForm.generated_document_id == generated_document_id)
+    ).scalar_one_or_none()
+    if form is None or form.status != BLANK_STATUS_ISSUED:
+        return form
+
+    form.status = BLANK_STATUS_CANCELLED
+    form.cancelled_at = datetime.utcnow()
+    form.cancelled_by_user_id = user_id
+    form.cancelled_reason = (reason or "").strip() or None
+    db.flush()
+
+    write_audit_log(
+        db,
+        entity_type="blank_form",
+        entity_id=form.id,
+        action="cancel",
+        user_id=user_id or 1,
+        center_id=form.center_id,
+        payload_json={
+            "blank_type": form.blank_type,
+            "full_number": form.full_number,
+            "generated_document_id": generated_document_id,
+            "reason": form.cancelled_reason,
+        },
+    )
+    return form
+
+
+def is_driver_certificate_template(template_name: str | None, file_name: str | None) -> bool:
+    """Эвристика: документ требует номерного бланка водительской справки."""
+
+    haystack = " ".join(filter(None, [template_name or "", file_name or ""])).lower()
+    if not haystack:
+        return False
+    return ("вод" in haystack) or ("driver" in haystack)
+
+
+def reuse_blank_for_existing_document(
+    db: Session,
+    *,
+    blank_type: str,
+    client_id: int,
+    encounter_id: int | None,
+    template_id: int,
+) -> BlankForm | None:
+    """Если для этого клиента/encounter/template уже выдавался номер — возвращаем его."""
+
+    query = (
+        select(BlankForm)
+        .join(GeneratedDocument, GeneratedDocument.id == BlankForm.generated_document_id)
+        .where(
+            BlankForm.blank_type == blank_type,
+            BlankForm.status.in_([BLANK_STATUS_ISSUED, BLANK_STATUS_CANCELLED]),
+            GeneratedDocument.client_id == client_id,
+            GeneratedDocument.template_id == template_id,
+        )
+        .order_by(GeneratedDocument.id.desc())
+        .limit(1)
+    )
+    if encounter_id is not None:
+        query = query.where(GeneratedDocument.encounter_id == encounter_id)
+    else:
+        query = query.where(GeneratedDocument.encounter_id.is_(None))
+    return db.execute(query).scalar_one_or_none()
+
+
+def enrich_form_for_read(
+    db: Session, form: BlankForm
+) -> dict[str, object]:
+    """Готовит словарь под BlankFormRead с подтянутыми полями для UI."""
+
+    payload = {
+        "id": form.id,
+        "batch_id": form.batch_id,
+        "center_id": form.center_id,
+        "blank_type": form.blank_type,
+        "series": form.series,
+        "number_value": form.number_value,
+        "full_number": form.full_number,
+        "status": form.status,
+        "client_id": form.client_id,
+        "encounter_id": form.encounter_id,
+        "client_document_id": form.client_document_id,
+        "generated_document_id": form.generated_document_id,
+        "issued_at": form.issued_at,
+        "issued_by_user_id": form.issued_by_user_id,
+        "spoiled_at": form.spoiled_at,
+        "spoiled_by_user_id": form.spoiled_by_user_id,
+        "spoiled_reason": form.spoiled_reason,
+        "cancelled_at": form.cancelled_at,
+        "cancelled_by_user_id": form.cancelled_by_user_id,
+        "cancelled_reason": form.cancelled_reason,
+        "client_full_name": None,
+        "document_label": None,
+        "issued_by_name": None,
+    }
+    if form.client_id:
+        client = db.get(Client, form.client_id)
+        if client is not None:
+            payload["client_full_name"] = " ".join(
+                part for part in [client.last_name, client.first_name, client.middle_name] if part
+            ).strip()
+    if form.generated_document_id:
+        document = db.get(GeneratedDocument, form.generated_document_id)
+        if document is not None:
+            payload["document_label"] = document.file_name
+    if form.issued_by_user_id:
+        user = db.get(User, form.issued_by_user_id)
+        if user is not None:
+            payload["issued_by_name"] = user.full_name
+    return payload

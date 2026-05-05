@@ -15,6 +15,12 @@ function formatPrice(value) {
   return `${number.toLocaleString("ru-RU")} ₽`;
 }
 
+function formatRecallDays(value) {
+  const days = Number(value || 0);
+  if (!days) return "не задан";
+  return `${days} дн.`;
+}
+
 function getNextServiceId() {
   return structuredServices.length
     ? Math.max(...structuredServices.map((service) => Number(service.id) || 0)) + 1
@@ -33,11 +39,7 @@ function renderServicesPage() {
       if (appState.serviceGroupFilter === "all") return true;
       return String(service.groupId) === String(appState.serviceGroupFilter);
     })
-    .slice()
-    .sort((a, b) => {
-      if ((a.groupId || 0) !== (b.groupId || 0)) return (a.groupId || 0) - (b.groupId || 0);
-      return (a.sortOrder || 0) - (b.sortOrder || 0);
-    });
+    .slice();
 
   if (!structuredServices.length) {
     return `
@@ -99,6 +101,10 @@ function renderServicesPage() {
             <button class="col-resize-handle" data-resize-col="servicePrice" aria-label="Изменить ширину столбца Цена"></button>
           </span>
           <span class="sketch-head-cell sketch-head-cell--resizable">
+            Срок действия
+            <button class="col-resize-handle" data-resize-col="serviceRecall" aria-label="Изменить ширину столбца Срок действия"></button>
+          </span>
+          <span class="sketch-head-cell sketch-head-cell--resizable">
             Примечание
             <button class="col-resize-handle" data-resize-col="serviceNote" aria-label="Изменить ширину столбца Примечание"></button>
           </span>
@@ -125,6 +131,7 @@ function renderServicesPage() {
                       <span>${escapeHtml(service.name)}</span>
                       <span>${escapeHtml(getServiceGroupName(service.groupId))}</span>
                       <span>${formatPrice(service.price)}</span>
+                      <span>${escapeHtml(formatRecallDays(service.recallAfterDays))}</span>
                       <span>${escapeHtml(service.notes || "—")}</span>
                       <span>${escapeHtml(getDoctorRoleNames(service.doctorRoleIds))}</span>
                       <span>${service.isActive ? "Активна" : "Выключена"}</span>
@@ -179,6 +186,11 @@ function openServiceModal(serviceId = null) {
             <span>Цена</span>
             <input name="price" type="number" min="0" step="100" value="${escapeHtml(editingService?.price ?? 0)}" />
           </label>
+
+          <label class="field">
+            <span>Срок действия, дней</span>
+            <input name="recallAfterDays" type="number" min="0" step="1" value="${escapeHtml(editingService?.recallAfterDays ?? "")}" placeholder="например 365" />
+          </label>
         </div>
 
         <label class="field">
@@ -232,7 +244,7 @@ function openServiceModal(serviceId = null) {
     actionModal.classList.add("hidden");
   });
 
-  form?.addEventListener("submit", (event) => {
+  form?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(form);
 
@@ -247,11 +259,34 @@ function openServiceModal(serviceId = null) {
     targetService.name = String(formData.get("name") || "").trim() || "Новая услуга";
     targetService.groupId = Number(formData.get("groupId"));
     targetService.price = Number(formData.get("price") || 0);
+    targetService.recallAfterDays = formData.get("recallAfterDays")
+      ? Number(formData.get("recallAfterDays"))
+      : null;
     targetService.notes = String(formData.get("notes") || "").trim();
     targetService.isActive = String(formData.get("isActive")) === "true";
     targetService.doctorRoleIds = formData.getAll("doctorRoleIds").map((id) => Number(id));
 
-    if (!editingService) {
+    if (editingService?.backendId && window.apiRequest) {
+      try {
+        const updated = await window.apiRequest(`/services/${editingService.backendId}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            category_id: targetService.groupId,
+            name: targetService.name,
+            price: targetService.price,
+            is_active: targetService.isActive,
+            recall_after_days: targetService.recallAfterDays,
+            doctor_role_ids: targetService.doctorRoleIds,
+          }),
+        });
+        Object.assign(targetService, window.mapApiService ? window.mapApiService(updated) : targetService);
+        const serverIndex = window.data?.serverServices?.findIndex((service) => String(service.backendId) === String(targetService.backendId));
+        if (serverIndex >= 0) window.data.serverServices[serverIndex] = targetService;
+      } catch (error) {
+        showToast(window.humanizeApiError ? window.humanizeApiError(error, "Не удалось сохранить услугу") : "Не удалось сохранить услугу");
+        return;
+      }
+    } else if (!editingService) {
       structuredServices.push(targetService);
     }
 

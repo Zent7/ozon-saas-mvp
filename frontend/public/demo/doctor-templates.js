@@ -8,7 +8,7 @@
         key: "complaintsPreset",
         label: "Жалобы preset",
         type: "select",
-        options: ["Норма(м)", "Норма(ж)", "Жалобы есть"],
+        options: ["Норма(м)"],
         defaultValue: "Норма(м)",
       },
       {
@@ -74,7 +74,7 @@
         key: "complaintsPreset",
         label: "Жалобы preset",
         type: "select",
-        options: ["Норма(м)", "Норма(ж)", "Жалобы есть"],
+        options: ["Норма(м)", "Норма(ж)"],
         defaultValue: "Норма(м)",
       },
       {
@@ -140,7 +140,7 @@
         key: "complaintsPreset",
         label: "Жалобы preset",
         type: "select",
-        options: ["Норма(м)", "Норма(ж)", "Жалобы есть"],
+        options: ["Норма(м)", "Норма(ж)", "ДОА"],
         defaultValue: "Норма(м)",
       },
       {
@@ -200,13 +200,13 @@
   {
     id: "otolaryngologist",
     name: "ОТОЛАРИНГОЛОГ",
-    layout: "phthisiatristClassic",
+    layout: "otolaryngologistClassic",
     fields: [
       {
         key: "complaintsPreset",
         label: "Жалобы preset",
         type: "select",
-        options: ["Норма(м)", "Норма(ж)", "Жалобы есть"],
+        options: ["Норма(м)", "Норма(ж)"],
         defaultValue: "Норма(м)",
       },
       {
@@ -226,6 +226,30 @@
         label: "Объективно",
         type: "textarea",
         defaultValue: "Слизистые розовые, носовое дыхание свободное AD/AS",
+      },
+      {
+        key: "earRight",
+        label: "AD",
+        type: "text",
+        defaultValue: "6/6 м.",
+      },
+      {
+        key: "earLeft",
+        label: "AS",
+        type: "text",
+        defaultValue: "6/6 м.",
+      },
+      {
+        key: "op",
+        label: "OP",
+        type: "text",
+        defaultValue: "1 ст.",
+      },
+      {
+        key: "vestibular",
+        label: "Вестиб.",
+        type: "text",
+        defaultValue: "без особенностей",
       },
       {
         key: "diagnosis",
@@ -265,7 +289,7 @@
   {
     id: "ophthalmologist",
     name: "ОФТАЛЬМОЛОГ",
-    layout: "phthisiatristClassic",
+    layout: "ophthalmologistClassic",
     fields: [
       {
         key: "complaintsPreset",
@@ -273,14 +297,17 @@
         type: "select",
         options: [
           "Норма",
-          "Миопия 1ст",
-          "Миопия 2ст",
-          "Миопия 3ст",
-          "Миопический",
+          "Миопия 1ст (очки)",
+          "Миопия 2ст (линзы)",
+          "Миопия 3ст (коррекция)",
+          "Миопический астигматизм",
           "Пресбиопия",
-          "Гиперметропия",
+          "Гиперметропия 1ст",
+          "Гиперметропия 2ст",
+          "Гиперметропия 3ст",
+          "Гиперметропический астигматизм",
           "Глаукома",
-          "Заболевание"
+          "Заболевание сетчатки и З.Н."
         ],
         defaultValue: "Норма",
       },
@@ -297,10 +324,40 @@
         defaultValue: "Гл. заб. отрицает",
       },
       {
-        key: "objective",
-        label: "Объективно",
-        type: "textarea",
-        defaultValue: "Острота зрения OD: 1,0 б/к; Поля зрения OD: N; Острота зрения OS: 1,0 б/к; Поля зрения OS: N",
+        key: "visualAcuityRight",
+        label: "Острота зрения OD",
+        type: "text",
+        defaultValue: "1,0 б/к",
+      },
+      {
+        key: "visualAcuityLeft",
+        label: "Острота зрения OS",
+        type: "text",
+        defaultValue: "1,0 б/к",
+      },
+      {
+        key: "visualFieldsRight",
+        label: "Поля зрения OD",
+        type: "text",
+        defaultValue: "N",
+      },
+      {
+        key: "visualFieldsLeft",
+        label: "Поля зрения OS",
+        type: "text",
+        defaultValue: "N",
+      },
+      {
+        key: "colorVision",
+        label: "Цветоощущение",
+        type: "text",
+        defaultValue: "не изменено",
+      },
+      {
+        key: "ocularFundus",
+        label: "Глазное дно",
+        type: "text",
+        defaultValue: "без патологии",
       },
       {
         key: "diagnosis",
@@ -345,7 +402,7 @@
       key: "complaintsPreset",
       label: "Жалобы preset",
       type: "select",
-      options: ["Норма", "Жалобы есть"],
+      options: ["Норма"],
       defaultValue: "Норма",
     },
     {
@@ -410,7 +467,7 @@
       key: "complaintsPreset",
       label: "Жалобы preset",
       type: "select",
-      options: ["Норма(м)", "Норма(ж)", "Жалобы есть"],
+      options: ["Норма(м)", "Норма(ж)", "Контактный дерматит", "Акне", "Псориаз", "Экзема", "Микозы"],
       defaultValue: "Норма(м)",
     },
     {
@@ -475,7 +532,7 @@
       key: "complaintsPreset",
       label: "Жалобы preset",
       type: "select",
-      options: ["Норма", "Жалобы есть"],
+      options: ["Норма", "Беременность", "Миома матки", "Мастопатия"],
       defaultValue: "Норма",
     },
     {
@@ -541,7 +598,7 @@
       key: "complaintsPreset",
       label: "Жалобы preset",
       type: "select",
-      options: ["Норма(м)", "Норма(ж)", "Жалобы есть"],
+      options: ["Норма(м)", "Норма(ж)", "Кариес", "Множественный кариес", "Обострение хронического пульпита", "Обострение хронического периодонтита", "Хронический катаральный гингивит", "Пародонтит", "Частичная вторичная адентия.", "Полная вторичная адентия"],
       defaultValue: "Норма(м)",
     },
     {
@@ -599,6 +656,54 @@
   ],
 },
 {
+  id: "therapist",
+  name: "ТЕРАПЕВТ",
+  layout: "therapistClassic",
+  fields: [
+    { key: "complaintsPreset", label: "Жалобы", type: "select", options: ["Норма (м)", "Норма (ж)", "Гипертония 1", "Гипертония 2", "Астма 1", "Астма 2", "Язва", "ВСД", "ожирение"], defaultValue: "Норма (м)" },
+    { key: "complaints", label: "Жалобы текст", type: "text", defaultValue: "в момент осмотра жалоб нет" },
+    { key: "anamnesis", label: "Анамнез", type: "textarea", defaultValue: "хронические заболевания отрицает" },
+    { key: "epidemiologicalAnamnesis", label: "Эпиданамнез", type: "textarea", defaultValue: "туберкулез, малярию, гепатит отрицает" },
+    { key: "allergicAnamnesis", label: "Аллергологический анамнез", type: "textarea", defaultValue: "без особенностей" },
+    { key: "generalCondition", label: "Состояние", type: "text", defaultValue: "удовлетворительное, ИМТ -" },
+    { key: "skin", label: "Кожные покровы", type: "text", defaultValue: "чистые" },
+    { key: "bloodPressure", label: "АД", type: "text", defaultValue: "120/80" },
+    { key: "heartSounds", label: "Тоны сердца", type: "text", defaultValue: "ясные, чистые" },
+    { key: "tongue", label: "Язык", type: "text", defaultValue: "влажный, розовый" },
+    { key: "cholesterol", label: "Холестерин", type: "text", defaultValue: "4" },
+    { key: "height", label: "Рост", type: "text", defaultValue: "180" },
+    { key: "lymphNodes", label: "Лимфоузлы", type: "text", defaultValue: "не увеличены, б/б" },
+    { key: "pulse", label: "Пульс", type: "text", defaultValue: "75 уд/мин, ритмичный" },
+    { key: "breathing", label: "Дыхание", type: "text", defaultValue: "везикулярное" },
+    { key: "abdomen", label: "Живот", type: "text", defaultValue: "мягкий, б/б" },
+    { key: "glucose", label: "Глюкоза", type: "text", defaultValue: "5" },
+    { key: "weight", label: "Вес", type: "text", defaultValue: "80" },
+    { key: "diagnosis", label: "Диагноз", type: "textarea", defaultValue: "Пр здоров" },
+    { key: "conclusion", label: "Заключение", type: "radio", options: ["Годен", "Не годен"], defaultValue: "Годен" },
+    { key: "validity", label: "Срок", type: "select", options: ["6 мес", "1 год", "2 года"], defaultValue: "1 год" },
+    { key: "mkb10", label: "МКБ10", type: "text", defaultValue: "" },
+    { key: "note", label: "Примечание", type: "textarea", defaultValue: "прио/" },
+  ],
+},
+{
+  id: "uzist",
+  name: "УЗИСТ",
+  layout: "uzistClassic",
+  fields: [
+    { key: "complaintsPreset", label: "Жалобы", type: "select", options: ["Норма(ж)"], defaultValue: "Норма(ж)" },
+    { key: "complaints", label: "Жалобы текст", type: "text", defaultValue: "жалоб нет" },
+    { key: "anamnesis", label: "Анамнез", type: "textarea", defaultValue: "хронические заболевания отрицает" },
+    { key: "studyName", label: "Исследование", type: "text", defaultValue: "УЗИ органов брюшной полости" },
+    { key: "objective", label: "Описание УЗИ", type: "textarea", defaultValue: "УЗИ без видимой патологии." },
+    { key: "recommendation", label: "Рекомендации", type: "textarea", defaultValue: "Наблюдение по месту жительства." },
+    { key: "diagnosis", label: "Заключение", type: "textarea", defaultValue: "Патологии не выявлено" },
+    { key: "conclusion", label: "Заключение", type: "radio", options: ["Годен", "Не годен"], defaultValue: "Годен" },
+    { key: "validity", label: "Срок", type: "select", options: ["6 мес", "1 год", "2 года"], defaultValue: "1 год" },
+    { key: "mkb10", label: "МКБ10", type: "text", defaultValue: "" },
+    { key: "note", label: "Примечание", type: "textarea", defaultValue: "прио/" },
+  ],
+},
+{
   id: "psychiatrist",
   name: "ПСИХИАТР-НАРКОЛОГ",
   layout: "psychiatristClassic",
@@ -607,7 +712,7 @@
     { key: "address", label: "Адрес", type: "text", defaultValue: "" },
     { key: "serialNumber", label: "№ п/п", type: "text", defaultValue: "" },
 
-    { key: "complaintsPreset", label: "Жалобы", type: "select", options: ["норма(м)", "норма(ж)", "жалобы есть"], defaultValue: "норма(м)" },
+    { key: "complaintsPreset", label: "Жалобы", type: "select", options: ["норма(ж)", "норма(м)"], defaultValue: "норма(м)" },
     { key: "complaints", label: "Жалобы текст", type: "text", defaultValue: "в момент осмотра жалоб нет" },
 
     { key: "tab", label: "Вкладка", type: "select", options: ["Анамнез", "Психическое состояние", "Алкоголь", "Диагноз"], defaultValue: "Анамнез" },
@@ -707,7 +812,54 @@
     { key: "periodicProf", label: "Периодический проф", type: "checkbox", defaultValue: false },
 
     { key: "note", label: "Примечание", type: "textarea", defaultValue: "прио/" },
+  ]
+},
+{
+  // Карточка услуги "Спортивная справка". Не врач — открывается из услуги.
+  id: "service_card_sport",
+  name: "Спортивная справка",
+  layout: "sportCertificateClassic",
+  fields: [
+    { key: "examDate", label: "Дата", type: "text", defaultValue: "" },
+    { key: "hasGlasses", label: "Очки", type: "checkbox", defaultValue: false },
+    { key: "hasHearingAid", label: "Слуховой аппарат", type: "checkbox", defaultValue: false },
+
+    { key: "medicalRequirements", label: "Мед. требования", type: "textarea", defaultValue: "" },
+    { key: "ekg", label: "ЭКГ", type: "text", defaultValue: "" },
+    { key: "ekgConclusion", label: "Заключение ЭКГ", type: "text", defaultValue: "" },
+    { key: "fluorography", label: "Флюорография", type: "text", defaultValue: "" },
+    { key: "logotypeNumber", label: "№ Логотипа", type: "text", defaultValue: "" },
+    { key: "diagnosis", label: "Диагноз", type: "text", defaultValue: "" },
+    { key: "conclusionText", label: "Заключение", type: "textarea", defaultValue: "" },
+
+    { key: "conclusion", label: "Решение", type: "radio", options: ["Годен", "Не годен"], defaultValue: "Годен" },
+
+    { key: "categoryA", label: "A", type: "checkbox", defaultValue: false },
+    { key: "categoryB", label: "B", type: "checkbox", defaultValue: false },
+    { key: "categoryC", label: "C", type: "checkbox", defaultValue: false },
+    { key: "categoryD", label: "D", type: "checkbox", defaultValue: false },
+    { key: "categoryE", label: "E", type: "checkbox", defaultValue: false },
+    { key: "categoryTram", label: "трамвай (п.6.)", type: "checkbox", defaultValue: false },
+    { key: "categoryTractor", label: "тракторы (п.8.)", type: "checkbox", defaultValue: false },
+    { key: "categoryTrolleybus", label: "троллейбус (п.5.)", type: "checkbox", defaultValue: false },
+    { key: "categoryBoat", label: "лайнеры и катера (п.9.)", type: "checkbox", defaultValue: false },
+    { key: "categorySailing", label: "парусный спорт", type: "checkbox", defaultValue: false },
+
+    { key: "indicationManual", label: "с ручн.управлением", type: "checkbox", defaultValue: false },
+    { key: "indicationAutomatic", label: "с автоматом", type: "checkbox", defaultValue: false },
+    { key: "indicationAcoustic", label: "с акустикой", type: "checkbox", defaultValue: false },
+    { key: "indicationGlasses", label: "очки/линзы", type: "checkbox", defaultValue: false },
+    { key: "indicationHearingAid", label: "слуховой аппарат", type: "checkbox", defaultValue: false },
+    { key: "indicationNoHiring", label: "без найма", type: "checkbox", defaultValue: false },
+    { key: "indicationOneYear", label: "на год", type: "checkbox", defaultValue: false },
+
+    { key: "restrictionAM", label: "AM", type: "checkbox", defaultValue: false },
+    { key: "restrictionBBE", label: "BBE", type: "checkbox", defaultValue: false },
+    { key: "restrictionCCE", label: "CCE", type: "checkbox", defaultValue: false },
+    { key: "restrictionNoHands", label: "Без руки", type: "checkbox", defaultValue: false },
+    { key: "restrictionNoLegs", label: "Без ноги", type: "checkbox", defaultValue: false },
+
+    { key: "note", label: "Примечание", type: "textarea", defaultValue: "" },
   ],
 }
 ];
-

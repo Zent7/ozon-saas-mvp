@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: medcenters
       POSTGRES_PASSWORD: medcenters
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 

@@ -28,3 +28,20 @@ class Service(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     requires_sequence: Mapped[bool] = mapped_column(Boolean, default=False)
     recall_after_days: Mapped[int | None] = mapped_column(nullable=True)
+
+
+class DoctorRole(Base):
+    __tablename__ = "doctor_roles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    sort_order: Mapped[int] = mapped_column(default=100)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class ServiceDoctorRole(Base):
+    __tablename__ = "service_doctor_roles"
+
+    service_id: Mapped[int] = mapped_column(ForeignKey("services.id"), primary_key=True)
+    doctor_role_id: Mapped[int] = mapped_column(ForeignKey("doctor_roles.id"), primary_key=True)
