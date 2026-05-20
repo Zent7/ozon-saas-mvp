@@ -1,4 +1,4 @@
-# AGENTS.md
+﻿# AGENTS.md
 
 This file provides guidance to AI coding assistants (Claude Code, Codex, Copilot, etc.) working in this repository.
 
@@ -80,15 +80,16 @@ The core business feature. Entry point: `app/services/document_generator.py::gen
 
 ## Frontend Architecture
 
-**Stack**: React 19 + TypeScript + Vite + React Router v7 + TanStack React Query v5
+**Stack**: Vite serving the approved delivery demo UI.
 
-No UI component library — plain HTML + inline styles + `src/shared/styles.css`.
+The only active frontend interface is the client-approved demo in `frontend/public/demo/`.
 
-**Auth**: `AuthProvider` in `src/shared/auth.tsx` holds session in React state, persisted to `localStorage`. `useAuth()` hook provides `session`, `signIn`, `signOut`. Protected routes check `session.roleCode` via helper functions in `src/shared/access.ts`.
+Important paths:
+- `/` redirects to `/demo/index.html`
+- `/demo/index.html` is the delivery UI that should be shown to reviewers and clients
+- `frontend/src/` was intentionally removed to avoid shipping two different interfaces
 
-**API calls**: centralized in `src/shared/api.ts`. Bearer token from session is attached to every request.
-
-**Routing**: `src/app/router.tsx` — unauthenticated users see only `/login`; authenticated users get the full app wrapped in `AppLayout`.
+Do not reintroduce a second React UI unless the delivery demo is first ported into that frontend shell.
 
 ## Utility Scripts
 
@@ -113,3 +114,4 @@ Center → CertificateNumberRange (many)
 ```
 
 `doctor_role_id` in `DoctorExam` is a freeform string key used to look up exams by specialty (e.g., `"therapist"`, `"ophthalmologist"`, `"psychiatrist-narcologist"`). These keys also appear in `_xls_auto_marker_values` and `_exam_map` in the document generator.
+

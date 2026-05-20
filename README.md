@@ -14,7 +14,7 @@
 
 ## Каркас проекта
 - `backend/` - FastAPI backend
-- `frontend/` - React + TypeScript frontend
+- `frontend/` - Vite-обёртка для сдачного демо-интерфейса
 - `docker-compose.yml` - локальный PostgreSQL
 - `frontend/public/demo/` - готовая демо-версия для показа клиенту
 - `assets/templates/` - реальные шаблоны документов, распакованные из архива клиента
