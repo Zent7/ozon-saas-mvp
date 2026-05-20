@@ -21,7 +21,7 @@ The script will:
 - run Alembic migrations;
 - start the FastAPI backend on `http://127.0.0.1:8000`;
 - start Vite on `http://127.0.0.1:5173`;
-- open `http://127.0.0.1:5173/`.
+- open `http://127.0.0.1:5173/demo/index.html`.
 
 The backend is expected to run on PostgreSQL. After startup, verify:
 
@@ -67,7 +67,7 @@ npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 Open:
 
 ```text
-http://127.0.0.1:5173/
+http://127.0.0.1:5173/demo/index.html
 ```
 
 ## Before sending to another computer

@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$demoUrl = "http://127.0.0.1:5173/"
+$demoUrl = "http://127.0.0.1:5173/demo/index.html"
 $healthUrl = "http://127.0.0.1:8000/api/v1/health"
 
 function Test-Endpoint {

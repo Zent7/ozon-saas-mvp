@@ -16,7 +16,7 @@
 - `backend/` - FastAPI backend
 - `frontend/` - React + TypeScript frontend
 - `docker-compose.yml` - локальный PostgreSQL
-- `demo/` - готовая демо-версия для показа клиенту без установки зависимостей
+- `frontend/public/demo/` - готовая демо-версия для показа клиенту
 - `assets/templates/` - реальные шаблоны документов, распакованные из архива клиента
 
 ## Быстрый запуск

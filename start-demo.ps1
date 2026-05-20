@@ -92,6 +92,6 @@ try {
 
 Start-Process powershell.exe -WindowStyle Hidden -ArgumentList "-NoExit", "-ExecutionPolicy", "Bypass", "-Command", $frontendCommand
 Start-Sleep -Seconds 5
-Start-Process "http://127.0.0.1:5173/"
+Start-Process "http://127.0.0.1:5173/demo/index.html"
 
-Write-Host "Demo UI opened: http://127.0.0.1:5173/" -ForegroundColor Green
+Write-Host "Demo UI opened: http://127.0.0.1:5173/demo/index.html" -ForegroundColor Green
