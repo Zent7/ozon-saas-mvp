@@ -223,11 +223,29 @@ function getClientSelectedDriverService(selectedServices = []) {
     .find((service) => service && isDriverService(service)) || null;
 }
 
-function getClientDriverCategoriesFromForm() {
+function getClientDriverCategoriesFromForm() {
   const checked = Array.from(actionModalContent.querySelectorAll('input[name="clientDriverCategory"]:checked'))
     .map((input) => input.value);
-  return checked.length ? checked : CLIENT_DRIVER_DEFAULT_CATEGORIES.slice();
-}
+  return checked.length ? checked : CLIENT_DRIVER_DEFAULT_CATEGORIES.slice();
+}
+
+function getClientDriverFlagsFromForm(fieldName) {
+
+
+
+  return Array.from(actionModalContent.querySelectorAll(`input[name="${fieldName}"]:checked`))
+
+
+
+    .map((input) => input.value)
+
+
+
+    .filter(Boolean);
+
+
+
+}
 
 function renderClientClassicCheckbox(name, value, label, checked = false) {
   return `
@@ -238,13 +256,25 @@ function renderClientClassicCheckbox(name, value, label, checked = false) {
   `;
 }
 
-function renderClientDriverClassicPanel(selectedServices = [], selectedCategories = CLIENT_DRIVER_DEFAULT_CATEGORIES) {
+function renderClientDriverClassicPanel(selectedServices = [], selectedCategories = CLIENT_DRIVER_DEFAULT_CATEGORIES, driverDetail = {}) {
   const selectedDriverService = getClientSelectedDriverService(selectedServices);
   if (!selectedDriverService) return "";
 
-  const normalizedCategories = Array.isArray(selectedCategories)
-    ? DRIVER_CATEGORY_OPTIONS.filter((item) => selectedCategories.includes(item))
-    : CLIENT_DRIVER_DEFAULT_CATEGORIES.slice();
+  const normalizedCategories = Array.isArray(selectedCategories)
+    ? DRIVER_CATEGORY_OPTIONS.filter((item) => selectedCategories.includes(item))
+    : CLIENT_DRIVER_DEFAULT_CATEGORIES.slice();
+
+
+
+  const selectedLimitations = Array.isArray(driverDetail.limitations) ? driverDetail.limitations : [];
+
+
+
+  const selectedIndications = Array.isArray(driverDetail.indications) ? driverDetail.indications : [];
+
+
+
+  const boatFitChecked = Boolean(driverDetail.boatFit);
 
   return `
     <div class="client-driver-classic">
@@ -288,20 +318,20 @@ function renderClientDriverClassicPanel(selectedServices = [], selectedCategorie
 
         <div class="client-driver-box client-driver-box--limits">
           <strong>Мед. ограничения к упр-ию ТС</strong>
-          ${CLIENT_DRIVER_LIMITATIONS.map((item) => renderClientClassicCheckbox("clientDriverLimit", item, item, false)).join("")}
+          ${CLIENT_DRIVER_LIMITATIONS.map((item) => renderClientClassicCheckbox("clientDriverLimit", item, item, selectedLimitations.includes(item))).join("")}
           <span class="client-driver-red-dot">•</span>
         </div>
 
         <div class="client-driver-box client-driver-box--indications">
           <strong>Мед. показания к упр-ию ТС</strong>
-          ${CLIENT_DRIVER_INDICATIONS.map((item) => renderClientClassicCheckbox("clientDriverIndication", item, item, false)).join("")}
+          ${CLIENT_DRIVER_INDICATIONS.map((item) => renderClientClassicCheckbox("clientDriverIndication", item, item, selectedIndications.includes(item))).join("")}
         </div>
       </div>
 
       <div class="client-driver-footer">
         <label class="client-classic-checkbox client-classic-checkbox--inline">
           <span>Годен к упр-ю маломер. судами</span>
-          <input type="checkbox" name="clientDriverBoatFit" />
+          <input type="checkbox" name="clientDriverBoatFit" ${boatFitChecked ? "checked" : ""} />
         </label>
         <label class="client-driver-chief">
           <span>Гл.врач</span>
@@ -315,9 +345,25 @@ function renderClientDriverClassicPanel(selectedServices = [], selectedCategorie
 function refreshClientDriverPanel() {
   const container = document.getElementById("clientDriverPanelContainer");
   if (!container) return;
-  const selectedServices = getClientModalSelectedServicesFromDom();
-  const selectedCategories = getClientDriverCategoriesFromForm();
-  container.innerHTML = renderClientDriverClassicPanel(selectedServices, selectedCategories);
+  const selectedServices = getClientModalSelectedServicesFromDom();
+  const selectedCategories = getClientDriverCategoriesFromForm();
+
+
+
+  const selectedDriverService = getClientSelectedDriverService(selectedServices);
+
+
+
+  const selectedDriverDetail = selectedDriverService
+
+
+
+    ? clientModalServiceDetails[getClientServiceDetailKey(selectedDriverService)] || {}
+
+
+
+    : {};
+  container.innerHTML = renderClientDriverClassicPanel(selectedServices, selectedCategories, selectedDriverDetail);
   bindClientDriverCategoryCheckboxes();
 }
 
@@ -515,13 +561,19 @@ function buildClientServiceDetails(selectedServices = []) {
   });
 
   const selectedDriverService = getClientSelectedDriverService(selectedServices);
-  if (selectedDriverService) {
-    const categories = normalizeDriverCategories(getClientDriverCategoriesFromForm());
+  if (selectedDriverService) {
+    const categories = normalizeDriverCategories(getClientDriverCategoriesFromForm());
+    const indications = getClientDriverFlagsFromForm("clientDriverIndication");
+    const limitations = getClientDriverFlagsFromForm("clientDriverLimit");
+    const boatFit = Boolean(actionModalContent.querySelector('input[name="clientDriverBoatFit"]')?.checked);
     const serviceId = getClientServiceDetailKey(selectedDriverService);
     details[serviceId] = {
-      ...(details[serviceId] || {}),
-      categories,
-      unitPrice: Number(details[serviceId]?.unitPrice ?? getDriverCategoryPrice(categories)),
+      ...(details[serviceId] || {}),
+      categories,
+      indications,
+      limitations,
+      boatFit,
+      unitPrice: Number(details[serviceId]?.unitPrice ?? getDriverCategoryPrice(categories)),
       autoDoctorRoles: getDriverRoleCodes(categories),
     };
   }
@@ -628,17 +680,18 @@ function renderClientServiceSelector(selectedServices = []) {
           visibleServices.length
             ? visibleServices
                 .map(
-                  (service) => `
-                    <label class="client-service-chip">
-                      <input
-                        type="checkbox"
-                        name="services"
-                        value="${escapeHtml(service.name)}"
-                        ${selectedSet.has(service.name) ? "checked" : ""}
-                      />
-                      <span>${escapeHtml(service.name)}</span>
-                    </label>
-                  `,
+                  (service) => `
+                    <label class="${selectedSet.has(service.name) ? "client-service-chip client-service-chip--active" : "client-service-chip"}">
+                      <input
+                        type="checkbox"
+                        name="services"
+                        value="${escapeHtml(service.name)}"
+                        ${selectedSet.has(service.name) ? "checked" : ""}
+                      />
+                      <span>${escapeHtml(service.name)}</span>
+                      ${selectedSet.has(service.name) ? '<span class="client-service-chip__remove" aria-hidden="true">×</span>' : ""}
+                    </label>
+                  `,
                 )
                 .join("")
             : '<div class="muted">В этой группе услуг пока нет</div>'
@@ -674,8 +727,9 @@ function bindClientServiceGroupButtons() {
   });
 }
 
-function openClientModal(clientId = null) {
-  const selectedClient = window.getSelectedClient?.();
+function openClientModal(clientId = null, options = {}) {
+  const encounterMode = options && typeof options === "object" ? options.encounterMode === true : false;
+  const selectedClient = window.getSelectedClient?.();
   const editingClient = clientId
     ? selectedClient && String(selectedClient.id) === String(clientId)
       ? selectedClient
@@ -696,15 +750,27 @@ function openClientModal(clientId = null) {
     appState.clientServiceGroupFilter = sortedGroups.length ? String(sortedGroups[0].id) : "";
   }
 
-  const initialSelectedServices = editingClient?.services || [];
-  clientModalSelectedServices = new Set(initialSelectedServices);
-  const initialVisit = editingClient ? window.getCurrentVisitForClient?.(editingClient.id) : null;
+  const initialVisit = editingClient ? window.getCurrentVisitForClient?.(editingClient.id) : null;
+  const initialSelectedServices = encounterMode
+    ? (initialVisit?.serviceNames?.length ? initialVisit.serviceNames : (editingClient?.services || []))
+    : (editingClient?.services || []);
+  clientModalSelectedServices = new Set(initialSelectedServices);
   clientModalServiceDetails = { ...(initialVisit?.serviceDetails || {}) };
-  clientModalManualTotal = initialVisit?.amount !== undefined && initialVisit?.amount !== null
-    ? Number(initialVisit.amount)
-    : null;
-  clientModalSubmitAction = "save";
-  const defaultGender = editingClient?.gender || editingClient?.sex || "";
+  clientModalManualTotal = initialVisit?.amount !== undefined && initialVisit?.amount !== null
+    ? Number(initialVisit.amount)
+    : null;
+  clientModalSubmitAction = "save";
+  const modalTitle = encounterMode
+    ? "Новое обращение"
+    : (editingClient ? "Изменить клиента" : "Новый клиент");
+  const heroTitle = encounterMode
+    ? "Новое обращение в журнале"
+    : (editingClient ? "Обновление данных пациента" : "Новый пациент в журнале");
+  const heroBadge = encounterMode
+    ? "Обращение"
+    : (editingClient ? "Редактирование" : "Создание");
+  const primarySubmitLabel = encounterMode ? "Сохранить обращение" : "ОК";
+  const defaultGender = editingClient?.gender || editingClient?.sex || "";
   const initialBirthPlace =
     editingClient?.birthPlace ||
     editingClient?.rawApiClient?.birth_place ||
@@ -731,7 +797,7 @@ function openClientModal(clientId = null) {
     "";
 
   openActionModal(
-    editingClient ? "Изменить клиента" : "Новый клиент",
+    modalTitle,
     `
       <form class="client-create-form" id="clientCreateForm">
         <div class="client-create-shell">
@@ -739,9 +805,9 @@ function openClientModal(clientId = null) {
           <div class="client-create-section__head">
             <div>
               <span class="client-create-section__eyebrow">Карточка клиента</span>
-              <strong>${editingClient ? "Обновление данных пациента" : "Новый пациент в журнале"}</strong>
+              <strong>${heroTitle}</strong>
             </div>
-            <span class="client-create-section__badge">${editingClient ? "Редактирование" : "Создание"}</span>
+            <span class="client-create-section__badge">${heroBadge}</span>
           </div>
         <div class="client-create-grid client-create-grid--names">
           <label class="field">
@@ -920,8 +986,8 @@ function openClientModal(clientId = null) {
 
         <div class="client-create-actions">
           <button type="button" class="ghost-button" id="cancelClientCreate">Отмена</button>
-          <button type="submit" class="ghost-button" name="clientSubmitAction" value="contract">ОК + договор</button>
-          <button type="submit" class="primary-button">ОК</button>
+          ${encounterMode ? "" : '<button type="submit" class="ghost-button" name="clientSubmitAction" value="contract">ОК + договор</button>'}
+          <button type="submit" class="primary-button">${primarySubmitLabel}</button>
         </div>
         </div>
       </form>
@@ -935,7 +1001,43 @@ function openClientModal(clientId = null) {
 
   if (form) {
     attachDateMask(form);
-    bindClientAddressAutocomplete(form);
+    bindClientAddressAutocomplete(form);
+
+    form.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
+        return;
+      }
+
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.tagName === "TEXTAREA" || target.tagName === "BUTTON") return;
+      if (target.closest("#serviceSelectorContainer, #clientDriverPanelContainer, #clientPaymentContainer")) return;
+
+      const focusableFields = Array.from(
+        form.querySelectorAll(
+          'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])',
+        ),
+      ).filter((element) => {
+        if (!(element instanceof HTMLElement)) return false;
+        if (element.tagName === "TEXTAREA") return false;
+        if (element.closest("#serviceSelectorContainer, #clientDriverPanelContainer, #clientPaymentContainer")) {
+          return false;
+        }
+        return element.offsetParent !== null;
+      });
+
+      const currentIndex = focusableFields.indexOf(target);
+      if (currentIndex < 0) return;
+
+      event.preventDefault();
+      const nextField = focusableFields[currentIndex + 1];
+      if (nextField instanceof HTMLElement) {
+        nextField.focus();
+        if (typeof nextField.select === "function" && nextField.tagName === "INPUT") {
+          nextField.select();
+        }
+      }
+    });
   }
 
   bindClientServiceGroupButtons();
@@ -1153,8 +1255,12 @@ function openClientModal(clientId = null) {
       await window.openDemoDocument?.("contract", { autoOpenFile: true });
       return;
     }
-    showToast(editingClient ? `Клиент ${fullName || "клиент"} обновлен` : `Клиент ${fullName || "Новый клиент"} добавлен`);
-  });
+    showToast(
+      encounterMode
+        ? "Обращение сохранено"
+        : (editingClient ? `Клиент ${fullName || "клиент"} обновлен` : `Клиент ${fullName || "Новый клиент"} добавлен`),
+    );
+  });
 }
 
 window.openClientModal = openClientModal;

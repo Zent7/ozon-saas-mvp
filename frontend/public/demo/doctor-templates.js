@@ -762,8 +762,8 @@
     { key: "hasGlasses", label: "Очки", type: "checkbox", defaultValue: false },
     { key: "hasHearingAid", label: "Слуховой аппарат", type: "checkbox", defaultValue: false },
 
-    { key: "ekg", label: "ЭКГ", type: "text", defaultValue: 'Медицинский центр ООО "ЦМО "ЮЛМЕД" ЭКГ от 07.04.2025' },
-    { key: "ekgConclusion", label: "Заключение ЭКГ", type: "textarea", defaultValue: "Ритм синусовый, ЧСС , нормальная электрическая позиция сердца, ЭКГ-комплексы без особенностей от 07.04.2025" },
+    { key: "ekg", label: "ЭКГ", type: "text", defaultValue: "" },
+    { key: "ekgConclusion", label: "Заключение ЭКГ", type: "textarea", defaultValue: "" },
     { key: "fluorography", label: "Флюорография", type: "text", defaultValue: "" },
 
     { key: "bloodGroup", label: "Группа крови", type: "text", defaultValue: "0 (I)" },
@@ -810,8 +810,9 @@
     { key: "restrictionNoLegs", label: "Без ноги", type: "checkbox", defaultValue: false },
 
     { key: "periodicProf", label: "Периодический проф", type: "checkbox", defaultValue: false },
+    { key: "stampApplied", label: "Печать поставлена", type: "checkbox", defaultValue: false },
 
-    { key: "note", label: "Примечание", type: "textarea", defaultValue: "прио/" },
+    { key: "note", label: "Примечание", type: "textarea", defaultValue: "" },
   ]
 },
 {

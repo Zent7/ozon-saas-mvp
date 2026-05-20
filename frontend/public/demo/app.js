@@ -2,6 +2,7 @@
 
 const appState = {
   page: "dashboard",
+  dashboardPage: 1,
   auth: {
     accessToken: "",
     userName: "",
@@ -11,13 +12,21 @@ const appState = {
   selectedClientId: null,
   centerFilter: "all",
   clientSearch: "",
+  clientEncounterDate: "",
   serviceGroupFilter: "all",
   visitServiceGroupFilter: "all",
   visitServiceSearch: "",
   cashDateFrom: new Date().toISOString().slice(0, 10),
   cashDateTo: new Date().toISOString().slice(0, 10),
+  reportDateFrom: new Date().toISOString().slice(0, 10),
+  reportDateTo: new Date().toISOString().slice(0, 10),
   calendarFilter: "active",
   calendarServiceGroupFilter: "all",
+  blanksTab: "overview",
+  blanksFormOpen: false,
+  blanksFilterStatus: "all",
+  blanksFilterBatchId: "all",
+  blanksSearch: "",
   restoreInputId: null,
   activeVisitId: null,
   doctorExamModal: {
@@ -28,8 +37,19 @@ const appState = {
   },
 };
 
-const legacyClients = [];
-const legacyServices = null;
+const demoParams = new URLSearchParams(window.location.search);
+if (demoParams.get("employeeAuth") === "chairman") {
+  appState.page = "employee";
+  appState.auth = {
+    accessToken: "demo-token-2",
+    userName: "Председатель комиссии",
+    roleCode: "chairman",
+    roleName: "Председатель",
+  };
+}
+
+const legacyClients = Array.isArray(window.LEGACY_CLIENTS) ? window.LEGACY_CLIENTS : null;
+const legacyServices = Array.isArray(window.LEGACY_SERVICES) ? window.LEGACY_SERVICES : null;
 
 let serviceGroups = [];
 let doctorRoles = [];
@@ -156,6 +176,9 @@ const data = {
   backendSearch: "",
   backendSearchLoading: false,
   backendSearchError: "",
+  centers: [],
+  centersLoaded: false,
+  centersLoadingPromise: null,
   serverServices: [],
   serverServicesLoaded: false,
   documentTemplates: [],
@@ -163,6 +186,15 @@ const data = {
   generatedDocuments: [],
   documentJournals: [],
   spoiledBlanks: [],
+  blanksTypes: [],
+  blanksStats: [],
+  blanksBatches: [],
+  blanksForms: [],
+  blanksLoading: false,
+  blanksLoaded: false,
+  blanksError: "",
+  blanksFormError: "",
+  blanksFormSaving: false,
   patientConsents: [],
   medicalRecords: [],
   medicalRecordEntries: [],
@@ -190,10 +222,15 @@ const data = {
   staffLoading: false,
   staffError: "",
   staffCreateError: "",
+  lastCreatedStaffUser: null,
+  reportSummary: null,
+  reportLoading: false,
+  reportError: "",
 };
 
 let clientSearchTimer = null;
 let clientSearchRequestId = 0;
+const DASHBOARD_PAGE_SIZE = 50;
 
 const DEMO_STORAGE_KEY = "vova-medcenter-demo-state-v2";
 const COLUMN_WIDTHS_STORAGE_KEY = "vova-medcenter-column-widths-v1";
@@ -229,6 +266,7 @@ const pageTitle = document.getElementById("page-title");
 const navRoot = document.getElementById("nav");
 const contentRoot = document.getElementById("content");
 const loginModal = document.getElementById("loginModal");
+const authStatusLabel = document.getElementById("authStatusLabel");
 const actionModal = document.getElementById("actionModal");
 const actionModalTitle = document.getElementById("actionModalTitle");
 const actionModalContent = document.getElementById("actionModalContent");
@@ -250,6 +288,22 @@ const navItems = [
   { id: "reports", label: "Отчеты", toast: "Открыт блок: Отчеты" },
   { id: "harmfulness", label: "Пункты вредности", toast: "Открыт блок: Пункты вредности" },
 ];
+
+function canManageEmployeeWorkspace() {
+  return appState.auth.roleCode === "chairman";
+}
+
+function canAccessReportsWorkspace() {
+  return appState.auth.roleCode === "chairman";
+}
+
+function ensureDemoAuthConsistency() {
+  if (appState.auth.roleCode === "chairman" && !appState.auth.accessToken) {
+    appState.auth.accessToken = "demo-token-2";
+    appState.auth.userName = appState.auth.userName || "Председатель комиссии";
+    appState.auth.roleName = appState.auth.roleName || "Председатель";
+  }
+}
 
 const columnKeys = [
   "number",
@@ -376,6 +430,19 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function displayTableValue(value, fallback = "—") {
+  return value === null || value === undefined || value === "" ? fallback : String(value);
+}
+
+function resolveAdmissionCategoryValue(categoryValue, services) {
+  const directValue = String(categoryValue || "").trim();
+  if (directValue) return directValue;
+  const serviceNames = Array.isArray(services)
+    ? services.map((service) => String(service || "").trim()).filter(Boolean)
+    : [];
+  return serviceNames.join(", ");
+}
+
 function repairDemoText(value) {
   const replacements = {
     "Р вЂњР В»Р В°Р Р†Р Р…Р В°РЎРЏ": "Главная",
@@ -452,6 +519,9 @@ function applyPersistedDemoState() {
   data.doctorDirectory = saved.doctorDirectory && typeof saved.doctorDirectory === "object"
     ? saved.doctorDirectory
     : {};
+  data.lastCreatedStaffUser = saved.lastCreatedStaffUser && typeof saved.lastCreatedStaffUser === "object"
+    ? saved.lastCreatedStaffUser
+    : null;
 
   Object.values(data.clientOverrides).forEach((clientPatch) => {
     const existing = data.clients.find((client) => String(client.id) === String(clientPatch.id));
@@ -471,19 +541,28 @@ function applyPersistedDemoState() {
     refreshServiceCatalog();
   }
 
-  if (Array.isArray(saved.visits)) data.visits = saved.visits;
-  if (Array.isArray(saved.documents)) data.documents = saved.documents;
-  if (Array.isArray(saved.doctorExams)) data.doctorExams = saved.doctorExams;
   if (Array.isArray(saved.mkb10History)) data.mkb10History = saved.mkb10History;
+  if (Array.isArray(saved.visits)) {
+    data.visits = saved.visits;
+  }
   if (saved.activeVisitId) appState.activeVisitId = saved.activeVisitId;
 
   const savedAppState = saved.appState && typeof saved.appState === "object" ? saved.appState : {};
+  const savedAuth = saved.auth && typeof saved.auth === "object" ? saved.auth : {};
   appState.page = "dashboard";
+  if (typeof savedAuth.accessToken === "string") appState.auth.accessToken = savedAuth.accessToken;
+  if (typeof savedAuth.userName === "string") appState.auth.userName = savedAuth.userName;
+  if (typeof savedAuth.roleCode === "string") appState.auth.roleCode = savedAuth.roleCode;
+  if (typeof savedAuth.roleName === "string") appState.auth.roleName = savedAuth.roleName;
   if (savedAppState.selectedClientId !== undefined && savedAppState.selectedClientId !== null) {
     appState.selectedClientId = savedAppState.selectedClientId;
   }
   if (typeof savedAppState.centerFilter === "string") appState.centerFilter = savedAppState.centerFilter;
   if (typeof savedAppState.clientSearch === "string") appState.clientSearch = savedAppState.clientSearch;
+  if (typeof savedAppState.clientEncounterDate === "string") appState.clientEncounterDate = savedAppState.clientEncounterDate;
+  if (Number.isFinite(savedAppState.dashboardPage) && savedAppState.dashboardPage > 0) {
+    appState.dashboardPage = savedAppState.dashboardPage;
+  }
   if (typeof savedAppState.serviceGroupFilter === "string") appState.serviceGroupFilter = savedAppState.serviceGroupFilter;
   if (typeof savedAppState.visitServiceGroupFilter === "string") {
     appState.visitServiceGroupFilter = savedAppState.visitServiceGroupFilter;
@@ -495,11 +574,32 @@ function applyPersistedDemoState() {
   if (typeof savedAppState.cashDateTo === "string" && savedAppState.cashDateTo) {
     appState.cashDateTo = savedAppState.cashDateTo;
   }
+  if (typeof savedAppState.reportDateFrom === "string" && savedAppState.reportDateFrom) {
+    appState.reportDateFrom = savedAppState.reportDateFrom;
+  }
+  if (typeof savedAppState.reportDateTo === "string" && savedAppState.reportDateTo) {
+    appState.reportDateTo = savedAppState.reportDateTo;
+  }
   if (typeof savedAppState.calendarFilter === "string" && savedAppState.calendarFilter) {
     appState.calendarFilter = savedAppState.calendarFilter;
   }
   if (typeof savedAppState.calendarServiceGroupFilter === "string") {
     appState.calendarServiceGroupFilter = savedAppState.calendarServiceGroupFilter;
+  }
+  if (typeof savedAppState.blanksTab === "string" && savedAppState.blanksTab) {
+    appState.blanksTab = savedAppState.blanksTab;
+  }
+  if (typeof savedAppState.blanksFormOpen === "boolean") {
+    appState.blanksFormOpen = savedAppState.blanksFormOpen;
+  }
+  if (typeof savedAppState.blanksFilterStatus === "string" && savedAppState.blanksFilterStatus) {
+    appState.blanksFilterStatus = savedAppState.blanksFilterStatus;
+  }
+  if (typeof savedAppState.blanksFilterBatchId === "string" && savedAppState.blanksFilterBatchId) {
+    appState.blanksFilterBatchId = savedAppState.blanksFilterBatchId;
+  }
+  if (typeof savedAppState.blanksSearch === "string") {
+    appState.blanksSearch = savedAppState.blanksSearch;
   }
   if (savedAppState.restoreInputId !== undefined) appState.restoreInputId = savedAppState.restoreInputId;
   if (savedAppState.activeVisitId !== undefined) appState.activeVisitId = savedAppState.activeVisitId;
@@ -509,6 +609,7 @@ function applyPersistedDemoState() {
     visitId: null,
     doctorRoleId: null,
   };
+  ensureDemoAuthConsistency();
 }
 
 function persistDemoState() {
@@ -532,23 +633,37 @@ function persistDemoState() {
       createdClients: data.clients.filter((client) => client.__demoCreated),
       clientOverrides: data.clientOverrides || {},
       doctorDirectory: data.doctorDirectory || {},
-      visits: data.visits || [],
-      documents: data.documents || [],
-      doctorExams: data.doctorExams || [],
+      visits: getPersistableVisits(),
       mkb10History: data.mkb10History || [],
       activeVisitId: appState.activeVisitId,
+      lastCreatedStaffUser: data.lastCreatedStaffUser || null,
+      auth: {
+        accessToken: appState.auth.accessToken || "",
+        userName: appState.auth.userName || "",
+        roleCode: appState.auth.roleCode || "",
+        roleName: appState.auth.roleName || "",
+      },
       appState: {
         page: appState.page,
         selectedClientId: appState.selectedClientId,
         centerFilter: appState.centerFilter,
         clientSearch: appState.clientSearch,
+        clientEncounterDate: appState.clientEncounterDate,
+        dashboardPage: appState.dashboardPage,
         serviceGroupFilter: appState.serviceGroupFilter,
         visitServiceGroupFilter: appState.visitServiceGroupFilter,
         visitServiceSearch: appState.visitServiceSearch,
         cashDateFrom: appState.cashDateFrom,
         cashDateTo: appState.cashDateTo,
+        reportDateFrom: appState.reportDateFrom,
+        reportDateTo: appState.reportDateTo,
         calendarFilter: appState.calendarFilter,
         calendarServiceGroupFilter: appState.calendarServiceGroupFilter,
+        blanksTab: appState.blanksTab,
+        blanksFormOpen: appState.blanksFormOpen,
+        blanksFilterStatus: appState.blanksFilterStatus,
+        blanksFilterBatchId: appState.blanksFilterBatchId,
+        blanksSearch: appState.blanksSearch,
         restoreInputId: appState.restoreInputId,
         activeVisitId: appState.activeVisitId,
         doctorExamModal: appState.doctorExamModal,
@@ -562,6 +677,18 @@ function persistDemoState() {
     console.warn("Не удалось сохранить демо-данные", error);
     showToast("Не удалось сохранить демо-данные: лимит браузера");
   }
+}
+
+function getPersistableVisits() {
+  ensureVisitsStore();
+  return data.visits.map((visit) => {
+    const {
+      __backendSyncPromise,
+      __backendSyncing,
+      ...persistableVisit
+    } = visit;
+    return persistableVisit;
+  });
 }
 
 function markClientChanged(client, isCreated = false) {
@@ -760,19 +887,19 @@ function getVisitPaymentTotals(services = [], amount = 0, fallbackPaymentType = 
 }
 
 function isDriverService(service) {
-  return DRIVER_SERVICE_LEGACY_IDS.has(Number(service?.legacySourceId));
+  return DRIVER_SERVICE_LEGACY_IDS.has(Number(service?.legacySourceId ?? service?.id));
 }
 
 function isTractorService(service) {
-  return TRACTOR_SERVICE_LEGACY_IDS.has(Number(service?.legacySourceId));
+  return TRACTOR_SERVICE_LEGACY_IDS.has(Number(service?.legacySourceId ?? service?.id));
 }
 
 function isGimsService(service) {
-  return GIMS_SERVICE_LEGACY_IDS.has(Number(service?.legacySourceId));
+  return GIMS_SERVICE_LEGACY_IDS.has(Number(service?.legacySourceId ?? service?.id));
 }
 
 function isLmkService(service) {
-  return LMK_SERVICE_LEGACY_IDS.has(Number(service?.legacySourceId));
+  return LMK_SERVICE_LEGACY_IDS.has(Number(service?.legacySourceId ?? service?.id));
 }
 
 function isProfService(service) {
@@ -823,6 +950,108 @@ function getDriverRoleCodes(categories = []) {
 
   const isBase = normalized.length > 0 && normalized.every((item) => DRIVER_BASE_CATEGORIES.has(item));
   return isBase ? DRIVER_CATEGORY_BASE_ROLES : DRIVER_CATEGORY_ADVANCED_ROLES;
+}
+
+const DRIVER_INDICATION_FIELD_TO_LABEL = {
+  indicationManual: "С ручным упр-ем",
+  indicationAutomatic: "С автоматич. трансмиссией",
+  indicationAcoustic: "Акустич. парковочная система",
+  indicationGlasses: "ТС мед. изд. для коррекции зрения",
+  indicationHearingAid: "ТС мед. изд. для компенсации потери слуха",
+  indicationNoHiring: "Без найма",
+  indicationOneYear: "На год",
+};
+
+const DRIVER_INDICATION_LABEL_TO_FIELD = Object.fromEntries(
+  Object.entries(DRIVER_INDICATION_FIELD_TO_LABEL).map(([key, value]) => [value, key]),
+);
+
+const DRIVER_LIMITATION_FIELD_TO_LABEL = {
+  restrictionAM: "AM",
+  restrictionBBE: "B BE",
+  restrictionCCE: "C CE",
+  restrictionNoHands: "Без рук",
+  restrictionNoLegs: "Без ног",
+};
+
+const DRIVER_LIMITATION_LABEL_TO_FIELD = Object.fromEntries(
+  Object.entries(DRIVER_LIMITATION_FIELD_TO_LABEL).map(([key, value]) => [value, key]),
+);
+
+function collectChairmanDriverCategories(fields = {}) {
+  const categories = [];
+  if (fields.categoryA) categories.push("A");
+  if (fields.categoryB) categories.push("B");
+  if (fields.categoryC) categories.push("C");
+  if (fields.categoryD) categories.push("D");
+  if (fields.categoryE) categories.push("E");
+  if (fields.categoryTram) categories.push("Tm");
+  if (fields.categoryTrolleybus) categories.push("Tb");
+  if (fields.categoryTractor) categories.push("tractor");
+  if (fields.categoryBoat) categories.push("boat");
+  if (fields.categorySailing) categories.push("sailing");
+  return categories;
+}
+
+function collectChairmanDriverIndications(fields = {}) {
+  return Object.entries(DRIVER_INDICATION_FIELD_TO_LABEL)
+    .filter(([fieldKey]) => Boolean(fields[fieldKey]))
+    .map(([, label]) => label);
+}
+
+function collectChairmanDriverLimitations(fields = {}) {
+  return Object.entries(DRIVER_LIMITATION_FIELD_TO_LABEL)
+    .filter(([fieldKey]) => Boolean(fields[fieldKey]))
+    .map(([, label]) => label);
+}
+
+function applyDriverSelectionsToChairmanFields(fields = {}, detail = {}, visit = null) {
+  const sourceCategories = Array.isArray(detail.categories) ? detail.categories : [];
+  const categories = normalizeDriverCategories(sourceCategories);
+  const indications = Array.isArray(detail.indications) ? detail.indications : [];
+  const limitations = Array.isArray(detail.limitations) ? detail.limitations : [];
+  const hasCategoryOverrides = sourceCategories.length > 0;
+  const hasIndicationOverrides = indications.length > 0;
+  const hasLimitationOverrides = limitations.length > 0;
+
+  return {
+    ...fields,
+    serviceNames: Array.isArray(visit?.serviceNames) ? visit.serviceNames.join(", ") : (fields.serviceNames || ""),
+    driverCategories: hasCategoryOverrides ? categories.join(", ") : (fields.driverCategories || ""),
+    categoryA: hasCategoryOverrides ? categories.includes("A") : Boolean(fields.categoryA),
+    categoryB: hasCategoryOverrides ? categories.includes("B") : Boolean(fields.categoryB),
+    categoryC: hasCategoryOverrides ? categories.includes("C") : Boolean(fields.categoryC),
+    categoryD: hasCategoryOverrides ? categories.includes("D") : Boolean(fields.categoryD),
+    categoryE: hasCategoryOverrides
+      ? (categories.includes("BE") || categories.includes("CE") || categories.includes("DE") || categories.includes("E"))
+      : Boolean(fields.categoryE),
+    categoryTram: hasCategoryOverrides ? categories.includes("Tm") : Boolean(fields.categoryTram),
+    categoryTrolleybus: hasCategoryOverrides ? categories.includes("Tb") : Boolean(fields.categoryTrolleybus),
+    categoryTractor: hasCategoryOverrides ? sourceCategories.includes("tractor") : Boolean(fields.categoryTractor),
+    categoryBoat: hasCategoryOverrides ? (sourceCategories.includes("boat") || Boolean(detail.boatFit)) : Boolean(fields.categoryBoat),
+    categorySailing: hasCategoryOverrides ? sourceCategories.includes("sailing") : Boolean(fields.categorySailing),
+    hasGlasses: hasIndicationOverrides ? indications.includes(DRIVER_INDICATION_FIELD_TO_LABEL.indicationGlasses) : Boolean(fields.hasGlasses),
+    hasHearingAid: hasIndicationOverrides ? indications.includes(DRIVER_INDICATION_FIELD_TO_LABEL.indicationHearingAid) : Boolean(fields.hasHearingAid),
+    indicationManual: hasIndicationOverrides ? indications.includes(DRIVER_INDICATION_FIELD_TO_LABEL.indicationManual) : Boolean(fields.indicationManual),
+    indicationAutomatic: hasIndicationOverrides ? indications.includes(DRIVER_INDICATION_FIELD_TO_LABEL.indicationAutomatic) : Boolean(fields.indicationAutomatic),
+    indicationAcoustic: hasIndicationOverrides ? indications.includes(DRIVER_INDICATION_FIELD_TO_LABEL.indicationAcoustic) : Boolean(fields.indicationAcoustic),
+    indicationGlasses: hasIndicationOverrides ? indications.includes(DRIVER_INDICATION_FIELD_TO_LABEL.indicationGlasses) : Boolean(fields.indicationGlasses),
+    indicationHearingAid: hasIndicationOverrides ? indications.includes(DRIVER_INDICATION_FIELD_TO_LABEL.indicationHearingAid) : Boolean(fields.indicationHearingAid),
+    indicationNoHiring: hasIndicationOverrides ? indications.includes(DRIVER_INDICATION_FIELD_TO_LABEL.indicationNoHiring) : Boolean(fields.indicationNoHiring),
+    indicationOneYear: hasIndicationOverrides ? indications.includes(DRIVER_INDICATION_FIELD_TO_LABEL.indicationOneYear) : Boolean(fields.indicationOneYear),
+    restrictionAM: hasLimitationOverrides ? limitations.includes(DRIVER_LIMITATION_FIELD_TO_LABEL.restrictionAM) : Boolean(fields.restrictionAM),
+    restrictionBBE: hasLimitationOverrides ? limitations.includes(DRIVER_LIMITATION_FIELD_TO_LABEL.restrictionBBE) : Boolean(fields.restrictionBBE),
+    restrictionCCE: hasLimitationOverrides ? limitations.includes(DRIVER_LIMITATION_FIELD_TO_LABEL.restrictionCCE) : Boolean(fields.restrictionCCE),
+    restrictionNoHands: hasLimitationOverrides ? limitations.includes(DRIVER_LIMITATION_FIELD_TO_LABEL.restrictionNoHands) : Boolean(fields.restrictionNoHands),
+    restrictionNoLegs: hasLimitationOverrides ? limitations.includes(DRIVER_LIMITATION_FIELD_TO_LABEL.restrictionNoLegs) : Boolean(fields.restrictionNoLegs),
+    examDate: fields.examDate || visit?.visitDate || "",
+  };
+}
+
+function getDriverDetailFromVisit(visit) {
+  if (!visit) return {};
+  const details = Object.values(getVisitServiceDetails(visit));
+  return details.find((detail) => Array.isArray(detail?.categories) && detail.categories.length) || {};
 }
 
 function getDoctorRoleCodeById(roleId) {
@@ -900,6 +1129,7 @@ function joinDocument(client) {
 }
 
 function mapApiClient(client) {
+  const services = Array.isArray(client.services) ? client.services : [];
   return {
     id: client.id,
     backendId: client.id,
@@ -913,9 +1143,9 @@ function mapApiClient(client) {
     snils: client.snils || "",
     note: client.notes || "",
     lastVisit: client.real_date_text || client.encounter_date_text || "",
-    services: Array.isArray(client.services) ? client.services : [],
+    services,
     registration: client.registration_text || client.address_text || "",
-    category: client.admission_category || "",
+    category: resolveAdmissionCategoryValue(client.admission_category, services),
     referenceNumber: client.reference_number || "",
     gynecologist: client.doctor_gynecologist || "",
     stomatologist: client.doctor_stomatologist || "",
@@ -939,6 +1169,96 @@ function mapApiClient(client) {
     realDate: client.real_date_text || "",
     rawApiClient: client,
   };
+}
+
+const doctorRoleToClientFieldMap = {
+  gynecologist: "gynecologist",
+  dentist: "stomatologist",
+  dermatologist: "dermatologist",
+  neurologist: "neurologist",
+  surgeon: "surgeon",
+  otolaryngologist: "otolaryngologist",
+  ophthalmologist: "ophthalmologist",
+  therapist: "therapist",
+  psychiatrist: "psychiatrist",
+  infectionist: "infectionist",
+  phthisiatrist: "phthisiatrician",
+  uzist: "uzist",
+  chairman: "chairman",
+};
+
+function getClientDoctorFieldKey(doctorRoleId) {
+  return doctorRoleToClientFieldMap[String(doctorRoleId || "").trim()] || "";
+}
+
+function syncCompletedDoctorMarksToClient(client, exams = []) {
+  if (!client) return;
+
+  const existing = Array.isArray(client.doctorExamHistory) ? client.doctorExamHistory : [];
+  const nextItems = (Array.isArray(exams) ? exams : [])
+    .filter((exam) => exam?.isCompleted)
+    .map((exam) => ({
+      doctorRoleId: String(exam.doctorRoleId || "").trim(),
+      visitId: exam.visitId || null,
+      backendEncounterId: exam.backendEncounterId || null,
+    }))
+    .filter((exam) => exam.doctorRoleId);
+
+  const byKey = new Map();
+  [...existing, ...nextItems].forEach((exam) => {
+    const key = [
+      exam.doctorRoleId,
+      exam.backendEncounterId ? `backend-${exam.backendEncounterId}` : "",
+      exam.visitId ? `visit-${exam.visitId}` : "",
+    ].join(":");
+    byKey.set(key, exam);
+  });
+  client.doctorExamHistory = Array.from(byKey.values());
+}
+
+function hasCompletedDoctorExamHistory(clientId, doctorRoleId, currentVisitId = null) {
+  if (!clientId || !doctorRoleId) return false;
+  const roleCode = String(doctorRoleId || "").trim();
+  const client = getClientPool().find((item) => String(item.id) === String(clientId));
+  const currentVisit = currentVisitId
+    ? data.visits.find((item) => String(item.id) === String(currentVisitId))
+    : getCurrentVisitForClient(clientId);
+  const currentLocalVisitId = String(currentVisitId || currentVisit?.id || "");
+  const currentBackendEncounterId = currentVisit?.backendId ? String(currentVisit.backendId) : "";
+
+  const isOtherEncounter = (exam) => {
+    if (currentBackendEncounterId && exam?.backendEncounterId) {
+      return String(exam.backendEncounterId) !== currentBackendEncounterId;
+    }
+    return String(exam?.visitId || "") !== currentLocalVisitId;
+  };
+
+  return (Array.isArray(data.doctorExams) ? data.doctorExams : []).some(
+    (exam) =>
+      String(exam?.clientId) === String(clientId) &&
+      String(exam?.doctorRoleId || "") === roleCode &&
+      exam?.isCompleted &&
+      isOtherEncounter(exam),
+  ) || (Array.isArray(client?.doctorExamHistory) ? client.doctorExamHistory : []).some(
+    (exam) => String(exam?.doctorRoleId || "") === roleCode && isOtherEncounter(exam),
+  );
+}
+
+function buildDoctorMark(roleCode, client, currentVisit, requiredDoctors, completedDoctors) {
+  if (completedDoctors.has(roleCode)) {
+    return { value: "✓", title: "Врач пройден в текущем обращении" };
+  }
+  const hasHistory = hasCompletedDoctorExamHistory(client?.id, roleCode, currentVisit?.id || null);
+  if (requiredDoctors.has(roleCode)) {
+    if (hasHistory) {
+      return { value: "x↺", title: "Требуется в текущем обращении; есть прошлый осмотр в другом обращении" };
+    }
+    return { value: "x", title: "Требуется в текущем обращении" };
+  }
+  if (hasHistory) {
+    return { value: "↺", title: "Есть прошлый осмотр в другом обращении" };
+  }
+  return { value: "", title: "" };
 }
 
 function mapApiService(service) {
@@ -982,20 +1302,48 @@ function humanizeApiError(error, fallback = "Не удалось выполни�
   if (!message || message === "[object Object]") return fallback;
   if (message.includes("Failed to fetch")) return "Backend недоступен. Проверь, что сервер запущен.";
   if (message.includes("HTTP 409")) return "Похожая запись уже есть в базе.";
+  try {
+    const parsed = JSON.parse(message);
+    if (typeof parsed?.detail === "string") {
+      return parsed.detail;
+    }
+    if (Array.isArray(parsed?.detail) && parsed.detail.length) {
+      const validationMessages = parsed.detail
+        .map((item) => item?.msg)
+        .filter(Boolean);
+      if (validationMessages.length) {
+        return validationMessages.join(". ");
+      }
+    }
+  } catch {
+  }
   return message;
 }
 
 async function apiRequest(path, options = {}) {
+  ensureDemoAuthConsistency();
+  const optionHeaders = options.headers || {};
   const authHeaders = appState.auth?.accessToken
     ? { Authorization: `Bearer ${appState.auth.accessToken}` }
     : {};
+  let requestBody = options.body;
+  if (
+    requestBody &&
+    typeof requestBody !== "string" &&
+    !(requestBody instanceof FormData) &&
+    !(requestBody instanceof URLSearchParams) &&
+    !(requestBody instanceof Blob)
+  ) {
+    requestBody = JSON.stringify(requestBody);
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      "Content-Type": "application/json",
-      ...authHeaders,
-      ...(options.headers || {}),
-    },
     ...options,
+    headers: {
+      ...(requestBody instanceof FormData ? {} : { "Content-Type": "application/json" }),
+      ...authHeaders,
+      ...optionHeaders,
+    },
+    body: requestBody,
   });
 
   if (!response.ok) {
@@ -1006,6 +1354,8 @@ async function apiRequest(path, options = {}) {
         detail = errorBody.detail.message;
       } else if (typeof errorBody?.detail === "string") {
         detail = errorBody.detail;
+      } else if (Array.isArray(errorBody?.detail)) {
+        detail = JSON.stringify({ detail: errorBody.detail });
       } else if (errorBody?.detail && typeof errorBody.detail === "object") {
         detail = JSON.stringify(errorBody.detail);
       }
@@ -1019,10 +1369,81 @@ async function apiRequest(path, options = {}) {
   return response.json();
 }
 
+function normalizeCenterLookupValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+async function ensureCentersLoaded() {
+  if (data.centersLoaded) return data.centers;
+  if (data.centersLoadingPromise) return data.centersLoadingPromise;
+
+  data.centersLoadingPromise = (async () => {
+    try {
+      const centers = await apiRequest("/centers");
+      data.centers = Array.isArray(centers) ? centers : [];
+      data.centersLoaded = true;
+      return data.centers;
+    } finally {
+      data.centersLoadingPromise = null;
+    }
+  })();
+
+  return data.centersLoadingPromise;
+}
+
+async function resolveCenterIdForVisit(visit, client) {
+  const centers = await ensureCentersLoaded();
+  if (!Array.isArray(centers) || !centers.length) {
+    throw new Error("Не удалось загрузить список центров");
+  }
+
+  const candidateNames = [
+    visit?.center,
+    client?.center,
+    appState.centerFilter !== "all" ? appState.centerFilter : null,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  for (const candidate of candidateNames) {
+    const normalizedCandidate = normalizeCenterLookupValue(candidate);
+    const matchedCenter = centers.find((center) => {
+      const name = normalizeCenterLookupValue(center?.name);
+      const code = normalizeCenterLookupValue(center?.code);
+      return normalizedCandidate === name || normalizedCandidate === code;
+    });
+    if (matchedCenter?.id) {
+      return Number(matchedCenter.id);
+    }
+  }
+
+  if (centers.length === 1 && centers[0]?.id) {
+    return Number(centers[0].id);
+  }
+
+  throw new Error(`Не удалось определить центр для обращения: ${candidateNames.join(", ") || "центр не указан"}`);
+}
+
 async function loginDemoStaff(login, password) {
+  if (String(login).trim() === "chairman" && String(password).trim() === "chairman123") {
+    appState.auth = {
+      accessToken: "demo-token-2",
+      userName: "Председатель комиссии",
+      roleCode: "chairman",
+      roleName: "Председатель",
+    };
+    persistDemoState();
+    return {
+      access_token: appState.auth.accessToken,
+      user_name: appState.auth.userName,
+      role_code: appState.auth.roleCode,
+      role_name: appState.auth.roleName,
+    };
+  }
+
   const response = await apiRequest("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ login, password }),
+    body: { login, password },
     headers: {},
   });
 
@@ -1032,10 +1453,20 @@ async function loginDemoStaff(login, password) {
     roleCode: response.role_code || "",
     roleName: response.role_name || "",
   };
+  persistDemoState();
   return response;
 }
 
 async function loadStaffWorkspace() {
+  if (appState.auth.roleCode === "admin") {
+    data.staffUsers = [];
+    data.staffRoles = [];
+    data.staffError = "";
+    data.staffLoading = false;
+    renderApp();
+    return;
+  }
+
   if (appState.auth.roleCode !== "chairman") {
     data.staffUsers = [];
     data.staffRoles = [];
@@ -1065,15 +1496,36 @@ async function loadStaffWorkspace() {
 async function createDemoStaffUser(payload) {
   data.staffCreateError = "";
   try {
-    await apiRequest("/staff", {
+    const createdUser = await apiRequest("/staff", {
       method: "POST",
       body: JSON.stringify(payload),
       headers: {},
     });
+    data.lastCreatedStaffUser = createdUser;
     await loadStaffWorkspace();
+    persistDemoState();
     showToast(`Сотрудник ${payload.full_name} создан`);
   } catch (error) {
     data.staffCreateError = humanizeApiError(error, "Не удалось создать сотрудника");
+    renderApp();
+  }
+}
+
+async function deleteDemoStaffUser(userId, userName) {
+  try {
+    await apiRequest(`/staff/${encodeURIComponent(userId)}`, {
+      method: "DELETE",
+      headers: {},
+    });
+    data.staffUsers = (data.staffUsers || []).filter((user) => Number(user.id) !== Number(userId));
+    if (Number(data.lastCreatedStaffUser?.id) === Number(userId)) {
+      data.lastCreatedStaffUser = null;
+    }
+    persistDemoState();
+    renderApp();
+    showToast(`Сотрудник ${userName || userId} удален`);
+  } catch (error) {
+    data.staffCreateError = humanizeApiError(error, "Не удалось удалить сотрудника");
     renderApp();
   }
 }
@@ -1111,6 +1563,26 @@ async function loadDocumentTemplatesFromBackend() {
   }
 }
 
+async function refreshDocumentTemplatesFromBackend() {
+  const templates = await apiRequest("/documents/templates/refresh", { method: "POST" });
+  data.documentTemplates = Array.isArray(templates) ? templates : [];
+  data.documentTemplatesLoaded = true;
+  data.templateOperationStatus = "Список шаблонов перечитан из папки файлов.";
+  renderApp();
+}
+
+async function replaceDocumentTemplateFile(templateId, file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const template = await apiRequest(`/documents/templates/${encodeURIComponent(templateId)}/replace`, {
+    method: "POST",
+    body: formData,
+  });
+  data.documentTemplates = (data.documentTemplates || []).map((item) => (String(item.id) === String(template.id) ? template : item));
+  data.templateOperationStatus = `Шаблон "${template.name || template.file_name}" обновлен.`;
+  renderApp();
+}
+
 function getSelectedBackendClientId() {
   const client = getSelectedClient();
   return client?.backendId || client?.id || null;
@@ -1135,6 +1607,10 @@ function buildGeneratedDocumentUrl(fileName, { inline = false } = {}) {
   if (!fileName) return "";
   const query = inline ? "?inline=1" : "";
   return `${API_BASE_URL}/documents/generated/${encodeURIComponent(fileName)}${query}`;
+}
+
+function buildTemplateFileUrl(templateId) {
+  return `${API_BASE_URL}/documents/templates/${encodeURIComponent(templateId)}/file`;
 }
 
 function isContractDocument(documentItem) {
@@ -1168,6 +1644,10 @@ function mapGeneratedDocument(item) {
     fileName: item.file_name,
     series: item.series || "",
     number: item.document_number || "",
+    blankFormId: item.blank_form_id ?? null,
+    blankNumber: item.blank_number_snapshot || "",
+    cancelledAt: item.cancelled_at || null,
+    cancelledReason: item.cancelled_reason || "",
     createdAt: item.generated_at,
     downloadUrl: buildGeneratedDocumentUrl(item.file_name),
   };
@@ -1410,8 +1890,9 @@ async function syncVisitToBackend(visit, client) {
   visit.__backendSyncPromise = (async () => {
     visit.__backendSyncing = true;
     try {
+      const centerId = await resolveCenterIdForVisit(visit, client);
       const payload = {
-        center_id: 1,
+        center_id: centerId,
         client_id: Number(clientId),
         encounter_date: parseRuDateToIso(visit.visitDate, new Date().toISOString().slice(0, 10)),
         payment_type: visit.paymentType || "cash",
@@ -1502,6 +1983,11 @@ async function loadEncountersForClient(client) {
   const clientId = client.backendId || client.id;
   try {
     const encounters = await apiRequest(`/encounters?client_id=${encodeURIComponent(clientId)}`);
+    const existingVisitsByBackendId = new Map(
+      data.visits
+        .filter((visit) => String(visit.clientId) === String(client.id) && visit.backendId)
+        .map((visit) => [String(visit.backendId), visit]),
+    );
     const mappedVisits = [];
     for (const encounter of Array.isArray(encounters) ? encounters : []) {
       const serviceItems = await loadVisitServicesFromBackend(encounter.id);
@@ -1511,7 +1997,9 @@ async function loadEncountersForClient(client) {
         result[item.serviceId] = item.detail || {};
         return result;
       }, {});
+      const existingVisit = existingVisitsByBackendId.get(String(encounter.id));
       mappedVisits.push({
+        ...(existingVisit || {}),
         id: `encounter-${encounter.id}`,
         backendId: encounter.id,
         clientId: client.id,
@@ -1556,11 +2044,15 @@ async function loadDoctorExamsForClient(client, visit = null) {
       backendId: exam.id,
       clientId: client.id,
       visitId: visit?.id || `encounter-${exam.encounter_id}`,
+      backendEncounterId: exam.encounter_id || null,
       doctorRoleId: exam.doctor_role_id,
       status: exam.is_completed ? "completed" : "draft",
       isCompleted: Boolean(exam.is_completed),
       updatedAt: new Date().toISOString(),
-      fields: exam.fields_json || {},
+      fields:
+        exam.doctor_role_id === "chairman" && visit?.chairmanFields
+          ? { ...(exam.fields_json || {}), ...visit.chairmanFields }
+          : (exam.fields_json || {}),
     }));
 
     const loadedIds = new Set(mapped.map((exam) => String(exam.id)));
@@ -1573,10 +2065,33 @@ async function loadDoctorExamsForClient(client, visit = null) {
       ),
       ...mapped,
     ];
+    syncCompletedDoctorMarksToClient(client, mapped);
   } catch (error) {
     showToast("Не удалось загрузить карточки врачей");
     console.warn("Failed to load doctor exams", error);
   }
+}
+
+async function preloadDoctorMarksForClients(clients) {
+  const items = Array.isArray(clients) ? clients.filter(Boolean) : [];
+  await Promise.all(
+    items.map(async (client) => {
+      const clientId = client?.backendId || client?.id;
+      if (!clientId) return;
+      try {
+        const exams = await apiRequest(`/doctor-exams?client_id=${encodeURIComponent(clientId)}`);
+        const mapped = (Array.isArray(exams) ? exams : []).map((exam) => ({
+          doctorRoleId: exam.doctor_role_id,
+          isCompleted: Boolean(exam.is_completed),
+          backendEncounterId: exam.encounter_id || null,
+          visitId: exam.encounter_id ? `encounter-${exam.encounter_id}` : null,
+        }));
+        syncCompletedDoctorMarksToClient(client, mapped);
+      } catch (error) {
+        console.warn("Failed to preload doctor marks", error);
+      }
+    }),
+  );
 }
 
 async function loadClientWorkspace(client) {
@@ -1669,6 +2184,13 @@ function getOrCreateDoctorExam(clientId, visitId, doctorRoleId) {
     fields: buildDoctorExamFields(template),
   };
 
+  if (doctorRoleId === "chairman") {
+    const visit = data.visits.find((item) => String(item.id) === String(visitId));
+    if (visit) {
+      exam.fields = applyDriverSelectionsToChairmanFields(exam.fields, getDriverDetailFromVisit(visit), visit);
+    }
+  }
+
   data.doctorExams.push(exam);
 
   const visit = data.visits.find((item) => item.id === visitId);
@@ -1690,22 +2212,9 @@ async function ensureRequiredDoctorExamsForVisit(client, visit, { syncToBackend 
     const exam = getOrCreateDoctorExam(client.id, visit.id, doctorRoleId);
     if (!exam) return;
 
-    if (doctorRoleId === "chairman") {
-      const driverCategories = Object.values(getVisitServiceDetails(visit))
-        .flatMap((detail) => Array.isArray(detail.categories) ? detail.categories : []);
-      const fields = {
-        ...exam.fields,
-        serviceNames: (visit.serviceNames || []).join(", "),
-        driverCategories: driverCategories.join(", "),
-        categoryA: driverCategories.includes("A"),
-        categoryB: driverCategories.includes("B"),
-        categoryC: driverCategories.includes("C"),
-        categoryD: driverCategories.includes("D"),
-        categoryE: driverCategories.includes("BE") || driverCategories.includes("CE") || driverCategories.includes("DE"),
-        categoryTram: driverCategories.includes("Tm"),
-        categoryTrolleybus: driverCategories.includes("Tb"),
-      };
-      exam.fields = fields;
+    if (!exam.isCompleted && exam.status !== "draft") {
+      exam.status = "draft";
+      exam.updatedAt = new Date().toISOString();
     }
 
     createdOrExisting.push(exam);
@@ -1726,6 +2235,7 @@ function openDoctorExamCard({ clientId, visitId, doctorRoleId }) {
   if (!clientId || !doctorRoleId) return;
 
   ensureVisitsStore();
+  window.closeServiceCardOverlays?.();
 
   const finalVisitId = visitId || getOrCreateDraftVisit(clientId).id;
   const exam = getOrCreateDoctorExam(clientId, finalVisitId, doctorRoleId);
@@ -1759,16 +2269,145 @@ function closeDoctorExamCard() {
   renderApp();
 }
 
-function saveDoctorExam(examId, updatedFields) {
+async function syncChairmanExamToClientAndMedicalRecord(exam) {
+  if (!exam || exam.doctorRoleId !== "chairman") return;
+
+  const client = data.clients.find((item) => String(item.id) === String(exam.clientId));
+  if (!client) return;
+  const raw = client.rawApiClient || {};
+  const visit = data.visits.find((item) => String(item.id) === String(exam.visitId));
+  const driverDetail = getDriverDetailFromVisit(visit);
+  const fields = exam.fields || {};
+
+  const chairmanCategories = collectChairmanDriverCategories(fields);
+  const admissionCategory = String(fields.driverCategories || "").trim() || chairmanCategories.join(", ");
+  const indicationsList = collectChairmanDriverIndications(fields);
+  const limitationsList = collectChairmanDriverLimitations(fields);
+  const indicationsText = indicationsList.join(", ") || String(fields.diagnosis || raw.indications || "").trim() || null;
+
+  if (visit && Object.keys(driverDetail).length) {
+    driverDetail.categories = chairmanCategories.slice();
+    driverDetail.indications = indicationsList;
+    driverDetail.limitations = limitationsList;
+    driverDetail.boatFit = Boolean(fields.categoryBoat);
+    if (visit.__backendSyncPromise) {
+      await visit.__backendSyncPromise;
+    }
+    await syncVisitToBackend(visit, client);
+  }
+
+  const nextRaw = {
+    ...raw,
+    admission_category: admissionCategory || null,
+    indications: indicationsText,
+    mkb10: String(fields.mkb10 || raw.mkb10 || "").trim() || null,
+  };
+
+  client.category = resolveAdmissionCategoryValue(nextRaw.admission_category, client.services);
+  client.mkb10 = nextRaw.mkb10 || "";
+  client.rawApiClient = nextRaw;
+
+  const currentRecord = data.medicalRecords?.[0] || null;
+  if (currentRecord && String(currentRecord.client_id) === String(nextRaw.id || client.backendId || client.id)) {
+    currentRecord.dispensary_observation = indicationsText;
+    currentRecord.diagnosis = indicationsText;
+    currentRecord.mkb10 = nextRaw.mkb10 || null;
+  }
+
+  const backendClientId = nextRaw.id || client.backendId || client.id;
+  if (!backendClientId) {
+    persistDemoState();
+    return;
+  }
+
+  const savedClient = await apiRequest(`/clients/${encodeURIComponent(backendClientId)}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      last_name: nextRaw.last_name || "Без фамилии",
+      first_name: nextRaw.first_name || "Без имени",
+      middle_name: nextRaw.middle_name || null,
+      birth_date: nextRaw.birth_date || "1900-01-01",
+      sex: nextRaw.sex || null,
+      phone: nextRaw.phone || null,
+      email: nextRaw.email || null,
+      document_type: nextRaw.document_type || null,
+      document_series: nextRaw.document_series || null,
+      document_number: nextRaw.document_number || null,
+      document_issued_by: nextRaw.document_issued_by || null,
+      document_issued_date: nextRaw.document_issued_date || null,
+      snils: nextRaw.snils || null,
+      oms_policy: nextRaw.oms_policy || null,
+      address_text: nextRaw.address_text || null,
+      notes: nextRaw.notes || null,
+      registration_text: nextRaw.registration_text || null,
+      admission_category: nextRaw.admission_category || null,
+      reference_number: nextRaw.reference_number || null,
+      doctor_gynecologist: nextRaw.doctor_gynecologist || null,
+      doctor_stomatologist: nextRaw.doctor_stomatologist || null,
+      doctor_dermatologist: nextRaw.doctor_dermatologist || null,
+      doctor_neurologist: nextRaw.doctor_neurologist || null,
+      doctor_surgeon: nextRaw.doctor_surgeon || null,
+      doctor_otolaryngologist: nextRaw.doctor_otolaryngologist || null,
+      doctor_ophthalmologist: nextRaw.doctor_ophthalmologist || null,
+      doctor_therapist: nextRaw.doctor_therapist || null,
+      doctor_psychiatrist: nextRaw.doctor_psychiatrist || null,
+      doctor_infectionist: nextRaw.doctor_infectionist || null,
+      doctor_phthisiatrician: nextRaw.doctor_phthisiatrician || null,
+      doctor_uzist: nextRaw.doctor_uzist || null,
+      indications: nextRaw.indications || null,
+      encounter_date_text: nextRaw.encounter_date_text || null,
+      card_number: nextRaw.card_number || null,
+      journal_number: nextRaw.journal_number || null,
+      no_number: nextRaw.no_number || null,
+      flg: nextRaw.flg || null,
+      profession: nextRaw.profession || null,
+      work_place: nextRaw.work_place || null,
+      organization: nextRaw.organization || null,
+      mkb10: nextRaw.mkb10 || null,
+      real_date_text: nextRaw.real_date_text || null,
+      legacy_payload_json: nextRaw.legacy_payload_json || null,
+    }),
+  });
+  upsertClientInMemory(savedClient);
+
+  const recordPayload = currentRecord
+    ? {
+        ...currentRecord,
+        client_id: backendClientId,
+        dispensary_observation: indicationsText,
+        diagnosis: indicationsText,
+        mkb10: nextRaw.mkb10 || null,
+      }
+    : null;
+  if (recordPayload) {
+    const savedRecord = await apiRequest(`/medical-records/${encodeURIComponent(currentRecord.id)}`, {
+      method: "PUT",
+      body: JSON.stringify(recordPayload),
+    });
+    data.medicalRecords = [savedRecord];
+  }
+
+  persistDemoState();
+}
+
+async function saveDoctorExam(examId, updatedFields) {
   ensureVisitsStore();
 
   const exam = data.doctorExams.find((item) => item.id === examId);
-  if (!exam) return;
+  if (!exam) return false;
 
+  const previousFields = exam.fields || {};
+  const previousUpdatedAt = exam.updatedAt;
+  const previousIsCompleted = exam.isCompleted;
+  const previousStatus = exam.status;
   exam.fields = {
     ...exam.fields,
     ...updatedFields,
   };
+  const visit = data.visits.find((item) => String(item.id) === String(exam.visitId));
+  if (exam.doctorRoleId === "chairman" && visit) {
+    visit.chairmanFields = { ...exam.fields };
+  }
   exam.updatedAt = new Date().toISOString();
   exam.isCompleted = true;
   exam.status = "completed";
@@ -1777,7 +2416,52 @@ function saveDoctorExam(examId, updatedFields) {
   if (!appState.doctorExamModal?.isOpen) {
     renderApp();
   }
-  syncDoctorExamToBackend(exam);
+  try {
+    if (exam.doctorRoleId === "chairman") {
+      await syncDoctorExamToBackend(exam);
+      try {
+        await syncChairmanExamToClientAndMedicalRecord(exam);
+      } catch (chairmanSyncError) {
+        console.warn("Не удалось полностью досинхронизировать председателя", chairmanSyncError);
+        showToast("Карточка председателя сохранена, но обращение/карта обновились не полностью");
+      }
+      return true;
+    }
+    await syncDoctorExamToBackend(exam);
+    return true;
+  } catch (error) {
+    exam.fields = previousFields;
+    exam.updatedAt = previousUpdatedAt;
+    exam.isCompleted = previousIsCompleted;
+    exam.status = previousStatus;
+    persistDemoState();
+    if (!appState.doctorExamModal?.isOpen) {
+      renderApp();
+    }
+    showToast("Не удалось сохранить карточку врача");
+    console.warn("Не удалось сохранить карточку врача в backend", error);
+    return false;
+  }
+}
+
+function saveDoctorExamDraft(examId, updatedFields) {
+  ensureVisitsStore();
+
+  const exam = data.doctorExams.find((item) => item.id === examId);
+  if (!exam) return false;
+
+  exam.fields = {
+    ...exam.fields,
+    ...updatedFields,
+  };
+  const visit = data.visits.find((item) => String(item.id) === String(exam.visitId));
+  if (exam.doctorRoleId === "chairman" && visit) {
+    visit.chairmanFields = { ...exam.fields };
+  }
+  exam.updatedAt = new Date().toISOString();
+  rememberMkb10Value(exam.fields?.mkb10);
+  persistDemoState();
+  return true;
 }
 
 async function deleteDoctorExam(examId) {
@@ -1824,28 +2508,34 @@ async function syncDoctorExamToBackend(exam) {
   const client = getClientPool().find((item) => String(item.id) === String(exam.clientId));
   const visit = data.visits.find((item) => String(item.id) === String(exam.visitId));
   const clientId = client?.backendId || client?.id;
-  if (!clientId) return;
-
-  try {
-    if (visit && !visit.backendId) {
-      await syncVisitToBackend(visit, client);
-    }
-    const savedExam = await apiRequest("/doctor-exams", {
-      method: "POST",
-      body: JSON.stringify({
-        client_id: Number(clientId),
-        encounter_id: visit?.backendId ? Number(visit.backendId) : null,
-        doctor_role_id: exam.doctorRoleId,
-        doctor_name: getDoctorDisplayName(exam.doctorRoleId),
-        fields_json: exam.fields || {},
-        is_completed: Boolean(exam.isCompleted),
-      }),
-    });
-    exam.backendId = savedExam.id;
-    persistDemoState();
-  } catch (error) {
-    console.warn("Не удалось сохранить карточку врача в backend", error);
+  if (!clientId) {
+    throw new Error("Cannot sync doctor exam without client id");
   }
+
+  if (visit && !visit.backendId) {
+    await syncVisitToBackend(visit, client);
+  }
+  const savedExam = await apiRequest("/doctor-exams", {
+    method: "POST",
+    body: JSON.stringify({
+      client_id: Number(clientId),
+      encounter_id: visit?.backendId ? Number(visit.backendId) : null,
+      doctor_role_id: exam.doctorRoleId,
+      doctor_name: getDoctorDisplayName(exam.doctorRoleId),
+      fields_json: exam.fields || {},
+      is_completed: Boolean(exam.isCompleted),
+    }),
+  });
+  exam.backendId = savedExam.id;
+  exam.backendEncounterId = savedExam.encounter_id || visit?.backendId || null;
+  exam.updatedAt = savedExam.completed_at || savedExam.updated_at || new Date().toISOString();
+  exam.isCompleted = Boolean(savedExam.is_completed);
+  exam.status = exam.isCompleted ? "completed" : "draft";
+  if (exam.isCompleted && client) {
+    syncCompletedDoctorMarksToClient(client, [exam]);
+  }
+  persistDemoState();
+  return savedExam;
 }
 
 function getDoctorExamStatus(clientId, doctorRoleId) {
@@ -1855,50 +2545,87 @@ function getDoctorExamStatus(clientId, doctorRoleId) {
   if (!visit) return "empty";
   const exam = getDoctorExam(clientId, visit.id, doctorRoleId);
 
-  if (!exam) return "empty";
-  return exam.isCompleted ? "completed" : "draft";
+  if (!exam) {
+    const isRequired = getRequiredDoctorRoleCodesForVisit(visit).includes(doctorRoleId);
+    const hasHistory = hasCompletedDoctorExamHistory(clientId, doctorRoleId, visit.id);
+    if (isRequired && hasHistory) return "draft-history";
+    if (isRequired) return "draft";
+    if (hasHistory) return "history";
+    return "empty";
+  }
+  if (exam.isCompleted) return "completed";
+  return hasCompletedDoctorExamHistory(clientId, doctorRoleId, visit.id) ? "draft-history" : "draft";
+}
+
+function getDoctorExamStatusTitle(status) {
+  if (status === "completed") return "Врач пройден в текущем обращении";
+  if (status === "draft-history") return "Требуется в текущем обращении; есть прошлый осмотр в другом обращении";
+  if (status === "draft") return "Требуется в текущем обращении";
+  if (status === "history") return "Есть прошлый осмотр в другом обращении";
+  return "";
 }
 
 function matchesCenter(center) {
   return appState.centerFilter === "all" || center === appState.centerFilter;
 }
 
+function normalizeEncounterDateFilterValue(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (isoMatch) return `${isoMatch[3]}.${isoMatch[2]}.${isoMatch[1]}`;
+
+  const ruMatch = text.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:\s+\d{1,2}:\d{2})?/);
+  if (ruMatch) return `${ruMatch[1]}.${ruMatch[2]}.${ruMatch[3]}`;
+
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text;
+  return parsed.toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function matchesEncounterDate(client) {
+  const filterDate = normalizeEncounterDateFilterValue(appState.clientEncounterDate);
+  if (!filterDate) return true;
+  const clientDate = normalizeEncounterDateFilterValue(client?.encounterDate || client?.lastVisit || client?.rawApiClient?.encounter_date_text);
+  return clientDate === filterDate;
+}
+
 function filteredClients() {
   const search = normalizeSearchValue(appState.clientSearch);
-  const pool = getClientPool().filter((client) => matchesCenter(client.center));
-  if (!search) return pool.slice(0, 25);
+  const pool = getClientPool().filter((client) => matchesCenter(client.center) && matchesEncounterDate(client));
+  if (!search) return pool;
 
   return pool
-    .filter((client) => buildClientSearchHaystack(client).includes(search))
-    .slice(0, 25);
+    .filter((client) => buildClientSearchHaystack(client).includes(search));
 }
 
 async function loadClientsFromBackend(searchValue) {
   const search = String(searchValue || "").trim();
+  const encounterDate = String(appState.clientEncounterDate || "").trim();
   const requestId = ++clientSearchRequestId;
-
-  if (!search) {
-    data.backendClients = [];
-    data.backendSearch = "";
-    data.backendSearchError = "";
-    data.backendSearchLoading = false;
-    appState.selectedClientId = null;
-    renderApp();
-    return;
-  }
 
   data.backendSearchLoading = true;
   data.backendSearchError = "";
   renderApp();
 
   try {
-    const url = `${API_BASE_URL}/clients?search=${encodeURIComponent(search)}&limit=25`;
+    const params = new URLSearchParams({ limit: String(DASHBOARD_PAGE_SIZE) });
+    if (search) params.set("search", search);
+    if (encounterDate) params.set("encounter_date", encounterDate);
+    const url = `${API_BASE_URL}/clients?${params.toString()}`;
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const clients = await response.json();
     if (requestId !== clientSearchRequestId) return;
 
     data.backendClients = Array.isArray(clients) ? clients.map(mapApiClient) : [];
+    await preloadDoctorMarksForClients(data.backendClients);
+    if (requestId !== clientSearchRequestId) return;
     data.backendSearch = search;
 
     if (!data.backendClients.some((client) => String(client.id) === String(appState.selectedClientId))) {
@@ -1935,13 +2662,15 @@ function resetDashboardClientSelection() {
   window.clearTimeout(clientSearchTimer);
   clientSearchRequestId += 1;
   appState.clientSearch = "";
+  appState.clientEncounterDate = "";
+  appState.dashboardPage = 1;
   appState.selectedClientId = null;
   appState.activeVisitId = null;
-  data.backendClients = [];
   data.backendSearch = "";
   data.backendSearchError = "";
   data.backendSearchLoading = false;
   persistDemoState();
+  scheduleClientSearch("");
 }
 
 function normalizeSearchValue(value) {
@@ -2009,10 +2738,11 @@ function rerenderAndRestoreInput(inputId, value, caretPosition) {
 
 function renderNav() {
   if (!navRoot) return;
+  const visibleNavItems = navItems.filter((item) => (item.id === "reports" ? canAccessReportsWorkspace() : true));
 
   navRoot.innerHTML = repairDemoText(`
     <div class="nav-group">
-      ${navItems
+      ${visibleNavItems
         .map(
           (item) => `
             <button
@@ -2035,6 +2765,10 @@ function renderNav() {
       if (page === "dashboard") {
         resetDashboardClientSelection();
       }
+      if (page === "reports" && !canAccessReportsWorkspace()) {
+        showToast("Отчеты доступны только председателю");
+        return;
+      }
       if (page === "chart") {
         openAmbulatoryCardForCurrentClient();
         if (button.dataset.toast) showToast(button.dataset.toast);
@@ -2042,14 +2776,20 @@ function renderNav() {
       }
       appState.page = page;
       renderApp();
-      if (page === "employee" && appState.auth.roleCode === "chairman" && !data.staffLoading) {
+      if (page === "employee" && (appState.auth.roleCode === "chairman" || appState.auth.roleCode === "admin") && !data.staffLoading) {
         loadStaffWorkspace();
       }
       if (page === "calendar" && !data.recallItemsLoaded && !data.recallItemsLoading) {
         loadRecallCalendar();
       }
+      if (page === "reports" && !data.reportLoading) {
+        loadReportsSummary();
+      }
       if ((page === "blanks" || page === "chart") && !data.workflowDataLoading) {
         loadWorkflowData();
+      }
+      if (page === "blanks" && typeof window.loadBlanksData === "function" && !data.blanksLoading) {
+        window.loadBlanksData();
       }
       window.scrollTo({ top: 0, behavior: "auto" });
       if (button.dataset.toast) showToast(button.dataset.toast);
@@ -2080,8 +2820,9 @@ function buildExcelRows(clients) {
   ];
   const organizations = ["-", "-", 'ООО "РАДУГА-2"', "-", "-", "-", "Самозанятый"];
 
-  return clients.slice(0, 25).map((client) => {
+  return clients.map((client) => {
     const currentVisit = getCurrentVisitForClient(client.id);
+    const requiredDoctors = new Set(currentVisit ? getRequiredDoctorRoleCodesForVisit(currentVisit) : []);
     const completedDoctors = new Set(
       (Array.isArray(data.doctorExams) ? data.doctorExams : [])
         .filter(
@@ -2092,7 +2833,7 @@ function buildExcelRows(clients) {
         )
         .map((exam) => exam.doctorRoleId),
     );
-    const markDoctor = (roleCode, fallback = "") => completedDoctors.has(roleCode) ? "✓" : fallback;
+    const markDoctor = (roleCode) => buildDoctorMark(roleCode, client, currentVisit, requiredDoctors, completedDoctors);
 
     return {
       id: client.id,
@@ -2100,21 +2841,32 @@ function buildExcelRows(clients) {
       fullName: client.fullName,
       birthDate: client.birthDate,
       registration: client.registration || client.document || "",
-      category: client.category || "",
+      category: resolveAdmissionCategoryValue(client.category, client.services),
       referenceNumber: client.referenceNumber || "",
-      gynecologist: markDoctor("gynecologist", client.gynecologist || ""),
-      stomatologist: markDoctor("dentist", client.stomatologist || ""),
-      dermatologist: markDoctor("dermatologist", client.dermatologist || ""),
-      neurologist: markDoctor("neurologist", client.neurologist || ""),
-      surgeon: markDoctor("surgeon", client.surgeon || ""),
-      otolaryngologist: markDoctor("otolaryngologist", client.otolaryngologist || ""),
-      ophthalmologist: markDoctor("ophthalmologist", client.ophthalmologist || ""),
-      therapist: markDoctor("therapist", client.therapist || ""),
-      psychiatrist: markDoctor("psychiatrist", client.psychiatrist || ""),
-      infectionist: markDoctor("infectionist", client.infectionist || ""),
-      phthisiatrician: markDoctor("phthisiatrist", client.phthisiatrician || ""),
-      uzist: markDoctor("uzist", client.uzist || ""),
-      chairman: markDoctor("chairman", client.chairman || ""),
+      gynecologist: markDoctor("gynecologist"),
+      stomatologist: markDoctor("dentist"),
+      dermatologist: markDoctor("dermatologist"),
+      neurologist: markDoctor("neurologist"),
+      surgeon: markDoctor("surgeon"),
+      otolaryngologist: markDoctor("otolaryngologist"),
+      ophthalmologist: markDoctor("ophthalmologist"),
+      therapist: markDoctor("therapist"),
+      psychiatrist: markDoctor("psychiatrist"),
+      infectionist: markDoctor("infectionist"),
+      phthisiatrician: markDoctor("phthisiatrist"),
+      uzist: markDoctor("uzist"),
+      chairman: markDoctor("chairman"),
+      stamp:
+        (Array.isArray(data.doctorExams) ? data.doctorExams : []).some(
+          (exam) =>
+            String(exam?.clientId) === String(client.id) &&
+            String(exam?.visitId) === String(currentVisit?.id || "") &&
+            String(exam?.doctorRoleId || "") === "chairman" &&
+            exam?.isCompleted &&
+            exam?.fields?.stampApplied,
+        )
+          ? "✓"
+          : "",
       note: client.note || "",
       encounterDate: client.encounterDate || "",
       cardNumber: client.cardNumber || "",
@@ -2129,10 +2881,12 @@ function renderDoctorButton(label, selectedClient) {
   const status = selectedClient && doctorRoleId
     ? getDoctorExamStatus(selectedClient.id, doctorRoleId)
     : "empty";
+  const title = getDoctorExamStatusTitle(status);
 
   return `
     <button
       class="doctor-pill doctor-pill--${status}"
+      title="${escapeHtml(title)}"
       data-doctor-label="${escapeHtml(label)}"
       data-doctor-role-id="${escapeHtml(doctorRoleId || "")}"
     >
@@ -2143,9 +2897,43 @@ function renderDoctorButton(label, selectedClient) {
 
 function renderExcelDoctorCell(row, key) {
   const doctorRoleId = doctorRoleByExcelColumn[key] || "";
-  const value = row[key] || "";
-  const displayValue = String(value).trim().toLowerCase() === "x" ? "✓" : value;
-  return `<span data-row-doctor-role-id="${escapeHtml(doctorRoleId)}">${escapeHtml(displayValue)}</span>`;
+  const mark = row[key];
+  const value = typeof mark === "object" && mark !== null ? mark.value || "" : mark || "";
+  const title = typeof mark === "object" && mark !== null ? mark.title || "" : "";
+  const modifier = value === "✓" ? "done" : value === "x↺" ? "required-history" : value === "x" ? "required" : value === "↺" ? "history" : "empty";
+  return `<span class="excel-doctor-mark excel-doctor-mark--${modifier}" title="${escapeHtml(title)}" data-row-doctor-role-id="${escapeHtml(doctorRoleId)}">${escapeHtml(value)}</span>`;
+}
+
+function renderExcelActionCell(value, actionId) {
+  return `<span>${escapeHtml(value || "")}</span>`;
+}
+
+function collectChairmanModalFormValues(form) {
+  const values = {};
+  if (!form) return values;
+
+  form.querySelectorAll("[name]").forEach((field) => {
+    const key = field.name;
+    if (!key) return;
+    if (field.type === "checkbox") {
+      values[key] = Boolean(field.checked);
+      return;
+    }
+    if (field.type === "radio") {
+      if (field.checked) {
+        values[key] = field.value;
+      } else if (!(key in values)) {
+        values[key] = "";
+      }
+      return;
+    }
+    values[key] = field.value;
+    if (key === "medicalRequirements") {
+      window.rememberChairmanMedicalRequirement?.(field.value);
+    }
+  });
+
+  return values;
 }
 
 function getClientDocumentHistory(clientId) {
@@ -2359,6 +3147,7 @@ function renderAmbulatoryCardPage() {
                           <div>
                             <strong>${escapeHtml(item.fileName || item.title || item.type || "Документ")}</strong>
                             <small>${escapeHtml(formatDateTime(item.createdAt))}</small>
+                            ${item.blankNumber ? `<small class="blank-badge">№ бланка: ${escapeHtml(item.blankNumber)}</small>` : ""}
                           </div>
                           <button class="ghost-button" data-open-document-id="${escapeHtml(item.id)}">Открыть</button>
                         </div>
@@ -2376,7 +3165,11 @@ function renderAmbulatoryCardPage() {
 }
 
 function renderSketchHome() {
-  const currentClients = filteredClients();
+  const allClients = filteredClients();
+  const totalPages = Math.max(1, Math.ceil(allClients.length / DASHBOARD_PAGE_SIZE));
+  const currentPage = Math.min(Math.max(1, appState.dashboardPage || 1), totalPages);
+  const pageStartIndex = (currentPage - 1) * DASHBOARD_PAGE_SIZE;
+  const currentClients = allClients.slice(pageStartIndex, pageStartIndex + DASHBOARD_PAGE_SIZE);
   const selectedClient = currentClients.find((client) => client.id === appState.selectedClientId) || getSelectedClient();
   const duplicateCandidates = findDuplicateCandidates(appState.clientSearch).filter((client) => client.id !== selectedClient?.id);
   const doctorButtons = [
@@ -2450,6 +3243,12 @@ function renderSketchHome() {
     "Агент",
   ];
   const excelRows = buildExcelRows(currentClients);
+  const pageNumbers = [];
+  const pageWindowStart = Math.max(1, currentPage - 2);
+  const pageWindowEnd = Math.min(totalPages, pageWindowStart + 4);
+  for (let pageNumber = Math.max(1, pageWindowEnd - 4); pageNumber <= pageWindowEnd; pageNumber += 1) {
+    pageNumbers.push(pageNumber);
+  }
 
   return `
     <section class="sketch-layout">
@@ -2466,7 +3265,18 @@ function renderSketchHome() {
               <span></span>
               <input id="clientSearchInput" value="${escapeHtml(appState.clientSearch)}" placeholder="поиск" />
             </label>
+            <label class="field sketch-date-filter">
+              <span>Дата обращения</span>
+              <input id="clientEncounterDateInput" type="date" value="${escapeHtml(appState.clientEncounterDate || "")}" />
+            </label>
             <button class="primary-button sketch-add-button" id="addClientButton">Добавить</button>
+            <div class="sketch-toolbar__meta">
+              ${
+                allClients.length
+                  ? `Показано ${pageStartIndex + 1}-${pageStartIndex + currentClients.length} из ${allClients.length}`
+                  : "Клиенты не найдены"
+              }
+            </div>
           </div>
 
           ${data.backendSearchLoading ? '<div class="muted" style="margin: 0 0 8px;">Идет поиск в PostgreSQL...</div>' : ""}
@@ -2512,12 +3322,12 @@ function renderSketchHome() {
                 ? excelRows
                     .map(
                       (row) => `
-                        <button class="sketch-table__grid sketch-table__grid--row ${selectedClient && selectedClient.id === row.id ? "sketch-table__grid--active" : ""}" data-client-id="${row.id}">
+                        <button type="button" class="sketch-table__grid sketch-table__grid--row ${selectedClient && selectedClient.id === row.id ? "sketch-table__grid--active" : ""}" data-client-id="${row.id}">
                           <span>${row.patientNumber}</span>
                           <span>${escapeHtml(row.fullName)}</span>
                           <span>${escapeHtml(row.birthDate)}</span>
                           <span>${escapeHtml(row.registration)}</span>
-                          <span>${escapeHtml(row.category)}</span>
+                          <span title="${escapeHtml(row.category || "не указана")}">${escapeHtml(displayTableValue(row.category))}</span>
                           <span>${escapeHtml(row.referenceNumber)}</span>
                           ${renderExcelDoctorCell(row, "gynecologist")}
                           ${renderExcelDoctorCell(row, "stomatologist")}
@@ -2544,6 +3354,31 @@ function renderSketchHome() {
                 : '<div class="empty">По текущему фильтру клиентов не найдено</div>'
             }
           </div>
+
+          ${
+            allClients.length
+              ? `
+                <div class="table-pagination">
+                  <button class="ghost-button table-pagination__button" data-dashboard-page="${Math.max(1, currentPage - 1)}" ${currentPage === 1 ? "disabled" : ""}>Назад</button>
+                  <div class="table-pagination__pages">
+                    ${pageNumbers
+                      .map(
+                        (pageNumber) => `
+                          <button
+                            class="table-pagination__page ${pageNumber === currentPage ? "table-pagination__page--active" : ""}"
+                            data-dashboard-page="${pageNumber}"
+                          >
+                            ${pageNumber}
+                          </button>
+                        `,
+                      )
+                      .join("")}
+                  </div>
+                  <button class="ghost-button table-pagination__button" data-dashboard-page="${Math.min(totalPages, currentPage + 1)}" ${currentPage === totalPages ? "disabled" : ""}>Вперед</button>
+                </div>
+              `
+              : ""
+          }
         </article>
 
         <article class="sketch-panel sketch-client-card sketch-client-card--full">
@@ -2761,14 +3596,15 @@ function renderStubPage(title) {
 }
 
 function renderEmployeePage() {
-  const isChairman = appState.auth.roleCode === "chairman";
+  const isChairman = canManageEmployeeWorkspace();
+  const isAdmin = appState.auth.roleCode === "admin";
   const userName = appState.auth.userName || "Не авторизован";
   const roleName = appState.auth.roleName || "Нет роли";
 
   return `
     <section class="card">
       <h3>Сотрудники</h3>
-      <p class="muted">Демо-страница для проверки аутентификации сотрудников и ролей. Главный сценарий: вход председателем и создание доступов для врача, админа и оператора.</p>
+      <p class="muted">Демо-страница для проверки аутентификации сотрудников и ролей. Председатель создает учетные записи и назначает роли, админ работает в ограниченном режиме без отчетов и без управления доступами.</p>
       <div class="employee-grid">
         <div class="summary-card">
           <div class="summary-card__label">Текущий пользователь</div>
@@ -2780,11 +3616,17 @@ function renderEmployeePage() {
           <div class="summary-card__value">Сотрудники</div>
           <div class="summary-card__meta">chairman / chairman123</div>
         </div>
+        <div class="summary-card">
+          <div class="summary-card__label">Распределение ролей</div>
+          <div class="summary-card__value">Только председатель</div>
+          <div class="summary-card__meta">Админ без отчетов и без назначения ролей</div>
+        </div>
       </div>
 
       <div class="actions">
-        <button class="primary-button" id="openEmployeeLogin">Войти председателем</button>
+        <button class="primary-button" id="openEmployeeLogin">${appState.auth.accessToken ? "Сменить пользователя" : "Войти по логину"}</button>
         <button class="ghost-button" id="refreshEmployeeStaff" ${isChairman ? "" : "disabled"}>Обновить список</button>
+        <button class="ghost-button" id="employeeSignOut" ${appState.auth.accessToken ? "" : "disabled"}>Выйти</button>
       </div>
 
       ${data.staffError ? `<div class="note employee-note employee-note--error">${escapeHtml(data.staffError)}</div>` : ""}
@@ -2840,6 +3682,18 @@ function renderEmployeePage() {
               <section class="mini-card">
                 <h3>Учетные записи</h3>
                 ${
+                  data.lastCreatedStaffUser
+                    ? `
+                      <div class="note">
+                        Последний созданный сотрудник:
+                        <strong>${escapeHtml(data.lastCreatedStaffUser.full_name || data.lastCreatedStaffUser.login || "Сотрудник")}</strong>
+                        · логин <strong>${escapeHtml(data.lastCreatedStaffUser.login || "")}</strong>
+                        · роль <strong>${escapeHtml(data.lastCreatedStaffUser.role?.name || data.lastCreatedStaffUser.role?.code || "")}</strong>
+                      </div>
+                    `
+                    : ""
+                }
+                ${
                   data.staffLoading
                     ? `<div class="empty">Загружаем сотрудников...</div>`
                     : `
@@ -2849,7 +3703,10 @@ function renderEmployeePage() {
                             <div class="table-row">
                               <div class="table-row__top">
                                 <div class="table-row__title">${escapeHtml(user.full_name || user.login)}</div>
-                                <span class="status ${user.is_active ? "ok" : "warn"}">${user.is_active ? "Активен" : "Отключен"}</span>
+                                <div class="actions">
+                                  <span class="status ${user.is_active ? "ok" : "warn"}">${user.is_active ? "Активен" : "Отключен"}</span>
+                                  ${user.role?.code !== "chairman" ? `<button class="ghost-button" type="button" data-delete-staff-user="${escapeHtml(user.id)}" data-delete-staff-name="${escapeHtml(user.full_name || user.login || "сотрудник")}">Удалить</button>` : ""}
+                                </div>
                               </div>
                               <div class="table-row__meta">${escapeHtml(user.login)} · ${escapeHtml(user.role?.name || "Без роли")}</div>
                             </div>
@@ -2861,10 +3718,17 @@ function renderEmployeePage() {
               </section>
             </div>
           `
+          : isAdmin
+            ? `
+              <div class="note">
+                Вы вошли как <strong>${escapeHtml(roleName)}</strong>. Здесь доступен только ограниченный режим:
+                без создания сотрудников, без распределения ролей и без доступа к отчетам.
+              </div>
+            `
           : `
             <div class="note">
-              Чтобы посмотреть сотрудников в демке, нажмите <strong>Войти председателем</strong>.
-              После авторизации здесь появятся роли и список учетных записей.
+              Чтобы открыть контур сотрудников, нажмите <strong>Войти по логину</strong>.
+              Председатель увидит роли и список учетных записей, а админ откроется в ограниченном режиме.
             </div>
           `
       }
@@ -3090,6 +3954,108 @@ function renderCashPage() {
   `;
 }
 
+function renderReportsPage() {
+  const normalizedFrom = normalizeCashFilterDate(appState.reportDateFrom) || new Date().toISOString().slice(0, 10);
+  const normalizedTo = normalizeCashFilterDate(appState.reportDateTo) || normalizedFrom;
+  const report = data.reportSummary;
+  const totals = report?.totals || {
+    clients_count: 0,
+    documents_count: 0,
+    services_count: 0,
+    revenue: 0,
+  };
+
+  return `
+    <section class="cash-page">
+      <div class="card cash-toolbar">
+        <div>
+          <h3>Отчеты</h3>
+          <p class="muted">Сводка по центрам за день или период: клиенты, документы, услуги и выручка.</p>
+        </div>
+        <div class="cash-toolbar__filters">
+          <label class="field">
+            <span>С даты</span>
+            <input id="reportDateFrom" type="date" value="${escapeHtml(normalizedFrom)}" />
+          </label>
+          <label class="field">
+            <span>По дату</span>
+            <input id="reportDateTo" type="date" value="${escapeHtml(normalizedTo)}" />
+          </label>
+          <button type="button" class="ghost-button" id="reportPeriodTodayButton">Сегодня</button>
+        </div>
+      </div>
+
+      ${data.reportError ? `<div class="card"><p class="muted">${escapeHtml(data.reportError)}</p></div>` : ""}
+
+      <div class="cash-summary">
+        <article class="summary-card">
+          <div class="summary-card__label">Клиенты</div>
+          <div class="summary-card__value">${Number(totals.clients_count || 0).toLocaleString("ru-RU")}</div>
+          <div class="summary-card__meta">уникальные по обращениям за период</div>
+        </article>
+        <article class="summary-card">
+          <div class="summary-card__label">Документы</div>
+          <div class="summary-card__value">${Number(totals.documents_count || 0).toLocaleString("ru-RU")}</div>
+          <div class="summary-card__meta">сформированные через backend</div>
+        </article>
+        <article class="summary-card">
+          <div class="summary-card__label">Услуги</div>
+          <div class="summary-card__value">${Number(totals.services_count || 0).toLocaleString("ru-RU")}</div>
+          <div class="summary-card__meta">сумма количеств по обращениям</div>
+        </article>
+        <article class="summary-card">
+          <div class="summary-card__label">Выручка</div>
+          <div class="summary-card__value">${Number(totals.revenue || 0).toLocaleString("ru-RU")} ₽</div>
+          <div class="summary-card__meta">${report ? `${escapeHtml(report.date_from)} - ${escapeHtml(report.date_to)}` : "период загрузки"}</div>
+        </article>
+      </div>
+
+      ${
+        data.reportLoading
+          ? `<div class="card"><p class="muted">Загружаю отчет по центрам...</p></div>`
+          : `
+            <div class="card">
+              <div class="data-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Центр</th>
+                      <th>Код</th>
+                      <th>Клиенты</th>
+                      <th>Документы</th>
+                      <th>Услуги</th>
+                      <th>Выручка</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${
+                      Array.isArray(report?.centers) && report.centers.length
+                        ? report.centers
+                            .map(
+                              (center) => `
+                                <tr>
+                                  <td>${escapeHtml(center.center_name || "Без названия")}</td>
+                                  <td>${escapeHtml(center.center_code || "")}</td>
+                                  <td>${Number(center.clients_count || 0).toLocaleString("ru-RU")}</td>
+                                  <td>${Number(center.documents_count || 0).toLocaleString("ru-RU")}</td>
+                                  <td>${Number(center.services_count || 0).toLocaleString("ru-RU")}</td>
+                                  <td>${Number(center.revenue || 0).toLocaleString("ru-RU")} ₽</td>
+                                </tr>
+                              `,
+                            )
+                            .join("")
+                        : `<tr><td colspan="6" class="muted">За выбранный период данных по центрам пока нет.</td></tr>`
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          `
+      }
+    </section>
+  `;
+}
+
 function renderDoctorsPage() {
   const templates = getDoctorTemplates();
   const roles = [
@@ -3157,8 +4123,7 @@ function renderVisitServicePicker(activeVisit) {
     .filter((service) => {
       if (!search) return true;
       return [service.name, service.notes, service.price].join(" ").toLowerCase().includes(search);
-    })
-    .slice(0, 80);
+    });
   const selectedDriverService = getSelectedVisitServiceIds(activeVisit)
     .map((id) => getServiceById(id))
     .find((service) => isDriverService(service));
@@ -3193,7 +4158,11 @@ function renderVisitServicePicker(activeVisit) {
             ? visibleServices
                 .map(
                   (service) => `
-                    <label class="operator-service-row">
+                    <label class="${
+                      selectedIds.has(getServiceToken(service)) || selectedSet.has(service.name)
+                        ? "client-service-chip client-service-chip--active operator-service-chip"
+                        : "client-service-chip operator-service-chip"
+                    }">
                       <input
                         type="checkbox"
                         name="visitService"
@@ -3202,14 +4171,12 @@ function renderVisitServicePicker(activeVisit) {
                         ${selectedIds.has(getServiceToken(service)) || selectedSet.has(service.name) ? "checked" : ""}
                       />
                       <span>${escapeHtml(service.name)}</span>
-                      <button
-                        type="button"
-                        class="operator-service-card-btn"
-                        data-open-service-card="${escapeHtml(getServiceToken(service))}"
-                      >
-                        Карточка
-                      </button>
                       <strong>${Number(service.price || 0).toLocaleString("ru-RU")} ₽</strong>
+                      ${
+                        selectedIds.has(getServiceToken(service)) || selectedSet.has(service.name)
+                          ? '<span class="client-service-chip__remove" aria-hidden="true">×</span>'
+                          : ""
+                      }
                     </label>
                   `,
                 )
@@ -3322,7 +4289,6 @@ function renderVisitPanel(selectedClient) {
 
   const visits = getVisitsForClient(selectedClient.id);
   const activeVisit = getCurrentVisitForClient(selectedClient.id);
-  const operatorForm = activeVisit ? renderOperatorVisitForm(selectedClient, activeVisit) : "";
 
   return `
     <div class="encounter-panel">
@@ -3357,8 +4323,6 @@ function renderVisitPanel(selectedClient) {
           : `<p class="muted" style="margin:8px 0 0 0;">Создай обращение, чтобы привязать к нему услуги, врачей и документы.</p>`
       }
 
-      ${operatorForm}
-
       ${
         visits.length > 1
           ? `
@@ -3383,14 +4347,48 @@ function renderVisitPanel(selectedClient) {
 }
 
 function renderTemplatesPage() {
-  const templates = getDoctorTemplates();
+  const doctorTemplates = getDoctorTemplates();
+  const documentTemplates = Array.isArray(data.documentTemplates) ? data.documentTemplates : [];
 
   return `
     <section class="card">
       <h3>Шаблоны</h3>
-      <p class="muted">Подключено шаблонов врачей: ${templates.length}. Эти шаблоны используются при открытии карточки врача на главной.</p>
+      <div class="template-page-head">
+        <p class="muted">Файловые шаблоны можно посмотреть, заменить новым файлом и перечитать из папки. Желтые ячейки с подписью “авто” заполняются системой.</p>
+        <button class="primary-button" type="button" data-refresh-document-templates>Перечитать папку</button>
+      </div>
+      ${data.templateOperationStatus ? `<div class="template-status">${escapeHtml(data.templateOperationStatus)}</div>` : ""}
+      <div class="document-template-grid">
+        ${
+          documentTemplates.length
+            ? documentTemplates
+                .map(
+                  (template) => `
+                    <article class="document-template-card">
+                      <div>
+                        <strong>${escapeHtml(template.name || template.file_name || `Шаблон ${template.id}`)}</strong>
+                        <span>${escapeHtml(template.file_name || "")}</span>
+                      </div>
+                      <small>${escapeHtml(template.template_type || "")}${template.requires_numbered_blank ? " · номерной бланк" : ""}</small>
+                      <div class="document-template-card__actions">
+                        <button class="ghost-button" type="button" data-open-document-template="${escapeHtml(template.id)}">Посмотреть</button>
+                        <button class="ghost-button" type="button" data-replace-document-template="${escapeHtml(template.id)}">Обновить шаблон</button>
+                      </div>
+                    </article>
+                  `,
+                )
+                .join("")
+            : `<div class="empty-state">Файловые шаблоны еще не загружены с backend.</div>`
+        }
+      </div>
+      <input class="hidden" id="documentTemplateUploadInput" type="file" accept=".docx,.xml,.xls" />
+    </section>
+
+    <section class="card">
+      <h3>Шаблоны врачей</h3>
+      <p class="muted">Подключено шаблонов врачей: ${doctorTemplates.length}. Эти шаблоны используются при открытии карточки врача на главной.</p>
       <div class="cards-grid">
-        ${templates
+        ${doctorTemplates
           .map(
             (template) => `
               <article class="mini-card">
@@ -3727,6 +4725,11 @@ function renderMedicalRecordBackendBlock(selectedClient, exams = []) {
   const commissionText =
     draft.recordNotes ||
     "В соответствии с постановлением Совета Министров - Правительства Российской Федерации медицинских противопоказаний не выявлено.";
+  const stampStatus = (Array.isArray(exams) ? exams : []).some(
+    (entry) => String(entry?.doctorRoleId || "") === "chairman" && entry?.isCompleted && entry?.fields?.stampApplied,
+  )
+    ? "Поставлена"
+    : "Не указана";
 
   const renderDoctorEntryCards = (entryList, offset = 0) =>
     entryList.length
@@ -3989,6 +4992,7 @@ function renderMedicalRecordBackendBlock(selectedClient, exams = []) {
             <div class="ambulatory-sheet__signature-sign">(подпись)</div>
             <div class="ambulatory-sheet__signature-name">${escapeHtml(memberNames)}</div>
           </div>
+          <div class="ambulatory-sheet__stamp-line"><span>Печать</span><strong>${escapeHtml(stampStatus)}</strong></div>
         </div>
       </div>
 
@@ -4216,6 +5220,7 @@ function renderGeneratedDocumentsTable(items = data.generatedDocuments) {
                         <strong>${escapeHtml(item.title || item.fileName || "Документ")}</strong>
                         <small>${escapeHtml(formatDateTime(item.createdAt))}</small>
                         <small>${escapeHtml([item.series, item.number].filter(Boolean).join(" ") || item.fileName || "")}</small>
+                        ${item.blankNumber ? `<small class="blank-badge">№ бланка: ${escapeHtml(item.blankNumber)}</small>` : ""}
                       </div>
                       <button class="ghost-button" data-open-document-id="${escapeHtml(item.id)}">Открыть</button>
                     </div>
@@ -4322,15 +5327,13 @@ function renderPatientConsentsTable() {
 }
 
 function renderBlanksPage() {
+  if (typeof window.renderBlanksPage === "function") {
+    return window.renderBlanksPage();
+  }
   return `
     <section class="card">
-      <h3>Бланки</h3>
-      <p class="muted">Раздел подготовлен под автонумерацию и печатные формы. Сейчас реальные шаблоны документов лежат в backend, а в демке показаны врачебные шаблоны и сценарий оформления клиента.</p>
-      <div class="stats-grid">
-        <div class="stat-card"><strong>Автонумерация</strong><span>заложена как следующий шаг</span></div>
-        <div class="stat-card"><strong>Документы</strong><span>генерация будет подключаться к обращению</span></div>
-        <div class="stat-card"><strong>XML</strong><span>после услуг и документов</span></div>
-      </div>
+      <h3>Учёт номерных бланков</h3>
+      <p class="muted">Загрузка модуля бланков...</p>
     </section>
   `;
 }
@@ -4470,8 +5473,25 @@ function getDocumentTitle(type) {
 
 function getDocumentsForVisit(visitId) {
   ensureVisitsStore();
-  return data.documents
+  const visit = data.visits.find((item) => String(item.id) === String(visitId));
+  const encounterId = visit?.backendId ? String(visit.backendId) : null;
+  const localDocuments = (data.documents || [])
     .filter((documentItem) => String(documentItem.visitId) === String(visitId))
+    .map((documentItem) => ({ ...documentItem, __source: "local" }));
+  const backendDocuments = encounterId
+    ? (data.generatedDocuments || [])
+        .filter((documentItem) => String(documentItem.encounterId || "") === encounterId)
+        .map((documentItem) => ({ ...documentItem, __source: "backend" }))
+    : [];
+  const seen = new Set();
+
+  return [...backendDocuments, ...localDocuments]
+    .filter((documentItem) => {
+      const key = documentItem.backendId ? `backend-${documentItem.backendId}` : `local-${documentItem.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
     .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 }
 
@@ -4487,8 +5507,10 @@ function pickDocumentTemplate(type, visit = null) {
     return keywords.some((keyword) => text.includes(keyword));
   };
   const docxTemplates = usableTemplates.filter((template) => template.template_type !== "xml");
+  const xlsTemplates = usableTemplates.filter((template) => template.template_type === "xls");
   const xmlTemplates = usableTemplates.filter((template) => template.template_type === "xml");
   const findDocx = (keywords) => docxTemplates.find((template) => matchesAny(template, keywords)) || null;
+  const findXls = (keywords) => xlsTemplates.find((template) => matchesAny(template, keywords)) || null;
   const findXml = (keywords) => xmlTemplates.find((template) => matchesAny(template, keywords)) || null;
 
   if (normalizedType === "contract") {
@@ -4502,13 +5524,23 @@ function pickDocumentTemplate(type, visit = null) {
   }
 
   if (normalizedType === "driver" || serviceText.includes("водител")) {
-    return findDocx(["водительскаясправка_шаблон.docx", "водительскаясправка_шаблон"]) || findDocx(["водитель"]) || null;
+    return (
+      findXls(["все нужные шаблоны", "водительская", "тракторная"]) ||
+      findDocx(["водительскаясправка_шаблон.docx", "водительскаясправка_шаблон"]) ||
+      findDocx(["водитель"]) ||
+      null
+    );
   }
 
+  if (normalizedType === "086") return findDocx(["086у.муж", "086у.жен", "086"]) || null;
+  if (normalizedType === "095") return findDocx(["095"]) || null;
   if (serviceText.includes("082") || serviceText.includes("границ")) return findDocx(["082у_шаблон", "082"]) || null;
   if (serviceText.includes("086")) return findDocx(["086у.муж", "086у.жен", "086"]) || null;
   if (serviceText.includes("095")) return findDocx(["095"]) || null;
   if (serviceText.includes("бассейн")) return findDocx(["бассейн"]) || null;
+  if (serviceText.includes("070") || serviceText.includes("путевк")) {
+    return findDocx(["070 новый шабл", "070"]) || null;
+  }
   if (serviceText.includes("гто")) return findDocx(["гто1144", "1144"]) || null;
   if (serviceText.includes("гимс")) return findDocx(["гимс"]) || null;
   if (serviceText.includes("гостайн") || serviceText.includes("гос.тайн")) return findDocx(["гос.тайна"]) || null;
@@ -4518,7 +5550,15 @@ function pickDocumentTemplate(type, visit = null) {
   if (serviceText.includes("экг")) return findDocx(["спортэкг", "экг"]) || null;
   if (serviceText.includes("лмк") || serviceText.includes("медицинская книж")) return findDocx(["лмк"]) || null;
   if (serviceText.includes("профосмотр") || serviceText.includes("29н")) return findDocx(["заключение29н", "профосмотр"]) || null;
-  if (serviceText.includes("санатор")) return findDocx(["072"]) || null;
+  if (serviceText.includes("санатор")) {
+    return findDocx(["072 сюрина", "072 сюрина ноый шабл", "072"]) || null;
+  }
+  if (serviceText.includes("драг") || serviceText.includes("drug") || serviceText.includes("alcohol")) {
+    return findDocx(["драг тест морская шаблон", "драг"]) || null;
+  }
+  if (serviceText.includes("морск") || serviceText.includes("marine") || serviceText.includes("seafar")) {
+    return findDocx(["серт морская шаблон", "морская", "marine", "seafarer"]) || null;
+  }
 
   const haystack = `${normalizedType} ${(visit?.serviceNames || []).join(" ")}`.toLowerCase();
   return (
@@ -4529,10 +5569,111 @@ function pickDocumentTemplate(type, visit = null) {
   );
 }
 
-async function createDemoDocument(type) {
-  ensureVisitsStore();
-  const client = getSelectedClient();
-  const visit = client ? getCurrentVisitForClient(client.id) : null;
+function getChairmanTemplatePrintType(visit) {
+  const serviceText = (Array.isArray(visit?.serviceNames) ? visit.serviceNames : []).join(" ").toLowerCase();
+  if (!serviceText) return null;
+
+  if (
+    serviceText.includes("лмк") ||
+    serviceText.includes("медицинская книж") ||
+    serviceText.includes("профосмотр") ||
+    serviceText.includes("29н")
+  ) {
+    return "medical";
+  }
+
+  return null;
+}
+
+function registerGeneratedDocument(result, type, client, visit) {
+  const documentItem = {
+    id: result.generated_document_id || generateId("document"),
+    backendId: result.generated_document_id || null,
+    type: result.template_type || type,
+    title: result.template_name || getDocumentTitle(type),
+    clientId: client.id,
+    visitId: visit.id,
+    createdAt: new Date().toISOString(),
+    content: `Файл сформирован: ${result.output_file_name}`,
+    fileName: result.output_file_name,
+    downloadUrl: buildGeneratedDocumentUrl(result.output_file_name),
+    generatedFields: result.generated_fields || {},
+    blankFormId: result.blank_form_id ?? null,
+    blankNumber: result.blank_number || "",
+  };
+
+  const existingIndex = data.documents.findIndex(
+    (item) => documentItem.backendId && String(item.backendId || "") === String(documentItem.backendId),
+  );
+  if (existingIndex >= 0) {
+    data.documents.splice(existingIndex, 1);
+  }
+  data.documents.unshift(documentItem);
+  visit.documentIds = Array.isArray(visit.documentIds) ? visit.documentIds : [];
+  if (!visit.documentIds.includes(documentItem.id)) {
+    visit.documentIds.unshift(documentItem.id);
+  }
+  return documentItem;
+}
+
+async function refreshDocumentWorkflowState(clientId, encounterId) {
+  persistDemoState();
+  await loadWorkflowData({
+    clientId,
+    encounterId,
+  });
+  if (typeof window.loadBlanksData === "function") {
+    await window.loadBlanksData({ force: true });
+  }
+}
+
+function getAutoGeneratedMedicalDocumentConfig(visit) {
+  const serviceText = (Array.isArray(visit?.serviceNames) ? visit.serviceNames : []).join(" ").toLowerCase();
+  if (!serviceText) return null;
+
+  if (serviceText.includes("072") || serviceText.includes("санатор")) {
+    return {
+      toast: "Карта 072 сформирована",
+      errorMessage: "Не удалось автоматически сформировать санаторно-курортную карту",
+    };
+  }
+
+  if (serviceText.includes("070") || serviceText.includes("путевк")) {
+    return {
+      toast: "Справка 070 сформирована",
+      errorMessage: "Не удалось автоматически сформировать справку 070",
+    };
+  }
+
+  if (serviceText.includes("драг") || serviceText.includes("drug") || serviceText.includes("alcohol")) {
+    return {
+      toast: "Драг-тест сформирован",
+      errorMessage: "Не удалось автоматически сформировать драг-тест",
+    };
+  }
+
+  if (serviceText.includes("морск") || serviceText.includes("marine") || serviceText.includes("seafar")) {
+    return {
+      toast: "Морской сертификат сформирован",
+      errorMessage: "Не удалось автоматически сформировать морской сертификат",
+    };
+  }
+
+  return null;
+}
+
+function hasGeneratedTemplateForVisit(visit, template) {
+  if (!visit || !template) return false;
+
+  const visitDocuments = getDocumentsForVisit(visit.id);
+  return visitDocuments.some((documentItem) => {
+    if (template.id && String(documentItem.templateId || "") === String(template.id)) return true;
+    const haystack = `${documentItem.title || ""} ${documentItem.fileName || ""}`.toLowerCase();
+    return haystack.includes(String(template.file_name || "").toLowerCase()) || haystack.includes(String(template.name || "").toLowerCase());
+  });
+}
+
+async function createDocumentForVisit(type, client, visit, options = {}) {
   if (!client || !visit) return null;
   if (!data.documentTemplatesLoaded) {
     await loadDocumentTemplatesFromBackend();
@@ -4546,38 +5687,736 @@ async function createDemoDocument(type) {
   }
 
   const clientId = client.backendId || client.id;
-  const result = await apiRequest("/documents/generate", {
+  const endpoint = options.print ? "/documents/print" : "/documents/generate";
+  const payload = {
+    template_id: template.id,
+    client_id: Number(clientId),
+    encounter_id: visit.backendId ? Number(visit.backendId) : null,
+  };
+  if (options.blankFormId) {
+    payload.blank_form_id = Number(options.blankFormId);
+  }
+  if (options.printVariant) {
+    payload.print_variant = options.printVariant;
+  }
+  const result = await apiRequest(endpoint, {
     method: "POST",
-    body: JSON.stringify({
-      template_id: template.id,
-      client_id: Number(clientId),
-      encounter_id: visit.backendId ? Number(visit.backendId) : null,
-    }),
+    body: JSON.stringify(payload),
   });
 
-  const documentItem = {
-    id: result.generated_document_id || generateId("document"),
-    backendId: result.generated_document_id || null,
-    type: result.template_type || type,
-    title: result.template_name || getDocumentTitle(type),
-    clientId: client.id,
-    visitId: visit.id,
-    createdAt: new Date().toISOString(),
-    content: `Файл сформирован: ${result.output_file_name}`,
-    fileName: result.output_file_name,
-    downloadUrl: buildGeneratedDocumentUrl(result.output_file_name),
-    generatedFields: result.generated_fields || {},
+  const documentItem = registerGeneratedDocument(result, type, client, visit);
+  await refreshDocumentWorkflowState(clientId, visit.backendId || null);
+  return documentItem;
+}
+
+async function printDocumentForVisit(type, client, visit, options = {}) {
+  const documentItem = await createDocumentForVisit(type, client, visit, { ...options, print: true });
+  openGeneratedDocumentInBrowser(documentItem);
+  return documentItem;
+}
+
+async function createDemoDocument(type) {
+  ensureVisitsStore();
+  const client = getSelectedClient();
+  const visit = client ? getCurrentVisitForClient(client.id) : null;
+  return createDocumentForVisit(type, client, visit);
+}
+
+function normalizeBlankSeries(series) {
+  return String(series ?? "").trim();
+}
+
+const DRIVER_PRINT_SERIES_STORAGE_KEY = "driverPrint.lastSeries";
+const DRIVER_PRINT_VARIANTS = [
+  { id: "driver_front", label: "Печатать лицевую часть", errorLabel: "лицевую сторону водительской справки" },
+  { id: "driver_back", label: "Печатать оборот", errorLabel: "оборот водительской справки" },
+  { id: "tractor_front", label: "Лицевая трактора", errorLabel: "лицевую сторону тракторной справки" },
+  { id: "tractor_back", label: "Оборот трактора", errorLabel: "оборот тракторной справки" },
+];
+
+const PREENTERED_BLANK_SERIES = ["40", "4026", "ЛМК", "ГИМС"];
+const PREENTERED_BLANK_SERIES_SET = new Set(PREENTERED_BLANK_SERIES.map((item) => item.toLowerCase()));
+const SERVICE_SERIES_OVERRIDES = new Map([
+  ["071у", "071У"],
+  ["первичный профосмотр 29н", "29Н"],
+  ["санаторно-курортная карта", "072У"],
+  ["справка 001 гсу для работы на госслужбе", "001 ГСУ"],
+  ["справка 002 чод (для охраны)", "4026"],
+  ["справка в бассейн", "БАСС"],
+  ["справка выезжающих за границу 082у", "082У"],
+  ["справка гостайна, форма 989н", "989Н"],
+  ["справка гто 1144", "ГТО"],
+  ["справка для поступления 086у", "086У"],
+  ["справка по форме 095у", "095У"],
+  ["справка спорт + экг", "СПОРТ"],
+  ["узи брюшной полости", "УЗИ ОБП"],
+  ["узи молочных желез", "УЗИ МЖ"],
+  ["узи предстательной железы", "УЗИ ПЖ"],
+  ["экг без расшифровки", "ЭКГ"],
+  ["экг при нагрузке с расшифровкой", "ЭКГН"],
+  ["экг с расшифровкой", "ЭКГР"],
+]);
+
+function getStoredDriverPrintSeries() {
+  try {
+    return normalizeBlankSeries(window.localStorage?.getItem(DRIVER_PRINT_SERIES_STORAGE_KEY));
+  } catch (error) {
+    console.warn("Не удалось прочитать последнюю серию бланка", error);
+    return "";
+  }
+}
+
+function setStoredDriverPrintSeries(series) {
+  const normalized = normalizeBlankSeries(series);
+  try {
+    if (normalized) {
+      window.localStorage?.setItem(DRIVER_PRINT_SERIES_STORAGE_KEY, normalized);
+    } else {
+      window.localStorage?.removeItem(DRIVER_PRINT_SERIES_STORAGE_KEY);
+    }
+  } catch (error) {
+    console.warn("Не удалось сохранить последнюю серию бланка", error);
+  }
+}
+
+function getDriverPrintCertificateType(series) {
+  const normalized = normalizeBlankSeries(series).toLowerCase();
+  if (normalized === "086" || normalized === "086у") return "086";
+  if (normalized === "095" || normalized === "095у") return "095";
+  return "";
+}
+
+function isPreenteredBlankSeries(series) {
+  return PREENTERED_BLANK_SERIES_SET.has(normalizeBlankSeries(series).toLowerCase());
+}
+
+function buildServiceSeriesAbbreviation(service) {
+  const name = String(service?.name || "").trim();
+  const normalizedName = name.toLowerCase();
+  if (!name) return "";
+  if (
+    isDriverService(service) ||
+    isTractorService(service) ||
+    isGimsService(service) ||
+    isLmkService(service) ||
+    normalizedName.includes("лмк") ||
+    normalizedName.includes("медицинск")
+  ) {
+    return "";
+  }
+  if (SERVICE_SERIES_OVERRIDES.has(normalizedName)) {
+    return SERVICE_SERIES_OVERRIDES.get(normalizedName);
+  }
+
+  const words = name
+    .replace(/[()]/g, " ")
+    .split(/[\s,./+-]+/)
+    .map((word) => word.trim())
+    .filter((word) => word && !["для", "при", "без", "с", "на", "по", "форма", "форме", "врача"].includes(word.toLowerCase()));
+  const important = words.filter((word) => /\d/.test(word) || word.length > 2).slice(0, 3);
+  const source = important.length ? important : words.slice(0, 2);
+  return source
+    .map((word) => (/\d/.test(word) ? word.toUpperCase() : word.slice(0, 3).toUpperCase()))
+    .join(" ")
+    .trim();
+}
+
+function getAutoServiceSeriesOptions() {
+  const source = Array.isArray(data.serverServices) && data.serverServices.length ? data.serverServices : structuredServices;
+  return (Array.isArray(source) ? source : [])
+    .filter((service) => service?.isActive !== false)
+    .map(buildServiceSeriesAbbreviation)
+    .filter((series) => series && !isPreenteredBlankSeries(series));
+}
+
+function getDriverPrintSeriesPickerOptions(seriesOptions = []) {
+  const ordered = [...PREENTERED_BLANK_SERIES, ...getAutoServiceSeriesOptions()];
+  (Array.isArray(seriesOptions) ? seriesOptions : []).forEach((item) => {
+    const series = normalizeBlankSeries(item?.series);
+    if (series) ordered.push(series);
+  });
+
+  return ordered.filter((series, index, list) => list.findIndex((item) => item.toLowerCase() === series.toLowerCase()) === index);
+}
+
+function closeDriverPrintSeriesPicker() {
+  document.querySelector("[data-driver-series-picker]")?.remove();
+}
+
+function openDriverPrintSeriesPicker({ value, options, onSelect }) {
+  closeDriverPrintSeriesPicker();
+
+  let selectedValue = normalizeBlankSeries(value) || options[0] || "";
+  const overlay = document.createElement("div");
+  overlay.className = "driver-series-picker";
+  overlay.dataset.driverSeriesPicker = "true";
+  overlay.innerHTML = `
+    <div class="driver-series-picker__panel" role="dialog" aria-modal="true" aria-label="Выбор серии">
+      <div class="driver-series-picker__head">
+        <strong>Введите строку или выберите из имеющихся</strong>
+        <button type="button" class="driver-series-picker__close" data-driver-series-close aria-label="Закрыть">×</button>
+      </div>
+      <div class="driver-series-picker__top">
+        <input class="driver-series-picker__search" data-driver-series-search value="" placeholder="${escapeHtml(selectedValue)}" />
+        <button type="button" class="driver-series-picker__ok" data-driver-series-ok>OK</button>
+      </div>
+      <div class="driver-series-picker__list" data-driver-series-list></div>
+      <div class="driver-series-picker__selected" data-driver-series-selected>${escapeHtml(selectedValue)}</div>
+    </div>
+  `;
+
+  const panel = overlay.querySelector(".driver-series-picker__panel");
+  const searchInput = overlay.querySelector("[data-driver-series-search]");
+  const listNode = overlay.querySelector("[data-driver-series-list]");
+  const selectedNode = overlay.querySelector("[data-driver-series-selected]");
+
+  const applySelection = () => {
+    onSelect(normalizeBlankSeries(selectedValue || searchInput?.value));
+    closeDriverPrintSeriesPicker();
   };
 
-  data.documents.unshift(documentItem);
-  visit.documentIds = Array.isArray(visit.documentIds) ? visit.documentIds : [];
-  visit.documentIds.unshift(documentItem.id);
-  persistDemoState();
-  await loadWorkflowData({
-    clientId,
-    encounterId: visit.backendId || null,
+  const renderList = () => {
+    const query = normalizeBlankSeries(searchInput?.value).toLowerCase();
+    const visibleOptions = options.filter((item) => !query || item.toLowerCase().includes(query));
+    listNode.innerHTML = visibleOptions
+      .map(
+        (item) => `
+          <button type="button" class="driver-series-picker__item${item.toLowerCase() === selectedValue.toLowerCase() ? " driver-series-picker__item--active" : ""}" data-driver-series-value="${escapeHtml(item)}">
+            ${escapeHtml(item)}
+          </button>
+        `,
+      )
+      .join("");
+
+    listNode.querySelectorAll("[data-driver-series-value]").forEach((button) => {
+      button.addEventListener("click", () => {
+        selectedValue = normalizeBlankSeries(button.dataset.driverSeriesValue);
+        if (searchInput) searchInput.value = "";
+        if (selectedNode) selectedNode.textContent = selectedValue;
+        renderList();
+      });
+      button.addEventListener("dblclick", applySelection);
+    });
+  };
+
+  overlay.addEventListener("mousedown", (event) => {
+    if (!panel?.contains(event.target)) {
+      closeDriverPrintSeriesPicker();
+    }
   });
-  return documentItem;
+  overlay.querySelector("[data-driver-series-close]")?.addEventListener("click", closeDriverPrintSeriesPicker);
+  overlay.querySelector("[data-driver-series-ok]")?.addEventListener("click", applySelection);
+  searchInput?.addEventListener("input", () => {
+    selectedValue = normalizeBlankSeries(searchInput.value);
+    if (selectedNode) selectedNode.textContent = selectedValue;
+    renderList();
+  });
+  searchInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      applySelection();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeDriverPrintSeriesPicker();
+    }
+  });
+
+  document.body.appendChild(overlay);
+  renderList();
+  searchInput?.focus();
+  searchInput?.select();
+}
+
+function buildBlankSeriesLabel(item) {
+  const seriesLabel = normalizeBlankSeries(item?.series) || "без серии";
+  const nextLabel = item?.next_full_number ? `, следующий: ${item.next_full_number}` : "";
+  return `${seriesLabel} (${Number(item?.free_count || 0)} шт.${nextLabel})`;
+}
+
+function getDriverPrintBlankParts(blank, selectedSeries) {
+  const series = normalizeBlankSeries(blank?.series) || normalizeBlankSeries(selectedSeries);
+  const fullNumber = String(blank?.full_number || "").trim();
+  const number = series && fullNumber.startsWith(series)
+    ? fullNumber.slice(series.length).trim()
+    : fullNumber;
+  const primaryDate = formatApiDate(blank?.issued_at || blank?.created_at || new Date().toISOString());
+  return {
+    series,
+    number,
+    fullNumber,
+    primaryDate,
+  };
+}
+
+function renderDriverPrintResultPrompt({ printedDocument, printMessage }) {
+  return `
+    <div class="document-preview">
+      <strong>${escapeHtml(printedDocument?.title || "Водительская справка")}</strong>
+      <p>${escapeHtml(printMessage || "Документ открыт для печати.")}</p>
+      <p>После печати подтвердите результат. Если бланк испорчен, мы сразу спишем его и подберем следующий номер.</p>
+      <div class="card" style="margin-top:12px;">
+        <strong>Инструкция по двусторонней печати</strong>
+        <ol style="margin:10px 0 0 18px; padding:0; display:grid; gap:8px;">
+          <li>Достаньте стопку распечатанных страниц из выходного лотка.</li>
+          <li>Положите ее в лоток 1, не меняя ориентацию.</li>
+          <li>Подтвердите продолжение печати кнопкой ` + "`Да`" + `, если бланк напечатан нормально.</li>
+        </ol>
+      </div>
+      <div class="client-create-actions" style="margin-top:16px;">
+        <button type="button" class="ghost-button" id="driverPrintFailed">Нет, бланк испорчен</button>
+        <button type="button" class="primary-button" id="driverPrintSuccess">Да, все нормально</button>
+      </div>
+    </div>
+  `;
+}
+
+function isFrontDriverPrintVariant(variantId) {
+  return variantId === "driver_front" || variantId === "tractor_front";
+}
+
+function renderDriverPrintInstructionPrompt() {
+  return `
+    <div class="driver-print-instruction">
+      <div class="driver-print-instruction__intro">
+        После завершения печати на одной стороне документа следуйте инструкциям по печати на второй стороне каждой страницы.
+      </div>
+      <div class="driver-print-instruction__steps">
+        <div class="driver-print-instruction__step">
+          <div class="driver-print-instruction__head">
+            <span class="driver-print-instruction__number">1</span>
+            <p>При появлении запроса на подачу бумаги вручную извлеките стопку распечатанных страниц из выходного лотка.</p>
+          </div>
+          <div class="printer-illustration printer-illustration--remove">
+            <div class="printer-illustration__body">
+              <div class="printer-illustration__top-paper"></div>
+              <div class="printer-illustration__slot"></div>
+              <div class="printer-illustration__tray"></div>
+              <div class="printer-illustration__paper"></div>
+            </div>
+            <div class="printer-illustration__arrow printer-illustration__arrow--out"></div>
+          </div>
+        </div>
+        <div class="driver-print-instruction__step">
+          <div class="driver-print-instruction__head">
+            <span class="driver-print-instruction__number">2</span>
+            <p>Поместите стопку распечатанных страниц в лоток 1, не меняя ее ориентацию.</p>
+          </div>
+          <div class="printer-illustration printer-illustration--load">
+            <div class="printer-illustration__body">
+              <div class="printer-illustration__top-paper"></div>
+              <div class="printer-illustration__slot"></div>
+              <div class="printer-illustration__tray"></div>
+              <div class="printer-illustration__paper"></div>
+            </div>
+            <div class="printer-illustration__arrow printer-illustration__arrow--in"></div>
+          </div>
+        </div>
+        <div class="driver-print-instruction__step">
+          <div class="driver-print-instruction__head">
+            <span class="driver-print-instruction__number">3</span>
+            <p>Нажмите клавишу "Go" или "OK".</p>
+          </div>
+        </div>
+      </div>
+      <div class="driver-print-instruction__footer">
+        <button type="button" class="driver-print-instruction__button" id="driverPrintContinue">Перейти</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderDriverFrontCheckPrompt() {
+  return `
+    <div class="driver-front-check">
+      <div class="driver-front-check__icon">?</div>
+      <div class="driver-front-check__text">
+        <p>Справка напечатана нормально.</p>
+        <p>Нажмите "Да" для продолжения.</p>
+        <p>Нажмите "Нет" если бланк испорчен.</p>
+      </div>
+      <div class="driver-front-check__actions">
+        <button type="button" class="driver-front-check__button" id="driverFrontCheckYes">Да</button>
+        <button type="button" class="driver-front-check__button" id="driverFrontCheckNo">Нет</button>
+      </div>
+    </div>
+  `;
+}
+
+async function openDriverPrintFlow(options = {}) {
+  ensureVisitsStore();
+  const client = getSelectedClient();
+  const visit = client ? getCurrentVisitForClient(client.id) : null;
+  if (!client || !visit) {
+    showToast("Сначала выбери клиента и обращение");
+    return;
+  }
+  if (!data.documentTemplatesLoaded) {
+    await loadDocumentTemplatesFromBackend();
+  }
+
+  await syncVisitToBackend(visit, client);
+
+  const template = pickDocumentTemplate("driver", visit);
+  if (!template) {
+    showToast("Не найден шаблон водительской справки");
+    return;
+  }
+
+  const clientId = client.backendId || client.id;
+  const centerId = await resolveCenterIdForVisit(visit, client);
+  const blankType = template.blank_type || "driver_medical_certificate";
+
+  let seriesOptions = [];
+  let fallbackBlank = options.preselectedBlank || null;
+  try {
+    const query = new URLSearchParams({
+      blank_type: blankType,
+      center_id: String(centerId),
+    });
+    seriesOptions = await apiRequest(`/blanks/series?${query.toString()}`);
+  } catch (error) {
+    console.warn("Не удалось загрузить свободные серии бланков", error);
+  }
+
+  const seriesOptionMap = new Map();
+  (Array.isArray(seriesOptions) ? seriesOptions : []).forEach((item) => {
+    const series = normalizeBlankSeries(item?.series);
+    if (series) seriesOptionMap.set(series.toLowerCase(), item);
+  });
+  getDriverPrintSeriesPickerOptions(seriesOptions).forEach((series) => {
+    const normalizedKey = normalizeBlankSeries(series).toLowerCase();
+    if (!seriesOptionMap.has(normalizedKey)) {
+      seriesOptionMap.set(normalizedKey, {
+        series,
+        free_count: isPreenteredBlankSeries(series) ? 0 : "",
+        next_form_id: null,
+        next_full_number: "",
+      });
+    }
+  });
+  seriesOptions = Array.from(seriesOptionMap.values());
+
+  if (!Array.isArray(seriesOptions) || !seriesOptions.length) {
+    try {
+      const query = new URLSearchParams({
+        blank_type: blankType,
+        center_id: String(centerId),
+      });
+      fallbackBlank = fallbackBlank || (await apiRequest(`/blanks/forms/next?${query.toString()}`));
+      if (fallbackBlank?.series) {
+        seriesOptions = [
+          {
+            series: fallbackBlank.series,
+            free_count: "",
+            next_form_id: fallbackBlank.id ?? null,
+            next_full_number: fallbackBlank.full_number ?? "",
+          },
+        ];
+      }
+    } catch (error) {
+      console.warn("Не удалось подобрать свободный бланк напрямую", error);
+    }
+  }
+
+  if (!Array.isArray(seriesOptions) || !seriesOptions.length) {
+    showToast("Для водительской справки нет свободных номерных бланков");
+    return;
+  }
+
+  const flowState = {
+    client,
+    visit,
+    clientId: Number(clientId),
+    centerId: Number(centerId),
+    template,
+    blankType,
+    seriesOptions,
+    selectedSeries:
+      normalizeBlankSeries(options.preselectedSeries) ||
+      getStoredDriverPrintSeries() ||
+      normalizeBlankSeries(seriesOptions[0]?.series),
+    selectedCertificateType: "",
+    currentBlank: fallbackBlank,
+    loading: false,
+    error: "",
+  };
+  flowState.selectedCertificateType = getDriverPrintCertificateType(flowState.selectedSeries);
+
+  const seriesHints = flowState.seriesOptions
+    .map((item) => normalizeBlankSeries(item.series))
+    .filter(Boolean);
+  if (!seriesHints.includes(flowState.selectedSeries)) {
+    flowState.selectedSeries = flowState.selectedSeries || normalizeBlankSeries(seriesOptions[0]?.series);
+  }
+
+  if (!flowState.currentBlank && isPreenteredBlankSeries(flowState.selectedSeries)) {
+    try {
+      const query = new URLSearchParams({
+        blank_type: flowState.blankType,
+        center_id: String(flowState.centerId),
+      });
+      query.set("series", flowState.selectedSeries || "");
+      flowState.currentBlank = await apiRequest(`/blanks/forms/next?${query.toString()}`);
+    } catch (error) {
+      flowState.error = humanizeApiError(error, "Не удалось подобрать свободный бланк");
+    }
+  }
+
+  const renderPrintActions = () => {
+    if (flowState.selectedCertificateType) {
+      return `
+        <button type="button" class="driver-print-classic__button" data-driver-print-selected-certificate="${escapeHtml(flowState.selectedCertificateType)}" ${flowState.loading || !flowState.currentBlank ? "disabled" : ""}>Печать документа</button>
+      `;
+    }
+
+    return `
+      <button type="button" class="driver-print-classic__button" data-driver-print-variant="driver_front" ${flowState.loading || !flowState.currentBlank ? "disabled" : ""}>Печатать лицевую часть</button>
+      <button type="button" class="driver-print-classic__button" data-driver-print-variant="driver_back" ${flowState.loading || !flowState.currentBlank ? "disabled" : ""}>Печатать оборот</button>
+      <button type="button" class="driver-print-classic__button" data-driver-print-variant="tractor_front" ${flowState.loading || !flowState.currentBlank ? "disabled" : ""}>Лицевая трактора</button>
+      <button type="button" class="driver-print-classic__button" data-driver-print-variant="tractor_back" ${flowState.loading || !flowState.currentBlank ? "disabled" : ""}>Оборот трактора</button>
+    `;
+  };
+
+  const markPrintedDocument = async (generatedDocumentId, success, reason = null) => {
+    return apiRequest("/documents/print-result", {
+      method: "POST",
+      body: JSON.stringify({
+        generated_document_id: Number(generatedDocumentId),
+        success,
+        reason,
+      }),
+    });
+  };
+
+  const restartDriverPrintFlow = async () => {
+    await refreshDocumentWorkflowState(flowState.clientId, flowState.visit.backendId || null);
+    await openDriverPrintFlow({ preselectedSeries: flowState.selectedSeries });
+  };
+
+  const handleSpoiledBlank = async (generatedDocumentId) => {
+    try {
+      await markPrintedDocument(generatedDocumentId, false, "Испорчен при печати");
+      await restartDriverPrintFlow();
+      showToast("Бланк отмечен как испорченный. Начните печать заново.");
+    } catch (error) {
+      showToast(humanizeApiError(error, "Не удалось отметить бланк как испорченный"));
+    }
+  };
+
+  const handleStandardPrintResult = async (result, printedDocument) => {
+    openActionModal(
+      "Результат печати",
+      renderDriverPrintResultPrompt({
+        printedDocument,
+        printMessage: result.message,
+      }),
+    );
+
+    document.getElementById("driverPrintSuccess")?.addEventListener("click", async () => {
+      try {
+        await markPrintedDocument(result.generated_document_id, true);
+        await refreshDocumentWorkflowState(flowState.clientId, flowState.visit.backendId || null);
+        actionModal.classList.add("hidden");
+        showToast(`Печать подтверждена: ${printedDocument.blankNumber || printedDocument.title}`);
+      } catch (error) {
+        showToast(humanizeApiError(error, "Не удалось подтвердить печать"));
+      }
+    });
+
+    document.getElementById("driverPrintFailed")?.addEventListener("click", async () => {
+      await handleSpoiledBlank(result.generated_document_id);
+    });
+  };
+
+  const handleFrontPrintResult = async (result, backVariantId) => {
+    openActionModal("Инструкции по печати на обеих сторонах", renderDriverPrintInstructionPrompt(), "modal--print-instruction");
+    document.getElementById("driverPrintContinue")?.addEventListener("click", async () => {
+      openActionModal("Результат печати:", renderDriverFrontCheckPrompt(), "modal--front-print-check");
+      document.getElementById("driverFrontCheckNo")?.addEventListener("click", async () => {
+        await handleSpoiledBlank(result.generated_document_id);
+      });
+      document.getElementById("driverFrontCheckYes")?.addEventListener("click", async () => {
+        try {
+          await markPrintedDocument(result.generated_document_id, true);
+          await printVariant(backVariantId, { skipConfirmation: true });
+        } catch (error) {
+          showToast(humanizeApiError(error, "Не удалось подтвердить лицевую сторону"));
+        }
+      });
+    });
+  };
+
+  const printVariant = async (variantId, options = {}) => {
+    const skipConfirmation = Boolean(options.skipConfirmation);
+    const variant = DRIVER_PRINT_VARIANTS.find((item) => item.id === variantId);
+    if (!variant || !flowState.currentBlank?.id) return;
+    flowState.loading = true;
+    flowState.error = "";
+    renderFlow();
+    try {
+      const result = await apiRequest("/documents/print", {
+        method: "POST",
+        body: JSON.stringify({
+          template_id: flowState.template.id,
+          client_id: flowState.clientId,
+          encounter_id: flowState.visit.backendId ? Number(flowState.visit.backendId) : null,
+          blank_form_id: Number(flowState.currentBlank.id),
+          print_variant: variant.id,
+        }),
+      });
+      const printedDocument = registerGeneratedDocument(result, "driver", flowState.client, flowState.visit);
+      openGeneratedDocumentInBrowser(printedDocument);
+      await refreshDocumentWorkflowState(flowState.clientId, flowState.visit.backendId || null);
+      if (skipConfirmation) {
+        try {
+          await markPrintedDocument(result.generated_document_id, true);
+          actionModal.classList.add("hidden");
+          showToast(`Оборот открыт для печати: ${printedDocument.blankNumber || printedDocument.title}`);
+        } catch (error) {
+          showToast(humanizeApiError(error, "Не удалось подтвердить печать оборота"));
+        }
+      } else if (isFrontDriverPrintVariant(variant.id)) {
+        const backVariantId = variant.id === "tractor_front" ? "tractor_back" : "driver_back";
+        await handleFrontPrintResult(result, backVariantId);
+      } else {
+        await handleStandardPrintResult(result, printedDocument);
+      }
+    } catch (error) {
+      flowState.error = humanizeApiError(error, `Не удалось открыть для печати ${variant.errorLabel}`);
+      flowState.loading = false;
+      renderFlow();
+    }
+  };
+
+  const printSelectedCertificate = async () => {
+    if (!flowState.selectedCertificateType) return;
+    if (!flowState.currentBlank?.id) {
+      flowState.error = "Сначала нажмите \"Найти номер\", чтобы подобрать свободный бланк.";
+      renderFlow();
+      return;
+    }
+    flowState.loading = true;
+    flowState.error = "";
+    renderFlow();
+    try {
+      const documentItem = await printDocumentForVisit(flowState.selectedCertificateType, client, visit, {
+        blankFormId: flowState.currentBlank.id,
+      });
+      showToast(`Справка открыта для печати: ${documentItem?.title || "документ"}`);
+    } catch (error) {
+      console.error(error);
+      flowState.error = humanizeApiError(error, "Не удалось открыть справку для печати");
+    } finally {
+      flowState.loading = false;
+      renderFlow();
+    }
+  };
+
+  const renderFlow = () => {
+    const blankParts = getDriverPrintBlankParts(flowState.currentBlank, flowState.selectedSeries);
+    const findButtonDisabled = flowState.loading;
+
+    openActionModal(
+      "Печать результатов:",
+      `
+        <div class="driver-print-classic">
+          <input class="driver-print-classic__fio" value="${escapeHtml(client.fullName || "Клиент")}" readonly />
+
+          <div class="driver-print-classic__caption">Укажите серию и номер бланка:</div>
+          <div class="driver-print-classic__lookup">
+            <input id="driverBlankSeries" class="driver-print-classic__input driver-print-classic__input--series" value="${escapeHtml(flowState.selectedSeries)}" readonly />
+            <input id="driverBlankNumber" class="driver-print-classic__input" value="${escapeHtml(blankParts.number)}" readonly />
+            <button type="button" class="driver-print-classic__button driver-print-classic__button--find" id="driverFindBlank" ${findButtonDisabled ? "disabled" : ""}>Найти номер</button>
+          </div>
+
+          <button type="button" class="driver-print-classic__button driver-print-classic__button--duplicate" disabled>Печать дубликата</button>
+
+          <div class="driver-print-classic__caption driver-print-classic__caption--primary">Серия, номер, дата первоначального бланка:</div>
+          <div class="driver-print-classic__primary">
+            <input class="driver-print-classic__input driver-print-classic__input--series" value="${escapeHtml(blankParts.series)}" readonly />
+            <input class="driver-print-classic__input" value="${escapeHtml(blankParts.fullNumber || blankParts.number)}" readonly />
+            <input class="driver-print-classic__input driver-print-classic__input--date" value="${escapeHtml(blankParts.primaryDate)}" readonly />
+          </div>
+
+          ${flowState.error ? `<div class="driver-print-classic__error">${escapeHtml(flowState.error)}</div>` : ""}
+
+          <div class="driver-print-classic__actions driver-print-classic__actions--driver">
+            ${renderPrintActions()}
+          </div>
+          <button type="button" class="driver-print-classic__button driver-print-classic__button--wide" data-driver-print-extra="court">справка Суда</button>
+          <button type="button" class="driver-print-classic__button driver-print-classic__button--wide" data-driver-print-extra="ambulatory">Амб. Карта 25У</button>
+          <button type="button" class="driver-print-classic__button driver-print-classic__button--result" data-driver-print-extra="result">Результат ЭЭГ</button>
+        </div>
+      `,
+      "modal--driver-print",
+    );
+
+    const seriesInput = document.getElementById("driverBlankSeries");
+    const selectSeries = (value) => {
+      flowState.selectedSeries = normalizeBlankSeries(value);
+      flowState.selectedCertificateType = getDriverPrintCertificateType(flowState.selectedSeries);
+      setStoredDriverPrintSeries(flowState.selectedSeries);
+      flowState.currentBlank = null;
+      flowState.error = "";
+      renderFlow();
+    };
+    const openSeriesPicker = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openDriverPrintSeriesPicker({
+        value: flowState.selectedSeries,
+        options: getDriverPrintSeriesPickerOptions(flowState.seriesOptions),
+        onSelect: selectSeries,
+      });
+    };
+    seriesInput?.addEventListener("pointerdown", openSeriesPicker);
+    seriesInput?.addEventListener("mousedown", openSeriesPicker);
+    seriesInput?.addEventListener("click", openSeriesPicker);
+    seriesInput?.addEventListener("focus", openSeriesPicker);
+
+    document.getElementById("driverFindBlank")?.addEventListener("click", async () => {
+      flowState.loading = true;
+      flowState.error = "";
+      setStoredDriverPrintSeries(flowState.selectedSeries);
+      renderFlow();
+      try {
+        const query = new URLSearchParams({
+          blank_type: flowState.blankType,
+          center_id: String(flowState.centerId),
+        });
+        if (flowState.selectedSeries) {
+          query.set("series", flowState.selectedSeries);
+        } else {
+          query.set("series", "");
+        }
+        if (!isPreenteredBlankSeries(flowState.selectedSeries)) {
+          query.set("auto_create", "true");
+        }
+        flowState.currentBlank = await apiRequest(`/blanks/forms/next?${query.toString()}`);
+      } catch (error) {
+        flowState.currentBlank = null;
+        flowState.error = humanizeApiError(error, "Не удалось подобрать свободный бланк");
+      } finally {
+        flowState.loading = false;
+        renderFlow();
+      }
+    });
+
+    document.querySelectorAll("[data-driver-print-variant]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        await printVariant(button.dataset.driverPrintVariant || "");
+      });
+    });
+
+    document.querySelectorAll("[data-driver-print-selected-certificate]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        await printSelectedCertificate();
+      });
+    });
+  };
+
+  renderFlow();
 }
 
 function renderDocumentHistory(visitDocuments) {
@@ -4592,6 +6431,7 @@ function renderDocumentHistory(visitDocuments) {
                   <button class="document-history__row" data-open-document-id="${escapeHtml(documentItem.id)}">
                     <span>${escapeHtml(documentItem.title)}</span>
                     <small>${escapeHtml(formatDateTime(documentItem.createdAt))}</small>
+                    ${documentItem.blankNumber ? `<small class="blank-badge">№ бланка: ${escapeHtml(documentItem.blankNumber)}</small>` : ""}
                   </button>
                 `,
               )
@@ -4676,11 +6516,18 @@ async function openDemoDocument(typeOrId, options = {}) {
         <p>${escapeHtml(documentItem.content || "Документ сформирован на сервере.")}</p>
       </div>
       <div class="client-create-actions">
+        ${documentItem.downloadUrl ? '<button type="button" class="primary-button" id="openDocumentPreview">Открыть документ</button>' : ""}
         <button type="button" class="ghost-button" id="downloadDocumentPreview">Скачать</button>
         <button type="button" class="primary-button" id="closeDocumentPreview">ОК</button>
       </div>
     `,
   );
+
+  document.getElementById("openDocumentPreview")?.addEventListener("click", () => {
+    if (!openGeneratedDocumentInBrowser(documentItem) && documentItem.downloadUrl) {
+      window.location.assign(documentItem.downloadUrl);
+    }
+  });
 
   document.getElementById("downloadDocumentPreview")?.addEventListener("click", () => {
     downloadDemoDocument(documentItem);
@@ -4852,6 +6699,32 @@ async function loadRecallCalendar() {
   }
 }
 
+async function loadReportsSummary() {
+  if (!canAccessReportsWorkspace()) {
+    data.reportLoading = false;
+    data.reportError = "Отчеты доступны только председателю.";
+    renderApp();
+    return;
+  }
+
+  data.reportLoading = true;
+  data.reportError = "";
+  renderApp();
+  try {
+    const dateFrom = normalizeCashFilterDate(appState.reportDateFrom) || new Date().toISOString().slice(0, 10);
+    const dateTo = normalizeCashFilterDate(appState.reportDateTo) || dateFrom;
+    const [fromValue, toValue] = dateFrom <= dateTo ? [dateFrom, dateTo] : [dateTo, dateFrom];
+    data.reportSummary = await apiRequest(
+      `/reports/daily-summary?date_from=${encodeURIComponent(fromValue)}&date_to=${encodeURIComponent(toValue)}`,
+    );
+  } catch (error) {
+    data.reportError = humanizeApiError(error, "Не удалось загрузить отчет");
+  } finally {
+    data.reportLoading = false;
+    renderApp();
+  }
+}
+
 async function markRecall(item, status) {
   if (item.localOnly || !item.service_id || !item.encounter_id) {
     showToast("Сначала сохрани обращение в базе, потом можно отмечать обзвон");
@@ -5002,14 +6875,19 @@ function renderContent() {
   if (appState.page === "templates") return renderTemplatesPage();
   if (appState.page === "blanks") return renderDocumentsPage();
   if (appState.page === "cash") return renderCashPage();
+  if (appState.page === "reports") return renderReportsPage();
   if (appState.page === "employee") return renderEmployeePage();
 
   const item = navItems.find((navItem) => navItem.id === appState.page);
   return renderStubPage(item?.label || "Раздел");
 }
 
-function openActionModal(title, html) {
+function openActionModal(title, html, className = "") {
   if (!actionModalTitle || !actionModalContent || !actionModal) return;
+  actionModal.className = "modal hidden";
+  if (className) {
+    actionModal.classList.add(className);
+  }
   actionModalTitle.textContent = repairDemoText(title);
   actionModalContent.innerHTML = repairDemoText(html);
   actionModal.classList.remove("hidden");
@@ -5136,7 +7014,7 @@ function readOperatorVisitForm(form) {
   };
 }
 
-function saveOperatorVisitForm({ recalculate = false, close = false } = {}) {
+async function saveOperatorVisitForm({ recalculate = false, close = false } = {}) {
   const form = document.getElementById("operatorVisitForm");
   if (!form) return null;
 
@@ -5155,7 +7033,49 @@ function saveOperatorVisitForm({ recalculate = false, close = false } = {}) {
 
   const visit = updateVisit(visitId, patch);
   syncClientServicesFromVisit(selectedClient, visit);
-  ensureRequiredDoctorExamsForVisit(selectedClient, visit);
+  if (!visit || !selectedClient) return visit;
+
+  await syncVisitToBackend(visit, selectedClient);
+  await ensureRequiredDoctorExamsForVisit(selectedClient, visit, { syncToBackend: true });
+
+  const autoDocumentConfig =
+    !recalculate &&
+    !close &&
+    Boolean(visit.backendId)
+      ? getAutoGeneratedMedicalDocumentConfig(visit)
+      : null;
+
+  if (autoDocumentConfig) {
+    if (!data.documentTemplatesLoaded) {
+      await loadDocumentTemplatesFromBackend();
+    }
+    const template = pickDocumentTemplate("medical", visit);
+    if (template) {
+        try {
+          let documentItem = null;
+          if (!hasGeneratedTemplateForVisit(visit, template)) {
+            documentItem = await createDocumentForVisit("medical", selectedClient, visit);
+          } else {
+          documentItem =
+            getDocumentsForVisit(visit.id).find((item) => String(item.templateId || "") === String(template.id)) || null;
+        }
+
+        appState.page = "blanks";
+          await loadWorkflowData({
+            clientId: selectedClient?.backendId || selectedClient?.id || null,
+            encounterId: visit.backendId || null,
+          });
+          if (documentItem?.id) {
+            appState.pendingAutoOpenDocumentId = documentItem.id;
+            visit.__saveFeedbackToast = autoDocumentConfig.toast;
+          }
+        } catch (error) {
+          console.warn("Failed to auto-generate medical document", error);
+          showToast(error.message || autoDocumentConfig.errorMessage);
+        }
+    }
+  }
+
   return visit;
 }
 
@@ -5206,14 +7126,65 @@ function bindContentEvents() {
     });
   }
 
+  const reportDateFromInput = document.getElementById("reportDateFrom");
+  if (reportDateFromInput) {
+    reportDateFromInput.addEventListener("input", (event) => {
+      appState.reportDateFrom = event.target.value;
+      persistDemoState();
+      loadReportsSummary();
+    });
+  }
+
+  const reportDateToInput = document.getElementById("reportDateTo");
+  if (reportDateToInput) {
+    reportDateToInput.addEventListener("input", (event) => {
+      appState.reportDateTo = event.target.value;
+      persistDemoState();
+      loadReportsSummary();
+    });
+  }
+
+  const reportPeriodTodayButton = document.getElementById("reportPeriodTodayButton");
+  if (reportPeriodTodayButton) {
+    reportPeriodTodayButton.addEventListener("click", () => {
+      const today = new Date().toISOString().slice(0, 10);
+      appState.reportDateFrom = today;
+      appState.reportDateTo = today;
+      persistDemoState();
+      loadReportsSummary();
+    });
+  }
+
   const clientSearchInput = document.getElementById("clientSearchInput");
   if (clientSearchInput) {
     clientSearchInput.addEventListener("input", (event) => {
       appState.clientSearch = event.target.value;
+      appState.dashboardPage = 1;
       scheduleClientSearch(event.target.value);
       rerenderAndRestoreInput("clientSearchInput", event.target.value, event.target.selectionStart || event.target.value.length);
     });
   }
+
+  const clientEncounterDateInput = document.getElementById("clientEncounterDateInput");
+  if (clientEncounterDateInput) {
+    clientEncounterDateInput.addEventListener("input", (event) => {
+      appState.clientEncounterDate = event.target.value;
+      appState.dashboardPage = 1;
+      persistDemoState();
+      scheduleClientSearch(appState.clientSearch);
+      renderApp();
+    });
+  }
+
+  contentRoot.querySelectorAll("[data-dashboard-page]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const nextPage = Number(button.dataset.dashboardPage || 1);
+      if (!Number.isFinite(nextPage) || nextPage < 1 || nextPage === appState.dashboardPage) return;
+      appState.dashboardPage = nextPage;
+      persistDemoState();
+      renderApp();
+    });
+  });
 
   const addClientButton = document.getElementById("addClientButton");
   if (addClientButton) {
@@ -5380,37 +7351,48 @@ function bindContentEvents() {
         showToast("Сначала выбери клиента");
         return;
       }
-      createVisitForClient(selectedClient.id);
-      renderApp();
-      showToast("Обращение создано");
+      if (window.openClientModal) {
+        window.openClientModal(selectedClient.id, { encounterMode: true });
+      }
     });
   }
 
   const operatorVisitForm = document.getElementById("operatorVisitForm");
-  if (operatorVisitForm) {
-    operatorVisitForm.addEventListener("submit", (event) => {
-      event.preventDefault();
-      saveOperatorVisitForm();
-      renderApp();
-      showToast("Обращение сохранено");
+    if (operatorVisitForm) {
+      operatorVisitForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const visit = await saveOperatorVisitForm();
+        renderApp();
+        if (appState.pendingAutoOpenDocumentId) {
+          const pendingDocumentId = appState.pendingAutoOpenDocumentId;
+          delete appState.pendingAutoOpenDocumentId;
+          window.setTimeout(() => {
+            openDemoDocument(pendingDocumentId);
+          }, 0);
+        }
+        const feedback = visit?.__saveFeedbackToast || "Обращение сохранено";
+        if (visit && "__saveFeedbackToast" in visit) {
+          delete visit.__saveFeedbackToast;
+        }
+        showToast(feedback);
     });
 
     operatorVisitForm.querySelectorAll('input[name="visitService"]').forEach((checkbox) => {
-      checkbox.addEventListener("change", () => {
+      checkbox.addEventListener("change", async () => {
         const patch = readOperatorVisitForm(operatorVisitForm);
         const amountInput = operatorVisitForm.querySelector('input[name="amount"]');
         if (amountInput) amountInput.value = String(calculateVisitAmountByIds(patch.serviceIds, patch.serviceDetails));
-        saveOperatorVisitForm({ recalculate: true });
+        await saveOperatorVisitForm({ recalculate: true });
         renderAppKeepingOperatorVisitPosition(operatorVisitForm);
       });
     });
 
     operatorVisitForm.querySelectorAll('input[name="driverCategory"]').forEach((checkbox) => {
-      checkbox.addEventListener("change", () => {
+      checkbox.addEventListener("change", async () => {
         const patch = readOperatorVisitForm(operatorVisitForm);
         const amountInput = operatorVisitForm.querySelector('input[name="amount"]');
         if (amountInput) amountInput.value = String(calculateVisitAmountByIds(patch.serviceIds, patch.serviceDetails));
-        saveOperatorVisitForm({ recalculate: true });
+        await saveOperatorVisitForm({ recalculate: true });
         renderAppKeepingOperatorVisitPosition(operatorVisitForm);
       });
     });
@@ -5418,16 +7400,16 @@ function bindContentEvents() {
 
   const visitServiceSearchInput = document.getElementById("visitServiceSearchInput");
   if (visitServiceSearchInput) {
-    visitServiceSearchInput.addEventListener("input", (event) => {
-      saveOperatorVisitForm();
+    visitServiceSearchInput.addEventListener("input", async (event) => {
+      await saveOperatorVisitForm();
       appState.visitServiceSearch = event.target.value;
       rerenderAndRestoreInput("visitServiceSearchInput", event.target.value, event.target.selectionStart || event.target.value.length);
     });
   }
 
   contentRoot.querySelectorAll("[data-visit-service-group]").forEach((button) => {
-    button.addEventListener("click", () => {
-      saveOperatorVisitForm();
+    button.addEventListener("click", async () => {
+      await saveOperatorVisitForm();
       appState.visitServiceGroupFilter = button.dataset.visitServiceGroup;
       renderApp();
     });
@@ -5435,8 +7417,8 @@ function bindContentEvents() {
 
   const recalculateVisitAmountButton = document.getElementById("recalculateVisitAmountButton");
   if (recalculateVisitAmountButton) {
-    recalculateVisitAmountButton.addEventListener("click", () => {
-      saveOperatorVisitForm({ recalculate: true });
+    recalculateVisitAmountButton.addEventListener("click", async () => {
+      await saveOperatorVisitForm({ recalculate: true });
       renderApp();
       showToast("Сумма пересчитана по выбранным услугам");
     });
@@ -5444,10 +7426,17 @@ function bindContentEvents() {
 
   const openVisitDocumentsButton = document.getElementById("openVisitDocumentsButton");
   if (openVisitDocumentsButton) {
-    openVisitDocumentsButton.addEventListener("click", () => {
-      saveOperatorVisitForm();
+    openVisitDocumentsButton.addEventListener("click", async () => {
+      const visit = await saveOperatorVisitForm();
+      const selectedClient = getSelectedClient();
       appState.page = "blanks";
-      loadWorkflowData();
+      await loadWorkflowData({
+        clientId: selectedClient?.backendId || selectedClient?.id || null,
+        encounterId: visit?.backendId || null,
+      });
+      if (typeof window.loadBlanksData === "function") {
+        await window.loadBlanksData({ force: true });
+      }
       renderApp();
       showToast("Открыты документы по обращению");
     });
@@ -5455,8 +7444,8 @@ function bindContentEvents() {
 
   const closeVisitButton = document.getElementById("closeVisitButton");
   if (closeVisitButton) {
-    closeVisitButton.addEventListener("click", () => {
-      saveOperatorVisitForm({ close: true });
+    closeVisitButton.addEventListener("click", async () => {
+      await saveOperatorVisitForm({ close: true });
       renderApp();
       showToast("Обращение завершено");
     });
@@ -5492,6 +7481,37 @@ function bindContentEvents() {
     });
   }
 
+  contentRoot.querySelectorAll("[data-delete-staff-user]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const userId = Number(button.dataset.deleteStaffUser || 0);
+      const userName = button.dataset.deleteStaffName || "сотрудник";
+      if (!userId) return;
+      const confirmed = window.confirm(`Удалить сотрудника "${userName}"?`);
+      if (!confirmed) return;
+      await deleteDemoStaffUser(userId, userName);
+    });
+  });
+
+  const employeeSignOutButton = document.getElementById("employeeSignOut");
+  if (employeeSignOutButton) {
+    employeeSignOutButton.addEventListener("click", () => {
+      appState.auth = {
+        accessToken: "",
+        userName: "",
+        roleCode: "",
+        roleName: "",
+      };
+      data.staffUsers = [];
+      data.staffRoles = [];
+      data.staffError = "";
+      data.staffCreateError = "";
+      appState.page = "employee";
+      renderApp();
+      persistDemoState();
+      showToast("Вы вышли из режима сотрудника");
+    });
+  }
+
   contentRoot.querySelectorAll("[data-select-visit-id]").forEach((button) => {
     button.addEventListener("click", async () => {
       appState.activeVisitId = button.dataset.selectVisitId;
@@ -5505,7 +7525,12 @@ function bindContentEvents() {
 
   contentRoot.querySelectorAll("[data-generate-document]").forEach((button) => {
     button.addEventListener("click", () => {
-      openDemoDocument(button.dataset.generateDocument);
+      const documentType = button.dataset.generateDocument;
+      if (documentType === "driver") {
+        openDriverPrintFlow();
+        return;
+      }
+      openDemoDocument(documentType);
     });
   });
 
@@ -5530,28 +7555,34 @@ function bindContentEvents() {
 
   contentRoot.querySelectorAll("[data-client-id]").forEach((button) => {
     button.addEventListener("click", async (event) => {
+      event.preventDefault();
       const doctorCell = event.target.closest("[data-row-doctor-role-id]");
       const doctorRoleId = doctorCell?.dataset.rowDoctorRoleId || "";
-      appState.selectedClientId = Number(button.dataset.clientId);
+      const nextClientId = Number(button.dataset.clientId);
+      const wasSameSelectedClient = String(appState.selectedClientId) === String(nextClientId);
+      if (
+        doctorRoleId &&
+        Number(window.__suppressDoctorCellClickUntil || 0) > Date.now()
+      ) {
+        return;
+      }
+      appState.selectedClientId = nextClientId;
       appState.activeVisitId = getCurrentVisitForClient(appState.selectedClientId)?.id || null;
       persistDemoState();
       renderApp();
       const selectedClient = getSelectedClient();
-      await loadClientWorkspace(selectedClient);
+      if (!doctorRoleId || !wasSameSelectedClient) {
+        await loadClientWorkspace(selectedClient);
+      }
 
       if (selectedClient && doctorRoleId) {
-        const activeVisit = getOrCreateDraftVisit(selectedClient.id);
-        await loadDoctorExamsForClient(selectedClient, activeVisit);
-        if (doctorRoleId === "chairman" && typeof window.resolveServiceCardKind === "function") {
-          const visitServiceIds = getSelectedVisitServiceIds(activeVisit);
-          const selectedServiceId =
-            visitServiceIds.find((serviceId) => window.resolveServiceCardKind(getServiceById(serviceId)) === "driver") ||
-            visitServiceIds.find((serviceId) => window.resolveServiceCardKind(getServiceById(serviceId)) === "sport") ||
-            visitServiceIds[0];
-          if (selectedServiceId) {
-            window.openServiceCard?.(selectedServiceId);
-            return;
-          }
+        const activeVisit = getCurrentVisitForClient(selectedClient.id) || getOrCreateDraftVisit(selectedClient.id);
+        if (!wasSameSelectedClient) {
+          await loadDoctorExamsForClient(selectedClient, activeVisit);
+        }
+        if (doctorRoleId === "print") {
+          await openDriverPrintFlow();
+          return;
         }
         openDoctorExamCard({
           clientId: selectedClient.id,
@@ -5607,6 +7638,52 @@ function bindContentEvents() {
     });
   });
 
+  contentRoot.querySelector("[data-refresh-document-templates]")?.addEventListener("click", async () => {
+    data.templateOperationStatus = "Перечитываем шаблоны...";
+    renderApp();
+    try {
+      await refreshDocumentTemplatesFromBackend();
+    } catch (error) {
+      data.templateOperationStatus = humanizeApiError(error, "Не удалось перечитать шаблоны");
+      renderApp();
+    }
+  });
+
+  contentRoot.querySelectorAll("[data-open-document-template]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const templateId = button.dataset.openDocumentTemplate;
+      if (!templateId) return;
+      window.open(buildTemplateFileUrl(templateId), "_blank", "noopener,noreferrer");
+    });
+  });
+
+  contentRoot.querySelectorAll("[data-replace-document-template]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const templateId = button.dataset.replaceDocumentTemplate;
+      const input = document.getElementById("documentTemplateUploadInput");
+      if (!templateId || !input) return;
+      input.dataset.templateId = templateId;
+      input.click();
+    });
+  });
+
+  document.getElementById("documentTemplateUploadInput")?.addEventListener("change", async (event) => {
+    const input = event.target;
+    const templateId = input.dataset.templateId;
+    const file = input.files?.[0];
+    if (!templateId || !file) return;
+    data.templateOperationStatus = "Загружаем новый файл шаблона...";
+    renderApp();
+    try {
+      await replaceDocumentTemplateFile(templateId, file);
+    } catch (error) {
+      data.templateOperationStatus = humanizeApiError(error, "Не удалось обновить шаблон");
+      renderApp();
+    } finally {
+      input.value = "";
+    }
+  });
+
   contentRoot.querySelectorAll("[data-doctor-name-input]").forEach((input) => {
     input.addEventListener("input", (event) => {
       setDoctorFullName(input.dataset.doctorNameInput, event.target.value);
@@ -5618,6 +7695,59 @@ function bindContentEvents() {
     button.addEventListener("click", () => showToast(button.dataset.demoToast));
   });
 
+  const chairmanForm = contentRoot.querySelector('.chairman-form[data-doctor-role-id="chairman"]');
+  const chairmanActions = chairmanForm?.querySelector(".chairman-actions");
+  if (chairmanForm && chairmanActions && !chairmanActions.querySelector("[data-chairman-print]")) {
+    const printButton = document.createElement("button");
+    printButton.type = "button";
+    printButton.className = "chairman-action-btn";
+    printButton.dataset.chairmanPrint = "true";
+    printButton.textContent = "Печать";
+    chairmanActions.prepend(printButton);
+
+    printButton.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const examId = chairmanForm.dataset.examId;
+      if (!examId) {
+        showToast("Не удалось подготовить печать из окна председателя");
+        return;
+      }
+
+      const values = collectChairmanModalFormValues(chairmanForm);
+      const saved = await window.saveDoctorExam?.(examId, values);
+      if (!saved) return;
+
+      const exam = data.doctorExams.find((item) => String(item.id) === String(examId));
+      const client = exam
+        ? data.clients.find((item) => String(item.id) === String(exam.clientId))
+        : getSelectedClient();
+      const visit = exam
+        ? data.visits.find((item) => String(item.id) === String(exam.visitId))
+        : client
+          ? getCurrentVisitForClient(client.id)
+          : null;
+      const printType = getChairmanTemplatePrintType(visit);
+
+      if (printType) {
+        try {
+          const documentItem = await printDocumentForVisit(printType, client, visit);
+          window.closeDoctorExamCard?.();
+          showToast(`Шаблон открыт для печати: ${documentItem?.title || "документ"}`);
+        } catch (error) {
+          console.error(error);
+          showToast(humanizeApiError(error, "Не удалось открыть шаблон для печати"));
+        }
+        return;
+      }
+
+      window.closeDoctorExamCard?.();
+      await window.openDriverPrintFlow?.();
+    });
+  }
+
+  window.bindBlanksHandlers?.();
   bindColumnResize();
   window.bindServiceCardHandlers?.();
 }
@@ -5650,6 +7780,18 @@ function bindMedicalRecordPanelResize() {
 }
 
 function renderApp() {
+  if (appState.page === "reports" && !canAccessReportsWorkspace()) {
+    appState.page = appState.auth.accessToken ? "employee" : "dashboard";
+  }
+
+  if (authStatusLabel) {
+    authStatusLabel.textContent = repairDemoText(
+      appState.auth.accessToken
+        ? `${appState.auth.userName || "Сотрудник"} · ${appState.auth.roleName || "Без роли"}`
+        : "Гость",
+    );
+  }
+
   if (pageTitle) {
     pageTitle.textContent = repairDemoText(getPageTitle());
   }
@@ -5676,6 +7818,8 @@ function renderApp() {
 if (centerSelect) {
   centerSelect.addEventListener("change", (event) => {
     appState.centerFilter = event.target.value;
+    appState.dashboardPage = 1;
+    persistDemoState();
     renderApp();
   });
 }
@@ -5695,7 +7839,8 @@ document.getElementById("performLogin")?.addEventListener("click", async () => {
     await loginDemoStaff(login, password);
     loginModal?.classList.add("hidden");
     showToast(`Вход выполнен: ${appState.auth.userName || login}`);
-    if (appState.page === "employee") {
+    if (appState.page === "employee" || appState.auth.roleCode === "admin" || appState.auth.roleCode === "chairman") {
+      appState.page = "employee";
       await loadStaffWorkspace();
     } else {
       renderApp();
@@ -5741,6 +7886,7 @@ window.markServicesChanged = markServicesChanged;
 window.openDoctorExamCard = openDoctorExamCard;
 window.closeDoctorExamCard = closeDoctorExamCard;
 window.saveDoctorExam = saveDoctorExam;
+window.saveDoctorExamDraft = saveDoctorExamDraft;
 window.deleteDoctorExam = deleteDoctorExam;
 window.openDemoDocument = openDemoDocument;
 window.createDemoDocument = createDemoDocument;
@@ -5757,6 +7903,7 @@ window.getServiceById = getServiceById;
 window.showToast = showToast;
 window.escapeHtml = escapeHtml;
 window.renderApp = renderApp;
+window.openDriverPrintFlow = openDriverPrintFlow;
 
 renderApp();
 Promise.all([loadServicesFromBackend(), loadDocumentTemplatesFromBackend()]).then(() => {

@@ -25,7 +25,6 @@
     const legacyId = Number(service.legacySourceId || service.legacy_source_id || 0);
     const name = String(service.name || "").trim().toLowerCase();
 
-    // Медицинская комиссия для водительского удостоверения / Водительская справка.
     if (DRIVER_LEGACY_IDS.has(legacyId)) return "driver";
     if (
       name === "водительская справка" ||
@@ -36,7 +35,6 @@
       return "driver";
     }
 
-    // Справка для участия в соревнованиях / Справка спорт + ЭКГ.
     if (SPORT_LEGACY_IDS.has(legacyId)) return "sport";
     if (
       name === "справка для участия в соревнованиях" ||
@@ -47,7 +45,6 @@
       return "sport";
     }
 
-    // Всё остальное — простой плейсхолдер.
     return "placeholder";
   }
 
@@ -78,7 +75,8 @@
     const visit = window.getOrCreateDraftVisit && window.getOrCreateDraftVisit(client.id);
 
     const kind = resolveServiceCardKind(service);
-    if (kind === "driver") {
+    if (kind === "driver" || kind === "chairman") {
+      closeServiceCardOverlays();
       // ВАЖНО: водительская карточка — chairman, как было раньше.
       window.openDoctorExamCard({
         clientId: client.id,
@@ -92,6 +90,17 @@
       return;
     }
     openServicePlaceholder(service);
+  }
+
+  function closeServiceCardOverlays() {
+    const data = window.data;
+    if (data?.sportCard) {
+      data.sportCard.isOpen = false;
+      data.sportCard.phrasePicker = null;
+    }
+    if (data?.servicePlaceholder) {
+      data.servicePlaceholder.isOpen = false;
+    }
   }
 
   // ----- Спортивная карточка -----------------------------------------------
@@ -112,6 +121,7 @@
   }
 
   function openSportCard({ clientId, visitId, service }) {
+    closeServiceCardOverlays();
     const state = ensureSportState();
     if (typeof window.getOrCreateDoctorExam === "function") {
       // Через существующий механизм doctor_exams. У doctor_role_id нет FK.
@@ -427,6 +437,7 @@
   }
 
   function openServicePlaceholder(service) {
+    closeServiceCardOverlays();
     window.data.servicePlaceholder = {
       isOpen: true,
       serviceName: service?.name || "Услуга",
@@ -625,10 +636,12 @@
   }
 
   function renderServiceCardModals() {
+    if (window.appState?.doctorExamModal?.isOpen) return "";
     return renderSportCard() + renderServicePlaceholder();
   }
 
   window.openServiceCard = openServiceCard;
+  window.closeServiceCardOverlays = closeServiceCardOverlays;
   window.closeSportCard = closeSportCard;
   window.openPhrasePicker = openPhrasePicker;
   window.closePhrasePicker = closePhrasePicker;

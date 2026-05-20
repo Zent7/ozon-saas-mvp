@@ -1,4 +1,6 @@
 (function () {
+  const CHAIRMAN_MEDICAL_REQUIREMENTS_HISTORY_KEY = "vova-chairman-medical-requirements-history-v1";
+
   function escapeHtml(value) {
     return String(value ?? "")
       .replace(/&/g, "&amp;")
@@ -6,6 +8,157 @@
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+  }
+
+  function normalizeMedicalRequirementValue(value) {
+    return String(value ?? "").trim();
+  }
+
+  function loadMedicalRequirementsHistory() {
+    try {
+      const raw = window.localStorage?.getItem(CHAIRMAN_MEDICAL_REQUIREMENTS_HISTORY_KEY);
+      const values = raw ? JSON.parse(raw) : [];
+      return Array.isArray(values)
+        ? values.map(normalizeMedicalRequirementValue).filter(Boolean)
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveMedicalRequirementsHistory(values) {
+    const uniqueValues = [];
+    const seen = new Set();
+    (Array.isArray(values) ? values : []).forEach((value) => {
+      const normalized = normalizeMedicalRequirementValue(value);
+      const key = normalized.toLowerCase();
+      if (!normalized || seen.has(key)) return;
+      seen.add(key);
+      uniqueValues.push(normalized);
+    });
+    try {
+      window.localStorage?.setItem(CHAIRMAN_MEDICAL_REQUIREMENTS_HISTORY_KEY, JSON.stringify(uniqueValues.slice(0, 80)));
+    } catch {
+      // localStorage may be unavailable in embedded views.
+    }
+    return uniqueValues;
+  }
+
+  function rememberMedicalRequirementValue(value) {
+    const normalized = normalizeMedicalRequirementValue(value);
+    if (!normalized) return loadMedicalRequirementsHistory();
+    return saveMedicalRequirementsHistory([normalized, ...loadMedicalRequirementsHistory()]);
+  }
+
+  window.rememberChairmanMedicalRequirement = rememberMedicalRequirementValue;
+
+  function closeMedicalRequirementsPicker() {
+    document.querySelector("[data-medical-requirements-picker]")?.remove();
+  }
+
+  function openMedicalRequirementsPicker(textarea) {
+    if (!textarea) return;
+    closeMedicalRequirementsPicker();
+
+    let history = saveMedicalRequirementsHistory(loadMedicalRequirementsHistory());
+    let selectedValue = normalizeMedicalRequirementValue(textarea.value) || history[0] || "";
+    const overlay = document.createElement("div");
+    overlay.className = "medical-requirements-picker";
+    overlay.dataset.medicalRequirementsPicker = "true";
+    overlay.innerHTML = `
+      <div class="medical-requirements-picker__panel" role="dialog" aria-modal="true" aria-label="Выбор значений">
+        <div class="medical-requirements-picker__head">
+          <strong>Выбор значений</strong>
+          <button type="button" class="medical-requirements-picker__close" data-medical-requirements-close aria-label="Закрыть">×</button>
+        </div>
+        <label class="medical-requirements-picker__label">Начните поиск с трех символов</label>
+        <div class="medical-requirements-picker__top">
+          <input class="medical-requirements-picker__search" data-medical-requirements-search value="${escapeHtml(selectedValue)}" />
+          <button type="button" class="medical-requirements-picker__small" data-medical-requirements-remove>-</button>
+          <button type="button" class="medical-requirements-picker__small" data-medical-requirements-add>+</button>
+          <button type="button" class="medical-requirements-picker__ok" data-medical-requirements-ok>OK</button>
+        </div>
+        <div class="medical-requirements-picker__list" data-medical-requirements-list></div>
+      </div>
+    `;
+
+    const panel = overlay.querySelector(".medical-requirements-picker__panel");
+    const searchInput = overlay.querySelector("[data-medical-requirements-search]");
+    const listNode = overlay.querySelector("[data-medical-requirements-list]");
+
+    const commitValue = (value) => {
+      const normalized = normalizeMedicalRequirementValue(value);
+      if (!normalized) return;
+      textarea.value = normalized;
+      rememberMedicalRequirementValue(normalized);
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea.dispatchEvent(new Event("change", { bubbles: true }));
+      closeMedicalRequirementsPicker();
+    };
+
+    const renderList = () => {
+      const query = normalizeMedicalRequirementValue(searchInput?.value).toLowerCase();
+      const visibleValues = history.filter((item) => !query || item.toLowerCase().includes(query));
+      listNode.innerHTML = visibleValues.length
+        ? visibleValues
+            .map(
+              (item) => `
+                <button type="button" class="medical-requirements-picker__item${item === selectedValue ? " medical-requirements-picker__item--active" : ""}" data-medical-requirements-value="${escapeHtml(item)}">
+                  <span>${escapeHtml(item)}</span>
+                </button>
+              `,
+            )
+            .join("")
+        : `<div class="medical-requirements-picker__empty">Введите значение и нажмите + или OK</div>`;
+
+      listNode.querySelectorAll("[data-medical-requirements-value]").forEach((button) => {
+        button.addEventListener("click", () => {
+          selectedValue = normalizeMedicalRequirementValue(button.dataset.medicalRequirementsValue);
+          if (searchInput) searchInput.value = selectedValue;
+          renderList();
+        });
+        button.addEventListener("dblclick", () => commitValue(button.dataset.medicalRequirementsValue));
+      });
+    };
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) closeMedicalRequirementsPicker();
+    });
+    panel?.addEventListener("click", (event) => event.stopPropagation());
+    overlay.querySelector("[data-medical-requirements-close]")?.addEventListener("click", closeMedicalRequirementsPicker);
+    overlay.querySelector("[data-medical-requirements-ok]")?.addEventListener("click", () => {
+      commitValue(selectedValue || searchInput?.value);
+    });
+    overlay.querySelector("[data-medical-requirements-add]")?.addEventListener("click", () => {
+      selectedValue = normalizeMedicalRequirementValue(searchInput?.value);
+      history = rememberMedicalRequirementValue(selectedValue);
+      renderList();
+    });
+    overlay.querySelector("[data-medical-requirements-remove]")?.addEventListener("click", () => {
+      const removeKey = normalizeMedicalRequirementValue(selectedValue || searchInput?.value).toLowerCase();
+      history = saveMedicalRequirementsHistory(history.filter((item) => item.toLowerCase() !== removeKey));
+      selectedValue = history[0] || "";
+      if (searchInput) searchInput.value = "";
+      renderList();
+    });
+    searchInput?.addEventListener("input", () => {
+      selectedValue = normalizeMedicalRequirementValue(searchInput.value);
+      renderList();
+    });
+    searchInput?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commitValue(selectedValue || searchInput.value);
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMedicalRequirementsPicker();
+      }
+    });
+
+    document.body.appendChild(overlay);
+    renderList();
+    setTimeout(() => searchInput?.focus(), 0);
   }
 
   function renderClassicRadio(name, value, options) {
@@ -589,6 +742,15 @@
     const fields = exam.fields || {};
     const fullName = client?.fullName || client?.name || client?.fio || "Клиент";
     const birthDate = fields.birthDate || client?.birthDate || "";
+    const emptyLegacyValue = (value, legacyValues = []) => {
+      const normalized = String(value ?? "");
+      return legacyValues.includes(normalized) ? "" : normalized;
+    };
+    const ekgValue = emptyLegacyValue(fields.ekg, ['Медицинский центр ООО "ЦМО "ЮЛМЕД" ЭКГ от 07.04.2025']);
+    const ekgConclusionValue = emptyLegacyValue(fields.ekgConclusion, [
+      "Ритм синусовый, ЧСС , нормальная электрическая позиция сердца, ЭКГ-комплексы без особенностей от 07.04.2025",
+    ]);
+    const noteValue = emptyLegacyValue(fields.note, ["прио/"]);
 
     return `
       <div class="doctor-classic-backdrop" data-doctor-exam-modal>
@@ -620,7 +782,7 @@
 
                 <div class="chairman-main-row chairman-main-row--requirements">
                   <label class="chairman-main-label">Мед. требования:</label>
-                  <textarea class="doctor-classic-textarea chairman-textarea chairman-textarea--big" name="medicalRequirements">${escapeHtml(fields.medicalRequirements ?? "")}</textarea>
+                  <textarea class="doctor-classic-textarea chairman-textarea chairman-textarea--big" name="medicalRequirements" data-medical-requirements-input>${escapeHtml(fields.medicalRequirements ?? "")}</textarea>
                 </div>
               </div>
 
@@ -633,12 +795,12 @@
             <div class="chairman-middle">
               <div class="chairman-row">
                 <label class="chairman-row-label">ЭКГ:</label>
-                <input class="doctor-classic-input" type="text" name="ekg" value="${escapeHtml(fields.ekg ?? "")}" />
+                <input class="doctor-classic-input" type="text" name="ekg" value="${escapeHtml(ekgValue)}" />
               </div>
 
               <div class="chairman-row chairman-row--ekg-conclusion">
                 <label class="chairman-row-label">Заключение ЭКГ:</label>
-                <textarea class="doctor-classic-textarea chairman-textarea chairman-textarea--small" name="ekgConclusion">${escapeHtml(fields.ekgConclusion ?? "")}</textarea>
+                <textarea class="doctor-classic-textarea chairman-textarea chairman-textarea--small" name="ekgConclusion">${escapeHtml(ekgConclusionValue)}</textarea>
                 <div class="chairman-blood">
                   <div class="chairman-blood-row">
                     <label>Группа крови</label>
@@ -780,11 +942,12 @@
 
             <div class="chairman-footer">
               ${renderCheckboxField("periodicProf", !!fields.periodicProf, "Периодический проф")}
+              ${renderCheckboxField("stampApplied", !!fields.stampApplied, "Печать поставлена")}
             </div>
 
             <div class="chairman-note">
               <label>Примечание:</label>
-              <textarea class="doctor-classic-textarea chairman-textarea chairman-textarea--note" name="note">${escapeHtml(fields.note ?? "")}</textarea>
+              <textarea class="doctor-classic-textarea chairman-textarea chairman-textarea--note" name="note">${escapeHtml(noteValue)}</textarea>
             </div>
           </form>
         </div>
@@ -1243,6 +1406,17 @@
 
   function collectFormData(form, template) {
     const result = {};
+    const readInputValue = (input) => {
+      if (!input) return "";
+      if (input.type === "radio") {
+        const checked = form.querySelector(`input[name="${input.name}"]:checked`);
+        return checked ? checked.value : "";
+      }
+      if (input.type === "checkbox") {
+        return !!input.checked;
+      }
+      return input.value ?? "";
+    };
 
     (template.fields || []).forEach((field) => {
       if (field.type === "radio") {
@@ -1257,12 +1431,27 @@
       }
     });
 
+    form.querySelectorAll("input[name], textarea[name], select[name]").forEach((input) => {
+      if (!input.name || Object.prototype.hasOwnProperty.call(result, input.name)) {
+        return;
+      }
+      result[input.name] = readInputValue(input);
+    });
+
+    if (form.dataset.doctorRoleId === "chairman") {
+      rememberMedicalRequirementValue(result.medicalRequirements);
+    }
+
     return result;
   }
 
   function bindDoctorExamModal() {
     const modal = document.querySelector("[data-doctor-exam-modal]");
     if (!modal) return;
+
+    const suppressDoctorCellReopen = () => {
+      window.__suppressDoctorCellClickUntil = Date.now() + 400;
+    };
 
     modal.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -1272,10 +1461,23 @@
       event.stopPropagation();
     });
 
+    modal.addEventListener("mouseup", (event) => {
+      event.stopPropagation();
+    });
+
+    modal.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+    });
+
+    modal.addEventListener("pointerup", (event) => {
+      event.stopPropagation();
+    });
+
     modal.querySelectorAll("[data-doctor-exam-close]").forEach((button) => {
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
+        suppressDoctorCellReopen();
         window.setTimeout(() => {
           window.closeDoctorExamCard();
         }, 0);
@@ -1304,9 +1506,57 @@
     const form = modal.querySelector("[data-doctor-exam-form]");
     if (!form) return;
 
-    form.addEventListener("submit", (event) => {
+    if (form.dataset.doctorRoleId === "chairman") {
+      const medicalRequirementsInput = form.querySelector("[data-medical-requirements-input]");
+      if (medicalRequirementsInput) {
+        const rememberCurrentRequirements = () => rememberMedicalRequirementValue(medicalRequirementsInput.value);
+        const showRequirementsPicker = (event) => {
+          event.stopPropagation();
+          openMedicalRequirementsPicker(medicalRequirementsInput);
+        };
+        medicalRequirementsInput.addEventListener("pointerdown", showRequirementsPicker);
+        medicalRequirementsInput.addEventListener("mousedown", showRequirementsPicker);
+        medicalRequirementsInput.addEventListener("click", showRequirementsPicker);
+        medicalRequirementsInput.addEventListener("focus", showRequirementsPicker);
+        medicalRequirementsInput.addEventListener("change", rememberCurrentRequirements);
+        medicalRequirementsInput.addEventListener("blur", rememberCurrentRequirements);
+      }
+
+      form.querySelectorAll(".chairman-checkbox, .chairman-checkbox input").forEach((element) => {
+        ["click", "mousedown", "mouseup", "pointerdown", "pointerup"].forEach((eventName) => {
+          element.addEventListener(eventName, (event) => {
+            event.stopPropagation();
+          });
+        });
+      });
+
+      form.querySelectorAll("input, textarea, select").forEach((field) => {
+        const saveChairmanDraft = (event) => {
+          event.stopPropagation();
+          const examId = form.dataset.examId;
+          const template = window.getDoctorTemplate(form.dataset.doctorRoleId);
+          if (!examId || !template) return;
+          const values = collectFormData(form, template);
+          window.saveDoctorExamDraft?.(examId, values);
+        };
+        field.addEventListener("input", saveChairmanDraft);
+        field.addEventListener("change", saveChairmanDraft);
+      });
+    }
+
+    form.querySelectorAll('button[type="submit"]').forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        form.requestSubmit();
+      });
+    });
+
+    form.addEventListener("submit", async (event) => {
       event.preventDefault();
       event.stopPropagation();
+      event.stopImmediatePropagation();
 
       const examId = form.dataset.examId;
       const doctorRoleId = form.dataset.doctorRoleId;
@@ -1314,14 +1564,19 @@
       if (!template) return;
 
       const values = collectFormData(form, template);
-      window.closeDoctorExamCard();
-      window.saveDoctorExam(examId, values);
+      rememberMedicalRequirementValue(values.medicalRequirements);
+      suppressDoctorCellReopen();
+      const saved = await window.saveDoctorExam(examId, values);
+      if (saved) {
+        window.closeDoctorExamCard();
+      }
     });
 
     // Применение пресета жалоб: при смене select[name=complaintsPreset] подставляем
     // соответствующие значения полей из window.doctorPresets.
     const presetSelect = form.querySelector('select[name="complaintsPreset"]');
     if (presetSelect) {
+      let lastAppliedPresetValues = null;
       presetSelect.addEventListener("change", () => {
         const doctorRoleId = form.dataset.doctorRoleId;
         const presetName = presetSelect.value;
@@ -1334,13 +1589,26 @@
           if (!elements) return;
           const el = elements.length && elements.tagName === undefined ? elements[0] : elements;
           if (!el || el.type === "radio" || el.type === "checkbox") return;
-          el.value = value == null ? "" : String(value);
+          const nextValue = value == null ? "" : String(value);
+          const currentValue = String(el.value ?? "");
+          const previousPresetValue = lastAppliedPresetValues && fieldKey in lastAppliedPresetValues
+            ? String(lastAppliedPresetValues[fieldKey] ?? "")
+            : null;
+          const canAutofill =
+            !currentValue.trim() ||
+            (previousPresetValue !== null && currentValue === previousPresetValue);
+
+          if (canAutofill) {
+            el.value = nextValue;
+          }
         });
+
+        lastAppliedPresetValues = { ...preset };
       });
     }
 
     modal.querySelectorAll("[data-psy-tab]").forEach((button) => {
-      button.addEventListener("click", () => {
+      button.addEventListener("click", async () => {
         const localForm = modal.querySelector("[data-doctor-exam-form]");
         if (!localForm) return;
 
@@ -1355,7 +1623,7 @@
         if (!template) return;
 
         const values = collectFormData(localForm, template);
-        window.saveDoctorExam(examId, values);
+        await window.saveDoctorExam(examId, values);
 
         const state = window.appState?.doctorExamModal;
         if (state?.isOpen) {
