@@ -90,7 +90,7 @@ def main() -> None:
     generated_file: str | None = None
     try:
         status, health = request("GET", "/health")
-        assert status == 200 and health == {"status": "ok"}, (status, health)
+        assert status == 200 and isinstance(health, dict) and health.get("status") == "ok", (status, health)
 
         status, services = request("GET", "/services")
         assert status == 200 and isinstance(services, list) and len(services) > 0, (status, services)

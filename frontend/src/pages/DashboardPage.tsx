@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { api, type DashboardStats } from "../shared/api";
 
@@ -10,6 +11,7 @@ const quickStats = [
 ];
 
 export function DashboardPage() {
+  const navigate = useNavigate();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [error, setError] = useState<string>("");
 
@@ -88,10 +90,18 @@ export function DashboardPage() {
             <span>Частые сценарии</span>
           </div>
           <div className="action-grid">
-            <button className="button" type="button">Новая карточка</button>
-            <button className="button button--secondary" type="button">Новое обращение</button>
-            <button className="button button--secondary" type="button">Печать документа</button>
-            <button className="button button--secondary" type="button">Журнал повторов</button>
+            <button className="button" type="button" onClick={() => navigate("/clients")}>
+              Новая карточка
+            </button>
+            <button className="button button--secondary" type="button" onClick={() => navigate("/encounters")}>
+              Новое обращение
+            </button>
+            <button className="button button--secondary" type="button" onClick={() => navigate("/clients")}>
+              Печать документа
+            </button>
+            <button className="button button--secondary" type="button" onClick={() => navigate("/recalls")}>
+              Журнал повторов
+            </button>
           </div>
         </section>
       </div>

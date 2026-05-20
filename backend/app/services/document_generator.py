@@ -15,7 +15,6 @@ from xlrd import xldate
 from xlutils.copy import copy as copy_xls_workbook
 
 from app.core.config import settings
-from app.models.blank_form import BLANK_TYPE_DRIVER_MEDICAL_CERTIFICATE
 from app.models.client import Client
 from app.models.doctor_exam import DoctorExam
 from app.models.document_journal import DocumentJournalEntry
@@ -23,12 +22,14 @@ from app.models.document_template import DocumentTemplate
 from app.models.encounter import Encounter
 from app.models.encounter_service import EncounterService
 from app.models.generated_document import GeneratedDocument
+from app.models.medical_record import MedicalRecord, MedicalRecordEntry
 from app.models.service import Service
 from app.schemas.document_generation import DocumentGenerateResponse
 from app.services.audit import write_audit_log
 from app.services.blank_forms import (
-    is_driver_certificate_template,
+    issue_specific_blank,
     issue_next_blank,
+    resolve_required_blank_type,
     reuse_blank_for_existing_document,
 )
 from app.services.document_context import build_document_context
@@ -82,6 +83,14 @@ def _context_token_variants(context: dict[str, str]) -> list[tuple[str, str]]:
 
 def _normalized_context_lookup(context: dict[str, str]) -> dict[str, str]:
     return {normalized: value for normalized, value in _context_token_variants(context)}
+
+
+def _has_context_bookmarks(xml_text: str, context: dict[str, str]) -> bool:
+    bookmark_names = re.findall(r'w:bookmarkStart\b[^>]*\bw:name="([^"]+)"', xml_text)
+    if not bookmark_names:
+        return False
+    context_keys = set(context.keys())
+    return any(name and not name.startswith("_") and name in context_keys for name in bookmark_names)
 
 
 def _replace_text_tokens(xml_text: str, context: dict[str, str]) -> str:
@@ -288,17 +297,28 @@ def _generate_docx(
                     xml_text = _replace_text_tokens(xml_text, context)
                     if cleanup_xml:
                         xml_text = _cleanup_contract_xml(xml_text)
-                    try:
-                        tree = ET.ElementTree(ET.fromstring(xml_text))
-                        tree = _replace_paragraph_tokens(tree, context)
-                        tree = _replace_text_node_tokens(tree, context)
-                        tree = _replace_split_token_nodes(tree, context)
-                        tree = _append_bookmark_value(tree, context)
-                        tree = _expand_service_rows(tree, service_rows or [])
-                        file_bytes = ET.tostring(tree.getroot(), encoding="utf-8", xml_declaration=True)
-                    except ParseError:
-                        # Some client templates contain non-standard Word XML fragments.
-                        # In that case we still keep token replacement instead of failing generation.
+                    needs_tree_pass = (
+                        "[" in xml_text
+                        or _has_context_bookmarks(xml_text, context)
+                        or (
+                            bool(service_rows)
+                            and "qdfOrderServices_Ordinal_Service_Quantity_ServiceDate" in xml_text
+                        )
+                    )
+                    if needs_tree_pass:
+                        try:
+                            tree = ET.ElementTree(ET.fromstring(xml_text))
+                            tree = _replace_paragraph_tokens(tree, context)
+                            tree = _replace_text_node_tokens(tree, context)
+                            tree = _replace_split_token_nodes(tree, context)
+                            tree = _append_bookmark_value(tree, context)
+                            tree = _expand_service_rows(tree, service_rows or [])
+                            file_bytes = ET.tostring(tree.getroot(), encoding="utf-8", xml_declaration=True)
+                        except ParseError:
+                            # Some client templates contain non-standard Word XML fragments.
+                            # In that case we still keep token replacement instead of failing generation.
+                            file_bytes = xml_text.encode("utf-8")
+                    else:
                         file_bytes = xml_text.encode("utf-8")
                 target_zip.writestr(item, file_bytes)
 
@@ -329,7 +349,12 @@ def _write_xls_cell(target_sheet, source_sheet, row_index: int, col_index: int, 
     if existing_xf_idx is not None:
         cell.xf_idx = existing_xf_idx
         return
-    cell.xf_idx = source_sheet.cell_xf_index(row_index, col_index)
+    try:
+        cell.xf_idx = source_sheet.cell_xf_index(row_index, col_index)
+    except IndexError:
+        # Some legacy sheets have blank trailing rows without style metadata.
+        # In that case we keep the written value without cloning formatting.
+        return
 
 
 def _xls_excel_date(value: date | datetime | str | None) -> float | str:
@@ -339,6 +364,10 @@ def _xls_excel_date(value: date | datetime | str | None) -> float | str:
         value = value.date()
     if not isinstance(value, date):
         return str(value)
+    if value <= date(1900, 1, 1):
+        return ""
+    if value < date(1900, 3, 1):
+        return value.strftime("%d.%m.%Y")
     return xldate.xldate_from_date_tuple((value.year, value.month, value.day), 0)
 
 
@@ -450,6 +479,484 @@ def _fill_exam_block(
     _write_xls_cell(target_sheet, source_sheet, *doctor_cell, str(data.get("doctor") or ""))
 
 
+def _write_xls_pairs(target_sheet, source_sheet, pairs: list[tuple[tuple[int, int], object]]) -> None:
+    for (row_index, col_index), value in pairs:
+        _write_xls_cell(target_sheet, source_sheet, row_index, col_index, value)
+
+
+def _normalize_xls_auto_label(value: object) -> str:
+    text = str(value or "").strip().lower().replace("ё", "е")
+    return re.sub(r"[^0-9a-zа-я]+", " ", text).strip()
+
+
+def _iter_xls_auto_markers(source_book) -> list[tuple[int, object, int, int, str]]:
+    markers: list[tuple[int, object, int, int, str]] = []
+    for sheet_index, source_sheet in enumerate(source_book.sheets()):
+        seen_merges: set[tuple[int, int, int, int]] = set()
+        for row_index in range(source_sheet.nrows):
+            for col_index in range(source_sheet.ncols):
+                try:
+                    xf_index = source_sheet.cell_xf_index(row_index, col_index)
+                    bg_index = source_book.xf_list[xf_index].background.pattern_colour_index
+                except IndexError:
+                    continue
+                if bg_index != 13:
+                    continue
+
+                merge = next(
+                    (
+                        item
+                        for item in source_sheet.merged_cells
+                        if item[0] <= row_index < item[1] and item[2] <= col_index < item[3]
+                    ),
+                    None,
+                )
+                if merge is not None:
+                    if merge in seen_merges:
+                        continue
+                    seen_merges.add(merge)
+                    row_index, col_index = merge[0], merge[2]
+
+                label = _normalize_xls_auto_label(source_sheet.cell_value(row_index, col_index))
+                if "авто" in label:
+                    markers.append((sheet_index, source_sheet, row_index, col_index, label))
+    return markers
+
+
+def _xls_auto_marker_values(
+    context: dict[str, str],
+    client: Client,
+    encounter: Encounter | None,
+    exams_by_role: dict[str, DoctorExam],
+) -> list[tuple[tuple[str, ...], object]]:
+    issue_date = encounter.encounter_date if encounter else date.today()
+    therapist = _build_exam_export(exams_by_role.get("therapist"))
+    chairman = _build_exam_export(exams_by_role.get("chairman"))
+    return [
+        (("терапевт",), _exam_conclusion_line(exams_by_role.get("therapist"))),
+        (("офтальмолог", "окулист"), _exam_conclusion_line(exams_by_role.get("ophthalmologist"))),
+        (("невролог",), _exam_conclusion_line(exams_by_role.get("neurologist"))),
+        (("лор", "отоларинголог"), _exam_conclusion_line(exams_by_role.get("otolaryngologist"))),
+        (("хирург",), _exam_conclusion_line(exams_by_role.get("surgeon"))),
+        (("психиатр нарколог", "нарколог"), _exam_conclusion_line(exams_by_role.get("psychiatrist-narcologist"))),
+        (("психиатр",), _exam_conclusion_line(exams_by_role.get("psychiatrist"))),
+        (("дермат",), _exam_conclusion_line(exams_by_role.get("dermatologist"))),
+        (("гинеколог",), _exam_conclusion_line(exams_by_role.get("gynecologist"))),
+        (("председатель", "глав врач", "главный врач", "подписант"), _first_non_empty(chairman.get("doctor"), therapist.get("doctor"), context.get("Doctor"))),
+        (("врач",), _first_non_empty(therapist.get("doctor"), context.get("Doctor"))),
+        (("фио", "пациент"), context.get("ClientCalc", "")),
+        (("дата рождения", "др"), _xls_excel_date(client.birth_date)),
+        (("возраст",), _age_at_date(client.birth_date, issue_date)),
+        (("пол",), context.get("SexCalc", "")),
+        (("адрес",), context.get("AddressCalc", "")),
+        (("телефон",), context.get("Phone", "")),
+        (("снилс",), context.get("SNILS", "")),
+        (("паспорт серия", "серия"), context.get("DocumentSeries", "")),
+        (("паспорт номер", "номер паспорта"), context.get("DocumentNumber", "")),
+        (("кем выдан",), context.get("WhoGive", "")),
+        (("дата выдачи",), context.get("DocumentDate", "")),
+        (("организация", "место работы", "работа"), context.get("CompanyName", "")),
+        (("должность", "профессия"), _first_non_empty(context.get("Post"), context.get("PositionApplied"))),
+        (("услуга", "услуги"), context.get("Services", "")),
+        (("номер бланка", "бланк"), context.get("BlankFullNumber") or context.get("BlankNumber", "")),
+        (("номер",), context.get("ReferenceNumber", "")),
+        (("дата",), _xls_excel_date(issue_date)),
+        (("заключение", "итог"), context.get("Conclusion", "")),
+    ]
+
+
+def _apply_xls_auto_markers(
+    source_book,
+    target_book,
+    context: dict[str, str],
+    client: Client,
+    encounter: Encounter | None,
+    exams_by_role: dict[str, DoctorExam],
+) -> None:
+    values = _xls_auto_marker_values(context, client, encounter, exams_by_role)
+    for sheet_index, source_sheet, row_index, col_index, label in _iter_xls_auto_markers(source_book):
+        value = None
+        for aliases, candidate in values:
+            if any(alias in label for alias in aliases):
+                value = candidate
+                break
+        if value is None:
+            continue
+        target_sheet = target_book.get_sheet(sheet_index)
+        _write_xls_cell(target_sheet, source_sheet, row_index, col_index, value)
+
+
+def _exam_map(exams: list[DoctorExam]) -> dict[str, DoctorExam]:
+    result: dict[str, DoctorExam] = {}
+    for exam in exams:
+        role_key = str(exam.doctor_role_id or "").strip().lower()
+        result.setdefault(role_key, exam)
+    return result
+
+
+def _first_non_empty(*values: object) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _exam_conclusion_line(exam: DoctorExam | None, fallback: str = "Противопоказания отсутствуют") -> str:
+    data = _build_exam_export(exam)
+    doctor = str(data.get("doctor") or "").strip()
+    conclusion = _first_non_empty(data.get("diagnosis"), data.get("objective"), data.get("title"), fallback)
+    return " ".join(part for part in [doctor, conclusion] if part).strip()
+
+
+def _age_at_date(birth_date: date | None, on_date: date | None) -> str:
+    if birth_date is None:
+        return ""
+    check_date = on_date or date.today()
+    years = check_date.year - birth_date.year - ((check_date.month, check_date.day) < (birth_date.month, birth_date.day))
+    return str(years)
+
+
+def _sheet_pair(source_book, target_book, sheet_name: str):
+    if sheet_name not in source_book.sheet_names():
+        return None, None, None
+    index = source_book.sheet_names().index(sheet_name)
+    return source_book.sheet_by_index(index), target_book.get_sheet(index), index
+
+
+def _fill_contract_xls_sheet(
+    source_sheet,
+    target_sheet,
+    context: dict[str, str],
+    client: Client,
+    encounter: Encounter | None,
+    runtime_values: dict[str, object],
+) -> None:
+    service_rows = runtime_values.get("service_rows", [])
+    first_service = service_rows[0]["service"] if service_rows else context.get("Services", "")
+    quantity = service_rows[0]["quantity"] if service_rows else "1"
+    total_amount = str(encounter.total_amount or "") if encounter else ""
+    doctor_name = context.get("UserName", "")
+    full_name = context.get("ClientCalc", "")
+    birth_date = context.get("BirthDateCalc", "")
+    address = context.get("AddressCalc", "")
+    passport_summary = (
+        f"Паспорт РФ Серия:{context.get('DocumentSeries', '')} "
+        f"Номер:{context.get('DocumentNumber', '')} "
+        f"Кем выдан: {context.get('WhoGive', '')} - {context.get('DocumentDate', '')}"
+    ).strip()
+    _write_xls_pairs(
+        target_sheet,
+        source_sheet,
+        [
+            ((6, 2), f"Я, {full_name}, {birth_date} г. рождения,"),
+            ((8, 6), address),
+            ((8, 33), f"/ {doctor_name}" if doctor_name else ""),
+            ((12, 34), context.get("ReferenceNumber", "")),
+            ((14, 37), _xls_excel_date(encounter.encounter_date if encounter else date.today())),
+            ((21, 1), f"{full_name} ( {context.get('Phone', '')} )"),
+            ((24, 1), full_name),
+            ((27, 16), _xls_excel_date(encounter.encounter_date if encounter else date.today())),
+            ((31, 1), f"Я, {full_name}, {birth_date} г. рождения, зарегистрированная по адресу:"),
+            ((32, 1), address),
+            ((33, 1), passport_summary),
+            ((33, 23), first_service),
+            ((33, 37), quantity),
+            ((33, 39), total_amount),
+            ((37, 28), f"/ {full_name}" if full_name else ""),
+            ((48, 1), f"Настоящее согласие дано мной {context.get('VisitDate', '')} и действует бессрочно."),
+            ((55, 1), full_name),
+            ((82, 23), total_amount),
+            ((82, 33), f"/ {doctor_name}" if doctor_name else ""),
+            ((86, 23), total_amount),
+            ((86, 33), f"/ {doctor_name}" if doctor_name else ""),
+            ((89, 33), f"Ф.И.О.: {full_name}" if full_name else ""),
+            ((91, 33), f"Адрес места жительства: {address}" if address else ""),
+            ((93, 35), client.document_type or "Паспорт РФ"),
+            ((94, 35), context.get("DocumentSeries", "")),
+            ((95, 35), context.get("DocumentNumber", "")),
+            ((96, 33), f"Кем выдан: {context.get('WhoGive', '')}".strip()),
+            ((99, 35), _xls_excel_date(client.document_issued_date)),
+            ((100, 35), context.get("Phone", "")),
+            ((106, 36), f"/ {full_name}" if full_name else ""),
+        ],
+    )
+
+
+def _fill_086_xls_sheet(
+    source_sheet,
+    target_sheet,
+    context: dict[str, str],
+    client: Client,
+    encounter: Encounter | None,
+    exams_by_role: dict[str, DoctorExam],
+) -> None:
+    issue_date = encounter.encounter_date if encounter else date.today()
+    _write_xls_pairs(
+        target_sheet,
+        source_sheet,
+        [
+            ((10, 12), context.get("ReferenceNumber", "")),
+            ((13, 5), context.get("ClientCalc", "")),
+            ((14, 5), _xls_excel_date(client.birth_date)),
+            ((15, 10), context.get("SubjectCalc", "")),
+            ((16, 3), context.get("DistrictCalc", "")),
+            ((17, 4), context.get("CityCalc", "")),
+            ((17, 9), " ".join(
+                part
+                for part in [
+                    context.get("StreetCalc", ""),
+                    context.get("HouseNumberCalc", ""),
+                    context.get("ApartmentNumberCalc", ""),
+                ]
+                if part
+            )),
+            ((18, 5), _first_non_empty(context.get("WorkPlace"), context.get("CompanyName"), "по месту требования")),
+            ((23, 4), _first_non_empty(_build_exam_export(exams_by_role.get("therapist")).get("diagnosis"), "Дз: практически здоров")),
+            ((23, 15), _build_exam_export(exams_by_role.get("therapist")).get("doctor", "")),
+            ((24, 4), _build_exam_export(exams_by_role.get("surgeon")).get("diagnosis", "")),
+            ((24, 15), _build_exam_export(exams_by_role.get("surgeon")).get("doctor", "")),
+            ((25, 4), _build_exam_export(exams_by_role.get("neurologist")).get("diagnosis", "")),
+            ((25, 15), _build_exam_export(exams_by_role.get("neurologist")).get("doctor", "")),
+            ((27, 5), _build_exam_export(exams_by_role.get("otolaryngologist")).get("diagnosis", "")),
+            ((27, 15), _build_exam_export(exams_by_role.get("otolaryngologist")).get("doctor", "")),
+            ((44, 1), context.get("Conclusion", "")),
+            ((48, 1), _xls_excel_date(issue_date)),
+            ((50, 12), _first_non_empty(_build_exam_export(exams_by_role.get("therapist")).get("doctor"), context.get("Doctor", ""))),
+            ((53, 12), _first_non_empty(_build_exam_export(exams_by_role.get("chairman")).get("doctor"), _build_exam_export(exams_by_role.get("therapist")).get("doctor"), context.get("Doctor", ""))),
+        ],
+    )
+
+
+def _fill_eeg_xls_sheet(
+    source_sheet,
+    target_sheet,
+    context: dict[str, str],
+    client: Client,
+    encounter: Encounter | None,
+    exams: list[DoctorExam],
+) -> None:
+    eeg_exam = next((exam for exam in exams if "ээг" in f"{exam.result_text or ''} {exam.diagnosis or ''}".lower()), None)
+    eeg_data = _build_exam_export(eeg_exam)
+    doctor_name = _first_non_empty(eeg_data.get("doctor"), context.get("Doctor"))
+    _write_xls_pairs(
+        target_sheet,
+        source_sheet,
+        [
+            ((9, 8), _xls_excel_date(encounter.encounter_date if encounter else date.today())),
+            ((11, 8), context.get("ClientCalc", "")),
+            ((13, 8), _age_at_date(client.birth_date, encounter.encounter_date if encounter else None)),
+            ((15, 8), context.get("CardNumber", "") or context.get("ReferenceNumber", "")),
+            ((17, 8), doctor_name),
+        ],
+    )
+
+
+def _fill_chod_xls_sheet(
+    source_sheet,
+    target_sheet,
+    context: dict[str, str],
+    encounter: Encounter | None,
+) -> None:
+    issue_date = encounter.encounter_date if encounter else date.today()
+    _write_xls_pairs(
+        target_sheet,
+        source_sheet,
+        [
+            ((17, 15), context.get("BlankNumber", "") or context.get("ReferenceNumber", "")),
+            ((20, 3), context.get("ClientCalc", "")),
+            ((21, 11), issue_date.day),
+            ((21, 20), issue_date.year),
+            ((23, 3), context.get("SubjectCalc", "")),
+            ((24, 5), context.get("DistrictCalc", "")),
+            ((25, 4), context.get("CityCalc", "")),
+            ((27, 5), context.get("StreetCalc", "")),
+            ((28, 5), " ".join(part for part in [context.get("HouseNumberCalc", ""), context.get("ApartmentNumberCalc", "")] if part)),
+            ((30, 16), _xls_excel_date(issue_date)),
+            ((36, 12), context.get("Doctor", "")),
+        ],
+    )
+
+
+def _restriction_text(value: object) -> str:
+    text = str(value or "").strip().lower()
+    if not text or text in {"0", "нет", "false", "no", "не установлено"}:
+        return "не установлено"
+    return "установлено"
+
+
+def _fill_driver_xls_sheets(
+    source_book,
+    target_book,
+    context: dict[str, str],
+    client: Client,
+    encounter: Encounter | None,
+    exams_by_role: dict[str, DoctorExam],
+) -> None:
+    driver_lines = [
+        _exam_conclusion_line(exams_by_role.get("therapist")),
+        _exam_conclusion_line(exams_by_role.get("ophthalmologist")),
+        _exam_conclusion_line(exams_by_role.get("neurologist"), "не установлено"),
+        _exam_conclusion_line(exams_by_role.get("otolaryngologist"), "не установлено"),
+        _first_non_empty(
+            _build_exam_export(exams_by_role.get("chairman")).get("doctor"),
+            _build_exam_export(exams_by_role.get("therapist")).get("doctor"),
+        ),
+    ]
+    issue_date = encounter.encounter_date if encounter else date.today()
+    front_source, front_target, _ = _sheet_pair(source_book, target_book, "Водительская Лицевая")
+    if front_source and front_target:
+        _write_xls_pairs(
+            front_target,
+            front_source,
+            [
+                ((15, 28), context.get("ClientCalc", "")),
+                ((16, 35), context.get("BirthDateCalc_DAY", "")),
+                ((16, 41), context.get("BirthDateCalc_DATEMONTH", "")),
+                ((16, 48), context.get("BirthDateCalc_YEAR", "")),
+                ((18, 36), context.get("SubjectCalc", "")),
+                ((19, 31), context.get("DistrictCalc", "")),
+                ((20, 30), context.get("CityCalc", "")),
+                ((21, 30), context.get("StreetCalc", "")),
+                ((21, 45), context.get("HouseNumberCalc", "")),
+                ((22, 31), context.get("HouseBodyCalc", "")),
+                ((22, 38), context.get("ApartmentNumberCalc", "")),
+                ((23, 41), issue_date.day),
+                ((23, 45), context.get("VisitDate_DATEMONTH", "")),
+                ((23, 49), issue_date.year),
+                ((28, 12), driver_lines[0]),
+                ((28, 39), driver_lines[0]),
+                ((30, 12), driver_lines[1]),
+                ((30, 39), driver_lines[1]),
+                ((35, 12), driver_lines[2]),
+                ((35, 39), driver_lines[2]),
+                ((37, 12), driver_lines[3]),
+                ((37, 39), driver_lines[3]),
+            ],
+        )
+    back_source, back_target, _ = _sheet_pair(source_book, target_book, "Водительская Оборотная")
+    if back_source and back_target:
+        restriction_cells = [
+            ((14, 29), _restriction_text(context.get("DriveShipCalc"))),
+            ((14, 62), _restriction_text(context.get("DriveShipCalc"))),
+            ((17, 29), _restriction_text(context.get("ManualControlCalc"))),
+            ((17, 62), _restriction_text(context.get("ManualControlCalc"))),
+            ((20, 29), _restriction_text(context.get("AutomaticTransmissionCalc"))),
+            ((20, 62), _restriction_text(context.get("AutomaticTransmissionCalc"))),
+            ((25, 29), _restriction_text(context.get("ParkingSystemCalc"))),
+            ((25, 62), _restriction_text(context.get("ParkingSystemCalc"))),
+            ((27, 29), _restriction_text(context.get("VisionTCCalc"))),
+            ((27, 62), _restriction_text(context.get("VisionTCCalc"))),
+            ((29, 29), _restriction_text(context.get("HearingTCCalc"))),
+            ((29, 62), _restriction_text(context.get("HearingTCCalc"))),
+            ((31, 29), _restriction_text(context.get("3040"))),
+            ((31, 62), _restriction_text(context.get("3040"))),
+            ((33, 29), _restriction_text(context.get("3201"))),
+            ((33, 62), _restriction_text(context.get("3201"))),
+            ((36, 8), driver_lines[4]),
+            ((36, 41), driver_lines[4]),
+        ]
+        _write_xls_pairs(back_target, back_source, restriction_cells)
+
+
+def _fill_tractor_xls_sheets(source_book, target_book, exams_by_role: dict[str, DoctorExam]) -> None:
+    tractor_lines = [
+        _exam_conclusion_line(exams_by_role.get("therapist")),
+        _exam_conclusion_line(exams_by_role.get("ophthalmologist")),
+        _exam_conclusion_line(exams_by_role.get("neurologist")),
+        _exam_conclusion_line(exams_by_role.get("otolaryngologist")),
+    ]
+    front_source, front_target, _ = _sheet_pair(source_book, target_book, "Тракторная Лицевая")
+    if front_source and front_target:
+        _write_xls_pairs(
+            front_target,
+            front_source,
+            [
+                ((29, 12), tractor_lines[0]),
+                ((29, 39), tractor_lines[0]),
+                ((31, 12), tractor_lines[1]),
+                ((31, 39), tractor_lines[1]),
+                ((35, 12), tractor_lines[2]),
+                ((35, 39), tractor_lines[2]),
+                ((37, 12), tractor_lines[3]),
+                ((37, 39), tractor_lines[3]),
+            ],
+        )
+    back_source, back_target, _ = _sheet_pair(source_book, target_book, "Тракторная оборотная")
+    if back_source and back_target:
+        signer = _first_non_empty(_build_exam_export(exams_by_role.get("chairman")).get("doctor"), _build_exam_export(exams_by_role.get("therapist")).get("doctor"))
+        _write_xls_pairs(
+            back_target,
+            back_source,
+            [
+                ((36, 5), signer),
+                ((36, 25), signer),
+            ],
+        )
+
+
+def _fill_amb_opo_xls_sheet(
+    source_sheet,
+    target_sheet,
+    context: dict[str, str],
+    client: Client,
+    encounter: Encounter | None,
+    exams_by_role: dict[str, DoctorExam],
+) -> None:
+    issue_date = encounter.encounter_date if encounter else date.today()
+    work_place = ", ".join(part for part in [context.get("CompanyName", ""), context.get("Post", "")] if part and part != "не указано")
+    _write_xls_pairs(
+        target_sheet,
+        source_sheet,
+        [
+            ((2, 35), context.get("ReferenceNumber", "")),
+            ((16, 54), _xls_excel_date(issue_date)),
+            ((17, 43), context.get("ClientCalc", "")),
+            ((18, 35), context.get("SexCalc", "")),
+            ((18, 48), _xls_excel_date(client.birth_date)),
+            ((19, 54), context.get("CityCalc", "")),
+            ((20, 35), context.get("DistrictCalc", "")),
+            ((20, 49), context.get("CityCalc", "")),
+            ((21, 40), context.get("StreetCalc", "")),
+            ((22, 35), context.get("AddressCalc", "")),
+            ((22, 56), context.get("Phone", "")),
+            ((24, 55), context.get("SNILS", "")),
+            ((26, 48), client.document_type or "Паспорт РФ"),
+            ((26, 56), context.get("DocumentSeries", "")),
+            ((26, 59), context.get("DocumentNumber", "")),
+            ((38, 44), work_place),
+            ((72, 11), _build_exam_export(exams_by_role.get("therapist")).get("doctor", "")),
+            ((72, 42), _build_exam_export(exams_by_role.get("psychiatrist")).get("doctor", "")),
+            ((94, 11), _build_exam_export(exams_by_role.get("neurologist")).get("doctor", "")),
+            ((94, 42), _build_exam_export(exams_by_role.get("otolaryngologist")).get("doctor", "")),
+        ],
+    )
+
+
+def _fill_journal_344_sheet(
+    source_sheet,
+    target_sheet,
+    context: dict[str, str],
+    client: Client,
+    encounter: Encounter | None,
+) -> None:
+    issue_date = encounter.encounter_date if encounter else date.today()
+    _write_xls_pairs(
+        target_sheet,
+        source_sheet,
+        [
+            ((7, 0), 1),
+            ((7, 1), _xls_excel_date(issue_date)),
+            ((7, 2), context.get("BlankNumber", "") or context.get("ReferenceNumber", "")),
+            ((7, 3), context.get("ClientCalc", "")),
+            ((7, 4), _xls_excel_date(client.birth_date)),
+            ((7, 5), context.get("Conclusion", "")),
+            ((7, 6), ""),
+            ((7, 7), ""),
+        ],
+    )
+
+
 def _generate_prof_amb_xls(
     template_path: Path,
     output_path: Path,
@@ -457,6 +964,7 @@ def _generate_prof_amb_xls(
     client: Client,
     encounter: Encounter | None,
     exams: list[DoctorExam],
+    print_variant: str | None = None,
 ) -> None:
     source_book = xlrd.open_workbook(file_contents=template_path.read_bytes(), formatting_info=True)
     amb_index = source_book.sheet_names().index("Амб")
@@ -610,7 +1118,37 @@ def _generate_prof_amb_xls(
         doctor_cell=(109, 11),
     )
 
+    _apply_xls_auto_markers(source_book, target_book, context, client, encounter, exams_by_role)
+    _apply_print_variant_to_xls_workbook(target_book, print_variant)
     target_book.save(str(output_path))
+
+
+def _apply_print_variant_to_xls_workbook(target_book, print_variant: str | None) -> None:
+    variant = str(print_variant or "").strip().lower()
+    if not variant:
+        return
+
+    sheet_by_variant = {
+        "driver_front": "Водительская Лицевая",
+        "driver_back": "Водительская Оборотная",
+        "tractor_front": "Тракторная Лицевая",
+        "tractor_back": "Тракторная оборотная",
+    }
+    target_sheet_name = sheet_by_variant.get(variant)
+    if not target_sheet_name:
+        raise ValueError(f"Неизвестный вариант печати: {print_variant}")
+
+    worksheets = list(getattr(target_book, "_Workbook__worksheets", []) or [])
+    if not worksheets:
+        return
+
+    kept_sheets = [sheet for sheet in worksheets if getattr(sheet, "name", "") == target_sheet_name]
+    if not kept_sheets:
+        raise ValueError(f"В шаблоне не найден лист для печати: {target_sheet_name}")
+
+    target_book._Workbook__worksheets = kept_sheets
+    target_book._Workbook__worksheet_idx_from_name = {target_sheet_name: 0}
+    target_book._Workbook__active_sheet = 0
 
 
 def _generate_xls(
@@ -626,6 +1164,55 @@ def _generate_xls(
         _generate_prof_amb_xls(template_path, output_path, context, client, encounter, exams)
         return
     shutil.copy2(template_path, output_path)
+
+
+def _generate_runtime_xls(
+    template_path: Path,
+    output_path: Path,
+    context: dict[str, str],
+    client: Client,
+    encounter: Encounter | None,
+    runtime_values: dict[str, object],
+    print_variant: str | None = None,
+) -> None:
+    source_book = xlrd.open_workbook(file_contents=template_path.read_bytes(), formatting_info=True)
+    exams = list(runtime_values.get("exams", []))
+    if "Àìá" in source_book.sheet_names():
+        _generate_prof_amb_xls(template_path, output_path, context, client, encounter, exams, print_variant=print_variant)
+        return
+
+    target_book = copy_xls_workbook(source_book)
+    exams_by_role = _exam_map(exams)
+
+    contract_source, contract_target, _ = _sheet_pair(source_book, target_book, "Договор !")
+    if contract_source and contract_target:
+        _fill_contract_xls_sheet(contract_source, contract_target, context, client, encounter, runtime_values)
+
+    source_sheet, target_sheet, _ = _sheet_pair(source_book, target_book, "086")
+    if source_sheet and target_sheet:
+        _fill_086_xls_sheet(source_sheet, target_sheet, context, client, encounter, exams_by_role)
+
+    source_sheet, target_sheet, _ = _sheet_pair(source_book, target_book, "ЭЭГ")
+    if source_sheet and target_sheet:
+        _fill_eeg_xls_sheet(source_sheet, target_sheet, context, client, encounter, exams)
+
+    source_sheet, target_sheet, _ = _sheet_pair(source_book, target_book, "ЧОД")
+    if source_sheet and target_sheet:
+        _fill_chod_xls_sheet(source_sheet, target_sheet, context, encounter)
+
+    _fill_driver_xls_sheets(source_book, target_book, context, client, encounter, exams_by_role)
+    _fill_tractor_xls_sheets(source_book, target_book, exams_by_role)
+
+    source_sheet, target_sheet, _ = _sheet_pair(source_book, target_book, "АмбОПО !")
+    if source_sheet and target_sheet:
+        _fill_amb_opo_xls_sheet(source_sheet, target_sheet, context, client, encounter, exams_by_role)
+
+    source_sheet, target_sheet, _ = _sheet_pair(source_book, target_book, "Журн344")
+    if source_sheet and target_sheet:
+        _fill_journal_344_sheet(source_sheet, target_sheet, context, client, encounter)
+
+    _apply_xls_auto_markers(source_book, target_book, context, client, encounter, exams_by_role)
+    target_book.save(str(output_path))
 
 
 def _first_field_value(fields: dict, *keys: str) -> str:
@@ -674,6 +1261,7 @@ def _load_encounter_document_values(db: Session, client: Client, encounter: Enco
             "diagnosis": "",
             "mkb10": "",
             "exams": [],
+            "context_overrides": {},
         }
 
     service_items = (
@@ -724,6 +1312,19 @@ def _load_encounter_document_values(db: Session, client: Client, encounter: Enco
     doctor_names: list[str] = []
     diagnosis = ""
     mkb10 = ""
+    medical_record = db.execute(
+        select(MedicalRecord)
+        .where(MedicalRecord.client_id == client.id, MedicalRecord.deleted_at.is_(None))
+        .order_by(MedicalRecord.updated_at.desc(), MedicalRecord.id.desc())
+    ).scalars().first()
+    context_overrides = {
+        "MaritalStatus": medical_record.marital_status if medical_record and medical_record.marital_status else "",
+        "Weight": "",
+        "Height": "",
+        "HairColor": "",
+        "EyeColor": "",
+        "DistinguishingMark": "",
+    }
     for exam in exams:
         if exam.doctor_name and exam.doctor_name not in doctor_names:
             doctor_names.append(exam.doctor_name)
@@ -738,6 +1339,17 @@ def _load_encounter_document_values(db: Session, client: Client, encounter: Enco
             "conclusion",
         )
         mkb10 = mkb10 or _first_field_value(fields, "mkb10", "mkb", "icd10")
+        context_overrides["Weight"] = context_overrides["Weight"] or _first_field_value(fields, "weight", "Weight")
+        context_overrides["Height"] = context_overrides["Height"] or _first_field_value(fields, "height", "Height")
+        context_overrides["HairColor"] = context_overrides["HairColor"] or _first_field_value(
+            fields, "hairColor", "hair", "hair_color"
+        )
+        context_overrides["EyeColor"] = context_overrides["EyeColor"] or _first_field_value(
+            fields, "eyeColor", "eyesColor", "eye_color"
+        )
+        context_overrides["DistinguishingMark"] = context_overrides["DistinguishingMark"] or _first_field_value(
+            fields, "distinguishingMark", "distinguishingMarks", "specialMarks", "special_mark"
+        )
 
     return {
         "service_names": service_names,
@@ -746,7 +1358,94 @@ def _load_encounter_document_values(db: Session, client: Client, encounter: Enco
         "diagnosis": diagnosis,
         "mkb10": mkb10,
         "exams": exams,
+        "context_overrides": context_overrides,
     }
+
+
+def _append_blank_entry_to_medical_record_legacy(
+    db: Session,
+    *,
+    client: Client,
+    encounter: Encounter,
+    blank_number: str,
+) -> None:
+    medical_record = db.execute(
+        select(MedicalRecord).where(MedicalRecord.client_id == client.id, MedicalRecord.deleted_at.is_(None))
+    ).scalar_one_or_none()
+    if medical_record is None:
+        medical_record = MedicalRecord(
+            client_id=client.id,
+            center_id=encounter.center_id,
+            card_number=client.card_number,
+            opened_at=encounter.encounter_date,
+            oms_policy=client.oms_policy,
+            work_place=client.work_place,
+            position=client.profession,
+            mkb10=client.mkb10,
+            notes=client.notes,
+        )
+        db.add(medical_record)
+        db.flush()
+
+    db.add(
+        MedicalRecordEntry(
+            medical_record_id=medical_record.id,
+            encounter_id=encounter.id,
+            entry_date=encounter.encounter_date,
+            doctor_role_id="document",
+            doctor_name="document",
+            conclusion=f"Выдан номерной бланк медицинского заключения №{blank_number}",
+        )
+    )
+
+
+def _append_blank_entry_to_medical_record(
+    db: Session,
+    *,
+    client: Client,
+    encounter: Encounter,
+    blank_number: str,
+) -> None:
+    conclusion = f"Выдан номерной бланк медицинского заключения №{blank_number}"
+    medical_record = db.execute(
+        select(MedicalRecord).where(MedicalRecord.client_id == client.id, MedicalRecord.deleted_at.is_(None))
+    ).scalar_one_or_none()
+    if medical_record is None:
+        medical_record = MedicalRecord(
+            client_id=client.id,
+            center_id=encounter.center_id,
+            card_number=client.card_number,
+            opened_at=encounter.encounter_date,
+            oms_policy=client.oms_policy,
+            work_place=client.work_place,
+            position=client.profession,
+            mkb10=client.mkb10,
+            notes=client.notes,
+        )
+        db.add(medical_record)
+        db.flush()
+
+    existing_entry = db.execute(
+        select(MedicalRecordEntry).where(
+            MedicalRecordEntry.medical_record_id == medical_record.id,
+            MedicalRecordEntry.encounter_id == encounter.id,
+            MedicalRecordEntry.doctor_role_id == "document",
+            MedicalRecordEntry.conclusion == conclusion,
+        )
+    ).scalar_one_or_none()
+    if existing_entry is not None:
+        return
+
+    db.add(
+        MedicalRecordEntry(
+            medical_record_id=medical_record.id,
+            encounter_id=encounter.id,
+            entry_date=encounter.encounter_date,
+            doctor_role_id="document",
+            doctor_name="document",
+            conclusion=conclusion,
+        )
+    )
 
 
 def generate_document(
@@ -756,7 +1455,12 @@ def generate_document(
     template_code: str | None,
     client_id: int,
     encounter_id: int | None,
+    blank_form_id: int | None = None,
+    print_variant: str | None = None,
 ) -> DocumentGenerateResponse:
+    print_variant_value = str(print_variant or "").strip().lower()
+    side_print_variants = {"driver_front", "driver_back", "tractor_front", "tractor_back"}
+    is_side_print = print_variant_value in side_print_variants
     template = None
     if template_id is not None:
         template = db.get(DocumentTemplate, template_id)
@@ -787,124 +1491,169 @@ def generate_document(
     output_path = output_dir / output_file_name
 
     runtime_values = _load_encounter_document_values(db, client, encounter)
-    requires_blank = is_driver_certificate_template(template.name, template.file_name)
+    required_blank_type = None if is_side_print else resolve_required_blank_type(template)
     blank_form = None
-    if requires_blank:
-        blank_form = reuse_blank_for_existing_document(
-            db,
-            blank_type=BLANK_TYPE_DRIVER_MEDICAL_CERTIFICATE,
-            client_id=client.id,
-            encounter_id=encounter.id if encounter else None,
-            template_id=template.id,
-        )
-        if blank_form is None:
-            blank_form = issue_next_blank(
+
+    try:
+        if required_blank_type:
+            if encounter is None or encounter.center_id is None:
+                raise ValueError(
+                    "Для документа с номерным бланком требуется encounter_id и center_id. "
+                    "Сначала оформите обращение в нужном медцентре."
+                )
+
+            blank_form = reuse_blank_for_existing_document(
                 db,
-                blank_type=BLANK_TYPE_DRIVER_MEDICAL_CERTIFICATE,
+                blank_type=required_blank_type,
                 client_id=client.id,
-                center_id=encounter.center_id if encounter else None,
-                encounter_id=encounter.id if encounter else None,
-                user_id=1,
+                encounter_id=encounter.id,
+                template_id=template.id,
             )
+            if blank_form is None:
+                if blank_form_id is not None:
+                    blank_form = issue_specific_blank(
+                        db,
+                        form_id=blank_form_id,
+                        blank_type=required_blank_type,
+                        client_id=client.id,
+                        center_id=encounter.center_id,
+                        encounter_id=encounter.id,
+                        user_id=1,
+                    )
+                else:
+                    blank_form = issue_next_blank(
+                        db,
+                        blank_type=required_blank_type,
+                        client_id=client.id,
+                        center_id=encounter.center_id,
+                        encounter_id=encounter.id,
+                        user_id=1,
+                    )
 
-    context = build_document_context(
-        client,
-        encounter,
-        service_names=runtime_values["service_names"],
-        doctor_name=runtime_values["doctor_name"],
-        diagnosis=runtime_values["diagnosis"],
-        mkb10=runtime_values["mkb10"],
-    )
-    if blank_form is not None:
-        context["BlankNumber"] = blank_form.full_number
-        context["BlankSeries"] = blank_form.series or ""
-        context["BlankFullNumber"] = blank_form.full_number
-        context["DocumentNumber"] = blank_form.full_number
-
-    if template.template_type == "docx":
-        _generate_docx(
-            template_path,
-            output_path,
-            context,
-            runtime_values["service_rows"],
-            cleanup_xml=_is_contract_template(template),
-        )
-    elif template.template_type == "xml":
-        _generate_xml(template_path, output_path, context)
-    elif template.template_type == "xls":
-        _generate_xls(
-            template_path,
-            output_path,
-            context,
+        context = build_document_context(
             client,
             encounter,
-            runtime_values["exams"],
+            service_names=runtime_values["service_names"],
+            doctor_name=runtime_values["doctor_name"],
+            diagnosis=runtime_values["diagnosis"],
+            mkb10=runtime_values["mkb10"],
         )
-    else:
-        shutil.copy2(template_path, output_path)
+        context.update(
+            {
+                key: str(value).strip()
+                for key, value in (runtime_values.get("context_overrides") or {}).items()
+                if value not in (None, "")
+            }
+        )
+        if blank_form is not None:
+            context["BlankNumber"] = blank_form.full_number
+            context["BlankSeries"] = blank_form.series or ""
+            context["BlankFullNumber"] = blank_form.full_number
+            context["DocumentNumber"] = blank_form.full_number
+        if is_side_print:
+            context["ReferenceNumber"] = ""
+            context["SeriesNumberCalc"] = ""
+            context["BlankNumber"] = ""
+            context["BlankSeries"] = ""
+            context["BlankFullNumber"] = ""
 
-    document_number = blank_form.full_number if blank_form is not None else client.reference_number
-    document_series = blank_form.series if blank_form is not None else client.document_series
+        if template.template_type == "docx":
+            _generate_docx(
+                template_path,
+                output_path,
+                context,
+                runtime_values["service_rows"],
+                cleanup_xml=_is_contract_template(template),
+            )
+        elif template.template_type == "xml":
+            _generate_xml(template_path, output_path, context)
+        elif template.template_type == "xls":
+            _generate_runtime_xls(
+                template_path,
+                output_path,
+                context,
+                client,
+                encounter,
+                runtime_values,
+                print_variant=print_variant,
+            )
+        else:
+            shutil.copy2(template_path, output_path)
 
-    generated_document = GeneratedDocument(
-        encounter_id=encounter.id if encounter else None,
-        client_id=client.id,
-        template_id=template.id,
-        document_number=document_number,
-        series=document_series,
-        file_name=output_file_name,
-        file_path=str(output_path.resolve()),
-        generated_by_user_id=1,
-        blank_form_id=blank_form.id if blank_form is not None else None,
-        blank_number_snapshot=blank_form.full_number if blank_form is not None else None,
-    )
-    db.add(generated_document)
-    db.flush()
+        document_number = blank_form.full_number if blank_form is not None else client.reference_number
+        document_series = blank_form.series if blank_form is not None else client.document_series
 
-    if blank_form is not None and blank_form.generated_document_id is None:
-        blank_form.generated_document_id = generated_document.id
+        generated_document = GeneratedDocument(
+            encounter_id=encounter.id if encounter else None,
+            client_id=client.id,
+            template_id=template.id,
+            document_number=document_number,
+            series=document_series,
+            file_name=output_file_name,
+            file_path=str(output_path.resolve()),
+            generated_by_user_id=1,
+            blank_form_id=blank_form.id if blank_form is not None else None,
+            blank_number_snapshot=blank_form.full_number if blank_form is not None else None,
+        )
+        db.add(generated_document)
         db.flush()
 
-    journal_info = _get_journal_info(template)
-    if journal_info is not None:
-        journal_code, journal_name = journal_info
-        db.add(
-            DocumentJournalEntry(
-                journal_code=journal_code,
-                journal_name=journal_name,
-                generated_document_id=generated_document.id,
-                client_id=client.id,
-                encounter_id=encounter.id if encounter else None,
-                issued_at=encounter.encounter_date if encounter else None,
-                series=generated_document.series,
-                number=generated_document.document_number,
-                result_text=context.get("Diagnosis") or context.get("Conclusion") or "",
-                created_by_user_id=1,
+        if blank_form is not None and blank_form.generated_document_id is None:
+            blank_form.generated_document_id = generated_document.id
+            db.flush()
+
+        journal_info = _get_journal_info(template)
+        if journal_info is not None:
+            journal_code, journal_name = journal_info
+            db.add(
+                DocumentJournalEntry(
+                    journal_code=journal_code,
+                    journal_name=journal_name,
+                    generated_document_id=generated_document.id,
+                    client_id=client.id,
+                    encounter_id=encounter.id if encounter else None,
+                    issued_at=encounter.encounter_date if encounter else None,
+                    series=generated_document.series,
+                    number=generated_document.document_number,
+                    result_text=context.get("Diagnosis") or context.get("Conclusion") or "",
+                    created_by_user_id=1,
+                )
             )
+
+        if blank_form is not None and encounter is not None:
+            _append_blank_entry_to_medical_record(
+                db,
+                client=client,
+                encounter=encounter,
+                blank_number=blank_form.full_number,
+            )
+
+        write_audit_log(
+            db,
+            entity_type="document_template",
+            entity_id=template.id,
+            action="generate",
+            user_id=1,
+            center_id=encounter.center_id if encounter else None,
+            payload_json={
+                "client_id": client.id,
+                "encounter_id": encounter.id if encounter else None,
+                "blank_form_id": blank_form.id if blank_form is not None else None,
+                "blank_number": blank_form.full_number if blank_form is not None else None,
+            },
         )
 
-    write_audit_log(
-        db,
-        entity_type="document_template",
-        entity_id=template.id,
-        action="generate",
-        user_id=1,
-        center_id=encounter.center_id if encounter else None,
-        payload_json={
-            "client_id": client.id,
-            "encounter_id": encounter.id if encounter else None,
-            "blank_form_id": blank_form.id if blank_form is not None else None,
-            "blank_number": blank_form.full_number if blank_form is not None else None,
-        },
-    )
-
-    return DocumentGenerateResponse(
-        template_name=template.name,
-        template_type=template.template_type,
-        output_file_name=output_file_name,
-        output_file_path=str(output_path.resolve()),
-        generated_document_id=generated_document.id,
-        blank_form_id=blank_form.id if blank_form is not None else None,
-        blank_number=blank_form.full_number if blank_form is not None else None,
-        generated_fields=context,
-    )
+        return DocumentGenerateResponse(
+            template_name=template.name,
+            template_type=template.template_type,
+            output_file_name=output_file_name,
+            output_file_path=str(output_path.resolve()),
+            generated_document_id=generated_document.id,
+            blank_form_id=blank_form.id if blank_form is not None else None,
+            blank_number=blank_form.full_number if blank_form is not None else None,
+            generated_fields=context,
+        )
+    except Exception:
+        if output_path.exists():
+            output_path.unlink(missing_ok=True)
+        raise

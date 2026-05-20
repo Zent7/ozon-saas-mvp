@@ -25,7 +25,7 @@ def list_document_journal_entries(
     return [DocumentJournalEntryRead.model_validate(item) for item in entries]
 
 
-@router.get("/spoiled-blanks", response_model=list[SpoiledCertificateBlankRead])
+@router.get("/spoiled-blanks", response_model=list[SpoiledCertificateBlankRead], deprecated=True)
 def list_spoiled_certificate_blanks(db: Session = Depends(get_db)) -> list[SpoiledCertificateBlankRead]:
     blanks = db.execute(
         select(SpoiledCertificateBlank).order_by(SpoiledCertificateBlank.spoiled_at.desc(), SpoiledCertificateBlank.id.desc())

@@ -31,6 +31,14 @@ python -m alembic upgrade head
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
+Health-check after deploy:
+
+```bash
+curl http://127.0.0.1:8000/api/v1/health
+```
+
+The response must include `"database_dialect":"postgresql"`.
+
 Frontend build:
 
 ```bash
@@ -40,3 +48,14 @@ npm run build
 ```
 
 Nginx should serve `frontend/dist` and proxy `/api/v1/` to `http://127.0.0.1:8000/api/v1/`.
+
+## Local Windows backup contour
+
+For the local Windows production-like setup:
+
+- use `backup-db.ps1` for PostgreSQL and runtime documents backup;
+- use `restore-db.ps1` for database-only, documents-only, or full restore;
+- use `register-backup-task.ps1` to register a daily Windows Task Scheduler job;
+- review the operational runbook in `docs/Резервное_копирование.md`.
+
+The runtime documents path must point to `GENERATED_DOCUMENTS_DIR` instead of repo-only templates. The default local value is `storage/generated`.

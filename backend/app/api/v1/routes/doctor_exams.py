@@ -23,6 +23,18 @@ def validate_links(db: Session, client_id: int, encounter_id: int | None) -> Non
         encounter = db.get(Encounter, encounter_id)
         if encounter is None or encounter.deleted_at is not None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Обращение не найдено")
+        if encounter.client_id != client_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Осмотр нельзя привязать к чужому обращению",
+            )
+
+
+def apply_completion_state(exam: DoctorExam) -> None:
+    if exam.is_completed and exam.completed_at is None:
+        exam.completed_at = datetime.utcnow()
+    if not exam.is_completed:
+        exam.completed_at = None
 
 
 @router.get("", response_model=list[DoctorExamRead])
@@ -64,6 +76,7 @@ def create_or_update_doctor_exam(payload: DoctorExamCreate, db: Session = Depend
         for key, value in payload.model_dump().items():
             setattr(exam, key, value)
 
+    apply_completion_state(exam)
     db.commit()
     db.refresh(exam)
     write_audit_log(
@@ -74,6 +87,7 @@ def create_or_update_doctor_exam(payload: DoctorExamCreate, db: Session = Depend
         user_id=1,
         payload_json={"client_id": exam.client_id, "doctor_role_id": exam.doctor_role_id},
     )
+    db.commit()
     return DoctorExamRead.model_validate(exam)
 
 
@@ -83,10 +97,12 @@ def update_doctor_exam(exam_id: int, payload: DoctorExamUpdate, db: Session = De
     if exam is None or exam.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Осмотр не найден")
 
-    validate_links(db, exam.client_id, payload.encounter_id)
+    next_encounter_id = payload.encounter_id if "encounter_id" in payload.model_fields_set else exam.encounter_id
+    validate_links(db, exam.client_id, next_encounter_id)
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(exam, key, value)
 
+    apply_completion_state(exam)
     db.commit()
     db.refresh(exam)
     write_audit_log(
@@ -97,6 +113,7 @@ def update_doctor_exam(exam_id: int, payload: DoctorExamUpdate, db: Session = De
         user_id=1,
         payload_json={"client_id": exam.client_id, "doctor_role_id": exam.doctor_role_id},
     )
+    db.commit()
     return DoctorExamRead.model_validate(exam)
 
 
@@ -104,7 +121,7 @@ def update_doctor_exam(exam_id: int, payload: DoctorExamUpdate, db: Session = De
 def delete_doctor_exam(exam_id: int, db: Session = Depends(get_db)) -> None:
     exam = db.get(DoctorExam, exam_id)
     if exam is None or exam.deleted_at is not None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="РћСЃРјРѕС‚СЂ РЅРµ РЅР°Р№РґРµРЅ")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Осмотр не найден")
 
     exam.deleted_at = datetime.utcnow()
     db.commit()
@@ -116,3 +133,4 @@ def delete_doctor_exam(exam_id: int, db: Session = Depends(get_db)) -> None:
         user_id=1,
         payload_json={"client_id": exam.client_id, "doctor_role_id": exam.doctor_role_id},
     )
+    db.commit()

@@ -7,6 +7,7 @@ from app.schemas.blank_form import (
     BlankBatchRead,
     BlankFormRead,
     BlankFormSpoilRequest,
+    BlankSeriesRead,
     BlankStatsItem,
     BlankStatsResponse,
     BlankTypeRead,
@@ -15,8 +16,11 @@ from app.services.blank_forms import (
     BlankRangeInvalidError,
     BlankRangeOverlapError,
     BlankServiceError,
+    create_auto_number_form,
     create_batch,
     enrich_form_for_read,
+    get_next_free_form,
+    list_free_series,
     list_batches,
     list_blank_types,
     list_forms,
@@ -41,6 +45,16 @@ def _current_user_id() -> int:
 @router.get("/types", response_model=list[BlankTypeRead])
 def get_blank_types(db: Session = Depends(get_db)) -> list[BlankTypeRead]:
     return [BlankTypeRead.model_validate(item) for item in list_blank_types(db)]
+
+
+@router.get("/series", response_model=list[BlankSeriesRead])
+def get_free_series(
+    blank_type: str = Query(...),
+    center_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> list[BlankSeriesRead]:
+    items = list_free_series(db, blank_type=blank_type, center_id=center_id)
+    return [BlankSeriesRead(**item) for item in items]
 
 
 @router.get("/batches", response_model=list[BlankBatchRead])
@@ -115,6 +129,45 @@ def get_forms(
         limit=limit,
     )
     return [BlankFormRead.model_validate(enrich_form_for_read(db, item)) for item in items]
+
+
+@router.get("/forms/next", response_model=BlankFormRead)
+def get_next_form(
+    blank_type: str = Query(...),
+    center_id: int | None = Query(default=None),
+    series: str | None = Query(default=None),
+    auto_create: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> BlankFormRead:
+    if auto_create:
+        try:
+            form = create_auto_number_form(
+                db,
+                blank_type=blank_type,
+                center_id=center_id,
+                series=series or "",
+                user_id=_current_user_id(),
+            )
+        except BlankRangeInvalidError as exc:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        except BlankRangeOverlapError as exc:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        except BlankServiceError as exc:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        db.commit()
+        db.refresh(form)
+        return BlankFormRead.model_validate(enrich_form_for_read(db, form))
+
+    form = get_next_free_form(db, blank_type=blank_type, center_id=center_id, series=series)
+    if form is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Свободные бланки по выбранной серии не найдены",
+        )
+    return BlankFormRead.model_validate(enrich_form_for_read(db, form))
 
 
 @router.post("/forms/{form_id}/spoil", response_model=BlankFormRead)

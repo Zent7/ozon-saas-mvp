@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useState } from "react";
 
 import { api, type StaffRole, type StaffUser, type StaffUserCreatePayload } from "../shared/api";
+import { canManageStaff } from "../shared/access";
 import { useAuth } from "../shared/auth";
 
 const initialForm: StaffUserCreatePayload = {
@@ -15,7 +16,8 @@ const initialForm: StaffUserCreatePayload = {
 export function SettingsPage() {
   const queryClient = useQueryClient();
   const { session } = useAuth();
-  const isChairman = session?.roleCode === "chairman";
+  const isChairman = canManageStaff(session?.roleCode);
+  const isAdmin = session?.roleCode === "admin";
   const [form, setForm] = useState<StaffUserCreatePayload>(initialForm);
   const [formError, setFormError] = useState("");
 
@@ -62,7 +64,8 @@ export function SettingsPage() {
           <h1>Параметры системы</h1>
           <p>
             Здесь собраны роли сотрудников, точка входа для аутентификации и управление учетными
-            записями. Председатель может создавать новых сотрудников и сразу назначать им роль.
+            записями. Председатель создает новых сотрудников и назначает роли, а админ работает в
+            ограниченном режиме без управления доступами.
           </p>
         </div>
         <div className="summary-strip">
@@ -97,8 +100,16 @@ export function SettingsPage() {
               <strong>Врач, Админ, Оператор</strong>
             </div>
             <div className="info-cell">
+              <span>Назначение ролей</span>
+              <strong>Только председатель управляет доступами</strong>
+            </div>
+            <div className="info-cell">
               <span>Тестовый председатель</span>
               <strong>chairman / chairman123</strong>
+            </div>
+            <div className="info-cell">
+              <span>Ограничение админа</span>
+              <strong>Без отчетов и без управления ролями</strong>
             </div>
           </div>
         </section>
@@ -179,9 +190,7 @@ export function SettingsPage() {
 
               {staffQuery.isLoading ? <div className="empty-card">Загружаем список сотрудников...</div> : null}
 
-              {staffQuery.isError ? (
-                <div className="empty-card">Не удалось загрузить список сотрудников.</div>
-              ) : null}
+              {staffQuery.isError ? <div className="empty-card">Не удалось загрузить список сотрудников.</div> : null}
 
               {!staffQuery.isLoading && !staffQuery.isError ? (
                 <div className="table">
@@ -205,8 +214,18 @@ export function SettingsPage() {
               <span>Ограничение по роли</span>
             </div>
             <div className="empty-card">
-              Раздел создания учетных записей доступен только председателю. Вы вошли как{" "}
-              <strong>{session?.roleName ?? "сотрудник"}</strong>.
+              {isAdmin ? (
+                <>
+                  Вы вошли как <strong>{session?.roleName ?? "админ"}</strong>. Админ видит контур
+                  сотрудников, но не создает учетные записи, не назначает роли и не получает доступ к
+                  отчетам. Управление доступами остается за председателем.
+                </>
+              ) : (
+                <>
+                  Раздел создания учетных записей доступен только председателю. Вы вошли как{" "}
+                  <strong>{session?.roleName ?? "сотрудник"}</strong>.
+                </>
+              )}
             </div>
           </section>
         )}

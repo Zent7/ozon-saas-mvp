@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -6,6 +7,7 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     api_v1_prefix: str = "/api/v1"
     database_url: str = "postgresql+psycopg://medcenters:medcenters@127.0.0.1:5434/medcenters"
+    allow_sqlite: bool = False
     frontend_origin: str = "http://localhost:5173"
     generated_documents_dir: str = "storage/generated"
     deletion_notify_email: str | None = None
@@ -20,6 +22,15 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
     )
+
+    @model_validator(mode="after")
+    def validate_database_backend(self) -> "Settings":
+        if self.database_url.startswith("sqlite") and not self.allow_sqlite:
+            raise ValueError(
+                "SQLite is disabled for the working backend. "
+                "Use PostgreSQL in DATABASE_URL or explicitly set ALLOW_SQLITE=true for temporary local diagnostics."
+            )
+        return self
 
 
 settings = Settings()

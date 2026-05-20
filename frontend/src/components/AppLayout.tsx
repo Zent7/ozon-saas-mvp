@@ -1,12 +1,16 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 
+import { canAccessReports, canAccessSettings } from "../shared/access";
 import { useAuth } from "../shared/auth";
 
 const items = [
   { to: "/", label: "Главная" },
   { to: "/clients", label: "Картотека" },
   { to: "/encounters", label: "Обращения" },
-  { to: "/documents", label: "Документы" },
+  { to: "/documents", label: "Шаблоны" },
+  { to: "/deleted-audit", label: "Удалённые и аудит" },
+  { to: "/reports", label: "Отчёты" },
+  { to: "/blanks", label: "Бланки" },
   { to: "/recalls", label: "Повторы" },
   { to: "/settings", label: "Настройки" },
 ];
@@ -15,8 +19,11 @@ const titles: Record<string, string> = {
   "/": "Сводка по центрам",
   "/clients": "Картотека пациентов",
   "/encounters": "Журнал обращений",
-  "/documents": "Реестр документов",
-  "/recalls": "План повторов",
+  "/documents": "Шаблоны документов",
+  "/deleted-audit": "Удалённые записи и аудит",
+  "/reports": "Отчёты по дням",
+  "/blanks": "Номерные бланки",
+  "/recalls": "План по повторам",
   "/settings": "Параметры системы",
 };
 
@@ -24,6 +31,15 @@ export function AppLayout() {
   const location = useLocation();
   const { session, signOut } = useAuth();
   const pageTitle = titles[location.pathname] ?? "Рабочее место сотрудника";
+  const visibleItems = items.filter((item) => {
+    if (item.to === "/reports") {
+      return canAccessReports(session?.roleCode);
+    }
+    if (item.to === "/settings") {
+      return canAccessSettings(session?.roleCode);
+    }
+    return true;
+  });
 
   return (
     <div className="workspace">
@@ -48,7 +64,7 @@ export function AppLayout() {
             <span className="brand__subtitle">Навигация и рабочие разделы для сотрудников медцентра</span>
           </div>
           <nav className="nav">
-            {items.map((item) => (
+            {visibleItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}

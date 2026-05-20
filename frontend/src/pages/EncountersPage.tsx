@@ -36,6 +36,7 @@ export function EncountersPage() {
   const [error, setError] = useState("");
   const [form, setForm] = useState(initialForm);
   const [selectedEncounterId, setSelectedEncounterId] = useState<number | null>(null);
+  const [deletingEncounter, setDeletingEncounter] = useState(false);
 
   const loadData = async () => {
     try {
@@ -95,6 +96,32 @@ export function EncountersPage() {
     () => encounters.find((encounter) => encounter.id === selectedEncounterId) ?? null,
     [encounters, selectedEncounterId],
   );
+
+  const deleteSelectedEncounter = async () => {
+    if (!selectedEncounter) {
+      setError("Сначала выберите обращение.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Удалить обращение № ${selectedEncounter.id}?\n\nОно будет перемещено в удалённые, а не удалено физически.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingEncounter(true);
+    setError("");
+    try {
+      await api.deleteEncounter(selectedEncounter.id);
+      setEncounters((current) => current.filter((item) => item.id !== selectedEncounter.id));
+      setSelectedEncounterId((current) => (current === selectedEncounter.id ? null : current));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось удалить обращение");
+    } finally {
+      setDeletingEncounter(false);
+    }
+  };
 
   return (
     <section className="page page--desktop">
@@ -166,6 +193,16 @@ export function EncountersPage() {
             {selectedEncounter ? (
               <div className="details-card">
                 <div className="details-card__name">{formatClientName(clientsById.get(selectedEncounter.client_id))}</div>
+                <div className="toolbar-actions">
+                  <button
+                    className="button button--secondary button--small"
+                    type="button"
+                    onClick={() => void deleteSelectedEncounter()}
+                    disabled={deletingEncounter}
+                  >
+                    {deletingEncounter ? "Удаляю..." : "Удалить обращение"}
+                  </button>
+                </div>
                 <div className="details-card__grid">
                   <div>
                     <span>Дата</span>

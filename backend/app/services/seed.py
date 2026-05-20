@@ -20,7 +20,7 @@ from app.models.service import DoctorRole, Service, ServiceCategory, ServiceDoct
 from app.models.template_phrase import TemplatePhrase
 from app.models.user import Role, User
 from app.models.visit_type import VisitType, VisitTypeService
-from app.services.template_catalog import load_template_catalog
+from app.services.template_catalog import sync_document_template_catalog, template_visit_type_code
 
 
 SERVICE_GROUPS = [
@@ -156,6 +156,7 @@ SERVICE_CATALOG = [
     (10, 7, "Справка для выезжающих за границу 082у", "2000.00"),
     (32, 7, "Капельное введение лекарственных средств", "1500.00"),
     (38, 7, "Морская медицинская комиссия", "6000.00"),
+    (39, 7, "DRUG/ALCOHOL TEST \u2116 96", "2500.00"),
     (13, 8, "УЗИ брюшной полости", "2000.00"),
     (14, 8, "УЗИ молочных желез", "1500.00"),
     (15, 8, "УЗИ предстательной железы", "1500.00"),
@@ -263,7 +264,7 @@ VISIT_TYPE_SERVICE_LEGACY_IDS = {
     "prof": [16],
     "sport": [4, 5],
     "guard": [9, 11],
-    "other": [2, 3, 10, 24, 27, 30, 31, 32, 38],
+    "other": [2, 3, 10, 24, 27, 30, 31, 32, 38, 39],
 }
 
 TEMPLATE_PHRASES = [
@@ -286,70 +287,13 @@ STAFF_ROLES = [
 
 
 def _template_visit_type_id(template_name: str, visit_type_by_code: dict[str, VisitType]) -> int | None:
-    visit_type = None
-    if "вод" in template_name or "driver" in template_name:
-        visit_type = visit_type_by_code.get("driver")
-    elif "лмк" in template_name or "медкниж" in template_name:
-        visit_type = visit_type_by_code.get("lmk_new")
-    elif "086" in template_name:
-        visit_type = visit_type_by_code.get("086")
-    elif "амб" in template_name or "профосмотр" in template_name or "мед.карта" in template_name:
-        visit_type = visit_type_by_code.get("prof")
-    elif "гимс" in template_name:
-        visit_type = visit_type_by_code.get("gims")
+    visit_type_code = template_visit_type_code(template_name)
+    visit_type = visit_type_by_code.get(visit_type_code or "")
     return visit_type.id if visit_type is not None else None
 
 
 def _sync_document_templates(db: Session, visit_type_by_code: dict[str, VisitType]) -> None:
-    catalog = load_template_catalog()
-    existing_by_file_name = {
-        template.file_name: template
-        for template in db.execute(select(DocumentTemplate)).scalars().all()
-    }
-    active_file_names: set[str] = set()
-
-    for item in catalog:
-        template = existing_by_file_name.get(item["file_name"])
-        if template is None:
-            template = DocumentTemplate(
-                code=item["code"],
-                name=item["name"],
-                file_name=item["file_name"],
-                file_path=item["file_path"],
-                description=item["description"],
-                template_type=item["template_type"],
-                output_format=item["template_type"],
-                is_active=True,
-            )
-            db.add(template)
-            db.flush()
-            existing_by_file_name[item["file_name"]] = template
-        else:
-            template.code = item["code"]
-            template.name = item["name"]
-            template.file_path = item["file_path"]
-            template.description = item["description"]
-            template.template_type = item["template_type"]
-            template.output_format = item["template_type"]
-            template.is_active = True
-
-        template_name = f"{template.name} {template.file_name}".lower()
-        template.visit_type_id = _template_visit_type_id(template_name, visit_type_by_code)
-        active_file_names.add(template.file_name)
-
-    for template in existing_by_file_name.values():
-        if template.file_name not in active_file_names:
-            template.is_active = False
-
-    amb_docx = existing_by_file_name.get("АМБ_карты_профосмотр_шаблон.docx")
-    amb_xls = existing_by_file_name.get("АМБ_карты_профосмотр_шаблон.xls")
-    if amb_xls is not None:
-        amb_xls.is_active = True
-        amb_xls.template_type = "xls"
-        amb_xls.output_format = "xls"
-        amb_xls.visit_type_id = visit_type_by_code.get("prof").id if visit_type_by_code.get("prof") else None
-    if amb_docx is not None and amb_xls is not None:
-        amb_docx.is_active = False
+    sync_document_template_catalog(db)
 
 
 def _ensure_user_roles_and_staff(db: Session, default_center_id: int | None = None) -> dict[str, Role]:
@@ -421,7 +365,9 @@ def seed_reference_data(db: Session) -> None:
         _ensure_center_details(db)
         _ensure_service_catalog(db)
         _ensure_foundation_catalog(db)
-        _backfill_related_records(db)
+        has_large_import = db.execute(select(Client.id).offset(2000).limit(1)).scalar_one_or_none() is not None
+        if not has_large_import:
+            _backfill_related_records(db)
         return
 
     centers = [
@@ -635,6 +581,8 @@ def _ensure_foundation_catalog(db: Session) -> None:
                 template.visit_type_id = visit_type_by_code.get("driver").id if visit_type_by_code.get("driver") else None
             elif "лмк" in template_name or "медкниж" in template_name:
                 template.visit_type_id = visit_type_by_code.get("lmk_new").id if visit_type_by_code.get("lmk_new") else None
+            elif any(keyword in template_name for keyword in ("070", "072", "санатор", "морск", "marine", "seafar", "драг", "drug", "alcohol")):
+                template.visit_type_id = visit_type_by_code.get("other").id if visit_type_by_code.get("other") else None
 
     db.commit()
 

@@ -12,6 +12,12 @@ from app.schemas.auth import LoginRequest, LoginResponse
 router = APIRouter()
 
 
+def get_optional_current_user(authorization: str | None = Header(default=None), db: Session = Depends(get_db)) -> User | None:
+    if authorization is None:
+        return None
+    return get_current_user(authorization=authorization, db=db)
+
+
 def get_current_user(authorization: str | None = Header(default=None), db: Session = Depends(get_db)) -> User:
     if authorization is None or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Требуется авторизация")

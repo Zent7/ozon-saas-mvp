@@ -7,6 +7,7 @@ from app.models.encounter import Encounter
 from app.models.encounter_service import EncounterService
 from app.models.service import Service
 from app.schemas.encounter_service import EncounterServiceCreate, EncounterServiceRead
+from app.services.medical_autofill import autofill_completed_doctors_for_service
 
 router = APIRouter()
 
@@ -46,6 +47,8 @@ def create_encounter_service(
 
     item = EncounterService(**payload_data)
     db.add(item)
+    db.flush()
+    autofill_completed_doctors_for_service(db, encounter, service.id)
     db.commit()
     db.refresh(item)
     return EncounterServiceRead.model_validate(item)

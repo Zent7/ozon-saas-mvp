@@ -17,7 +17,9 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.center import Center
 from app.models.client import Client
+from app.models.encounter import Encounter
 from app.services.audit import write_audit_log
 from app.services.system_user import get_system_user_id
 from app.schemas.imports import (
@@ -100,7 +102,7 @@ def parse_optional_date(value: str | None) -> date | None:
     text = str(value or "").strip()
     if not text:
         return None
-    for date_format in ("%d.%m.%Y", "%Y-%m-%d"):
+    for date_format in ("%d.%m.%Y %H:%M", "%d.%m.%Y", "%Y-%m-%d"):
         try:
             return datetime.strptime(text, date_format).date()
         except ValueError:
@@ -397,6 +399,13 @@ def import_demo_legacy(db: Session = Depends(get_db)) -> dict[str, int | str]:
         item.patient_number: item
         for item in db.execute(select(Client)).scalars().all()
     }
+    existing_encounters_by_legacy = {
+        item.legacy_source_id: item
+        for item in db.execute(select(Encounter).where(Encounter.legacy_source_id.is_not(None))).scalars().all()
+    }
+    centers = db.execute(select(Center).order_by(Center.id.asc())).scalars().all()
+    center_by_name = {center.name.strip().lower(): center for center in centers if center.name}
+    default_center = centers[0] if centers else None
 
     for item in import_items:
         legacy_source_id = int(item.get("id") or 0) or None
@@ -409,6 +418,7 @@ def import_demo_legacy(db: Session = Depends(get_db)) -> dict[str, int | str]:
             client = existing_by_patient.get(patient_number)
 
         last_name, first_name, middle_name = split_full_name(item.get("fullName"))
+        encounter_date = parse_optional_date(item.get("lastVisit"))
         payload = {
             "legacy_source_id": legacy_source_id,
             "patient_number": patient_number,
@@ -423,6 +433,7 @@ def import_demo_legacy(db: Session = Depends(get_db)) -> dict[str, int | str]:
             "notes": normalize_text(item.get("note")),
             "organization": normalize_text(item.get("organization")),
             "real_date_text": normalize_text(item.get("lastVisit")),
+            "encounter_date_text": encounter_date.isoformat() if encounter_date is not None else normalize_text(item.get("lastVisit")),
             "legacy_payload_json": item,
         }
 
@@ -441,6 +452,33 @@ def import_demo_legacy(db: Session = Depends(get_db)) -> dict[str, int | str]:
                 existing_by_legacy[legacy_source_id] = client
             updated += 1
 
+        center_name = normalize_text(item.get("center"))
+        center = center_by_name.get(center_name.lower()) if center_name else None
+        center = center or default_center
+        if legacy_source_id is not None and encounter_date is not None and center is not None:
+            db.flush()
+            encounter = existing_encounters_by_legacy.get(legacy_source_id)
+            if encounter is None:
+                encounter = Encounter(
+                    legacy_source_id=legacy_source_id,
+                    center_id=center.id,
+                    client_id=client.id,
+                    encounter_date=encounter_date,
+                    payment_type="cash",
+                    total_amount=0,
+                    status="completed",
+                    created_by_user_id=actor_user_id,
+                    comment="Imported from legacy demo data",
+                )
+                db.add(encounter)
+                existing_encounters_by_legacy[legacy_source_id] = encounter
+            else:
+                encounter.center_id = center.id
+                encounter.client_id = client.id
+                encounter.encounter_date = encounter_date
+                encounter.created_by_user_id = encounter.created_by_user_id or actor_user_id
+                encounter.deleted_at = None
+
     db.commit()
     write_audit_log(
         db,
@@ -450,6 +488,7 @@ def import_demo_legacy(db: Session = Depends(get_db)) -> dict[str, int | str]:
         user_id=actor_user_id,
         payload_json={"created": created, "updated": updated, "source": str(legacy_data_path)},
     )
+    db.commit()
     return {
         "source": str(legacy_data_path),
         "created": created,
@@ -553,6 +592,7 @@ def commit_client_excel_import(payload: ClientImportExcelRequest, db: Session = 
             "updated": updated,
         },
     )
+    db.commit()
     return ClientImportResultResponse(
         file_name=payload.file_name,
         parsed_rows=len(rows),

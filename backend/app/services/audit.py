@@ -22,4 +22,3 @@ def write_audit_log(
         payload_json=payload_json,
     )
     db.add(log)
-    db.commit()

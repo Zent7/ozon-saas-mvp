@@ -12,6 +12,13 @@ class BlankTypeRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class BlankSeriesRead(BaseModel):
+    series: str | None = None
+    free_count: int
+    next_form_id: int | None = None
+    next_full_number: str | None = None
+
+
 class BlankBatchBase(BaseModel):
     center_id: int | None = None
     blank_type: str

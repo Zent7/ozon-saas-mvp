@@ -6,6 +6,8 @@ class DocumentGenerateRequest(BaseModel):
     template_code: str | None = None
     client_id: int
     encounter_id: int | None = None
+    blank_form_id: int | None = None
+    print_variant: str | None = None
 
 
 class DocumentGenerateResponse(BaseModel):
@@ -21,4 +23,17 @@ class DocumentGenerateResponse(BaseModel):
 
 class DocumentPrintResponse(DocumentGenerateResponse):
     printed: bool = True
+    message: str
+
+
+class DocumentPrintResultRequest(BaseModel):
+    generated_document_id: int
+    success: bool = True
+    reason: str | None = None
+
+
+class DocumentPrintResultResponse(BaseModel):
+    generated_document_id: int
+    blank_form_id: int | None = None
+    blank_status: str | None = None
     message: str

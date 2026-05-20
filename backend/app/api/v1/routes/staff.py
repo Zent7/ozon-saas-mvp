@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -10,7 +10,8 @@ from app.schemas.user_admin import RoleRead, StaffUserCreate, StaffUserRead
 
 router = APIRouter()
 
-ALLOWED_ROLE_CODES = ("chairman", "doctor", "admin", "operator")
+STAFF_ROLE_CODES = ("chairman", "doctor", "admin", "operator")
+ASSIGNABLE_ROLE_CODES = ("doctor", "admin", "operator")
 
 
 def require_chairman(current_user: User = Depends(get_current_user)) -> User:
@@ -21,8 +22,8 @@ def require_chairman(current_user: User = Depends(get_current_user)) -> User:
 
 @router.get("/roles", response_model=list[RoleRead])
 def list_staff_roles(_: User = Depends(require_chairman), db: Session = Depends(get_db)) -> list[RoleRead]:
-    roles = db.execute(select(Role).where(Role.code.in_(ALLOWED_ROLE_CODES))).scalars().all()
-    order = {code: index for index, code in enumerate(ALLOWED_ROLE_CODES)}
+    roles = db.execute(select(Role).where(Role.code.in_(ASSIGNABLE_ROLE_CODES))).scalars().all()
+    order = {code: index for index, code in enumerate(ASSIGNABLE_ROLE_CODES)}
     roles.sort(key=lambda item: order.get(item.code, 999))
     return [RoleRead.model_validate(role) for role in roles]
 
@@ -33,7 +34,7 @@ def list_staff(_: User = Depends(require_chairman), db: Session = Depends(get_db
         select(User)
         .options(joinedload(User.role))
         .join(Role)
-        .where(Role.code.in_(ALLOWED_ROLE_CODES))
+        .where(Role.code.in_(STAFF_ROLE_CODES))
         .order_by(User.is_active.desc(), User.full_name.asc(), User.id.asc())
     ).scalars().all()
     return [StaffUserRead.model_validate(user) for user in users]
@@ -50,16 +51,16 @@ def create_staff(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Логин уже занят")
 
     role = db.execute(select(Role).where(Role.code == payload.role_code)).scalar_one_or_none()
-    if role is None or role.code not in ALLOWED_ROLE_CODES:
+    if role is None or role.code not in ASSIGNABLE_ROLE_CODES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Недопустимая роль сотрудника")
 
     user = User(
         center_id=current_user.center_id,
         role_id=role.id,
-        login=payload.login.strip(),
+        login=payload.login,
         password_hash=hash_password(payload.password),
-        full_name=payload.full_name.strip(),
-        email=payload.email.strip() if payload.email else None,
+        full_name=payload.full_name,
+        email=payload.email,
         is_active=True,
     )
     db.add(user)
@@ -67,3 +68,24 @@ def create_staff(
     db.refresh(user)
     db.refresh(user, attribute_names=["role"])
     return StaffUserRead.model_validate(user)
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_staff_user(
+    user_id: int,
+    current_user: User = Depends(require_chairman),
+    db: Session = Depends(get_db),
+) -> Response:
+    user = db.execute(
+        select(User)
+        .options(joinedload(User.role))
+        .where(User.id == user_id)
+    ).scalar_one_or_none()
+    if user is None or user.role.code not in STAFF_ROLE_CODES:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Сотрудник не найден")
+    if user.id == current_user.id or user.role.code == "chairman":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нельзя удалить председателя")
+
+    db.delete(user)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

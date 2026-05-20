@@ -1,19 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
-import { api, type DocumentTemplate } from "../shared/api";
+import { api, buildTemplateFileUrl, type DocumentTemplate } from "../shared/api";
 
 export function DocumentsPage() {
   const [templates, setTemplates] = useState<DocumentTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+  const [statusText, setStatusText] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isReplacing, setIsReplacing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    api
-      .getTemplates()
-      .then((data) => {
-        setTemplates(data);
-        setSelectedTemplateId(data[0]?.id ?? null);
-      })
-      .catch(() => undefined);
+    loadTemplates();
   }, []);
 
   const selectedTemplate = useMemo(
@@ -21,12 +19,59 @@ export function DocumentsPage() {
     [templates, selectedTemplateId],
   );
 
+  async function loadTemplates() {
+    try {
+      const data = await api.getTemplates();
+      setTemplates(data);
+      setSelectedTemplateId((current) => (current && data.some((template) => template.id === current) ? current : data[0]?.id ?? null));
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : "Не удалось загрузить шаблоны");
+    }
+  }
+
+  async function handleRefreshTemplates() {
+    setIsRefreshing(true);
+    setStatusText("");
+    try {
+      const data = await api.refreshTemplates();
+      setTemplates(data);
+      setSelectedTemplateId((current) => (current && data.some((template) => template.id === current) ? current : data[0]?.id ?? null));
+      setStatusText("Список шаблонов обновлен из папки файлов.");
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : "Не удалось обновить шаблоны");
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
+
+  function handleOpenTemplate() {
+    if (!selectedTemplate) return;
+    window.open(buildTemplateFileUrl(selectedTemplate.id), "_blank", "noopener,noreferrer");
+  }
+
+  async function handleReplaceTemplate(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file || !selectedTemplate) return;
+    setIsReplacing(true);
+    setStatusText("");
+    try {
+      const updated = await api.replaceTemplate(selectedTemplate.id, file);
+      setTemplates((current) => current.map((template) => (template.id === updated.id ? updated : template)));
+      setStatusText(`Шаблон "${updated.name}" заменен. Авто-поля останутся рабочими, если желтые ячейки подписаны как "терапевт авто", "фио авто" и т.п.`);
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : "Не удалось заменить шаблон");
+    } finally {
+      setIsReplacing(false);
+      event.target.value = "";
+    }
+  }
+
   return (
     <section className="page page--desktop">
       <div className="page-header">
         <div>
-          <h1>Реестр документов</h1>
-          <p>Раздел оформлен как справочник шаблонов: перечень, выбранная запись и блок служебной информации справа.</p>
+          <h1>Шаблоны документов</h1>
+          <p>Здесь лежат все печатные шаблоны. Желтые ячейки с подписью “авто” заполняются системой и могут переехать вместе с новой версией файла.</p>
         </div>
         <div className="summary-strip">
           <div className="summary-strip__item">
@@ -44,7 +89,7 @@ export function DocumentsPage() {
         <section className="panel panel--table">
           <div className="panel__heading">
             <h2>Шаблоны и формы</h2>
-            <span>Реестр печатных документов</span>
+            <span>Файлы из папки шаблонов</span>
           </div>
           <div className="record-table">
             <div className="record-table__header record-table__header--documents">
@@ -105,8 +150,11 @@ export function DocumentsPage() {
                   </div>
                 </div>
                 <div className="details-card__notes">
-                  <span>Описание</span>
-                  <p>{selectedTemplate.description || "Описание для шаблона пока не заполнено."}</p>
+                  <span>Автозаполнение</span>
+                  <p>
+                    В файле можно выделить ячейку желтым и написать в ней понятную метку: “фио авто”, “дата авто”, “терапевт авто”, “офтальмолог авто”,
+                    “номер бланка авто”. При генерации система найдет такую ячейку по тексту, даже если строки сдвинули.
+                  </p>
                 </div>
               </div>
             ) : (
@@ -117,13 +165,25 @@ export function DocumentsPage() {
           <section className="panel">
             <div className="panel__heading">
               <h2>Операции</h2>
-              <span>Печать и выгрузка</span>
+              <span>Просмотр и замена</span>
             </div>
             <div className="action-grid">
-              <button className="button" type="button">Открыть шаблон</button>
-              <button className="button button--secondary" type="button">Сформировать документ</button>
-              <button className="button button--secondary" type="button">Выгрузить XML</button>
+              <button className="button" disabled={!selectedTemplate} type="button" onClick={handleOpenTemplate}>Посмотреть</button>
+              <button className="button button--secondary" disabled={isRefreshing} type="button" onClick={handleRefreshTemplates}>
+                {isRefreshing ? "Перечитываем..." : "Перечитать папку"}
+              </button>
+              <button className="button button--secondary" disabled={!selectedTemplate || isReplacing} type="button" onClick={() => fileInputRef.current?.click()}>
+                {isReplacing ? "Обновляем..." : "Обновить шаблон"}
+              </button>
+              <input
+                ref={fileInputRef}
+                className="visually-hidden"
+                type="file"
+                accept=".docx,.xml,.xls"
+                onChange={handleReplaceTemplate}
+              />
             </div>
+            {statusText ? <div className="operation-status">{statusText}</div> : null}
           </section>
         </aside>
       </div>

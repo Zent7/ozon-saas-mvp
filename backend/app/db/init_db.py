@@ -21,6 +21,33 @@ CLIENT_PROFILE_COLUMNS = {
     "document_number": "VARCHAR(80)",
     "document_issued_by": "VARCHAR(500)",
     "document_issued_date": "DATE",
+    "registration_text": "TEXT",
+    "admission_category": "VARCHAR(255)",
+    "reference_number": "VARCHAR(80)",
+    "doctor_gynecologist": "VARCHAR(80)",
+    "doctor_stomatologist": "VARCHAR(80)",
+    "doctor_dermatologist": "VARCHAR(80)",
+    "doctor_neurologist": "VARCHAR(80)",
+    "doctor_surgeon": "VARCHAR(80)",
+    "doctor_otolaryngologist": "VARCHAR(80)",
+    "doctor_ophthalmologist": "VARCHAR(80)",
+    "doctor_therapist": "VARCHAR(80)",
+    "doctor_psychiatrist": "VARCHAR(80)",
+    "doctor_infectionist": "VARCHAR(80)",
+    "doctor_phthisiatrician": "VARCHAR(80)",
+    "doctor_uzist": "VARCHAR(80)",
+    "indications": "TEXT",
+    "encounter_date_text": "VARCHAR(120)",
+    "card_number": "VARCHAR(80)",
+    "journal_number": "VARCHAR(80)",
+    "no_number": "VARCHAR(80)",
+    "flg": "VARCHAR(80)",
+    "profession": "VARCHAR(255)",
+    "work_place": "VARCHAR(255)",
+    "organization": "VARCHAR(255)",
+    "mkb10": "VARCHAR(80)",
+    "real_date_text": "VARCHAR(120)",
+    "legacy_payload_json": "JSON",
 }
 
 SPORT_CONCLUSION_PHRASES = [
@@ -133,6 +160,12 @@ def ensure_client_profile_columns() -> None:
 
         create_index_if_possible(connection, dialect, "ix_clients_document_series", "clients", "document_series")
         create_index_if_possible(connection, dialect, "ix_clients_document_number", "clients", "document_number")
+        create_index_if_possible(connection, dialect, "ix_clients_reference_number", "clients", "reference_number")
+        create_index_if_possible(connection, dialect, "ix_clients_card_number", "clients", "card_number")
+        create_index_if_possible(connection, dialect, "ix_clients_organization", "clients", "organization")
+        create_index_if_possible(connection, dialect, "ix_clients_mkb10", "clients", "mkb10")
+        create_index_if_possible(connection, dialect, "ix_clients_profession", "clients", "profession")
+        create_index_if_possible(connection, dialect, "ix_clients_work_place", "clients", "work_place")
         create_index_if_possible(
             connection,
             dialect,
@@ -184,6 +217,58 @@ def ensure_blank_form_tables() -> None:
             create_index_if_possible(connection, dialect, "ix_client_documents_blank_number_snapshot", "client_documents", "blank_number_snapshot")
 
 
+def ensure_document_template_blank_columns() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table("document_templates"):
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("document_templates")}
+    dialect = engine.dialect.name
+    with engine.begin() as connection:
+        if "requires_numbered_blank" not in columns:
+            add_column_if_missing(
+                connection,
+                dialect,
+                "document_templates",
+                "requires_numbered_blank",
+                "BOOLEAN DEFAULT FALSE",
+            )
+        if "blank_type" not in columns:
+            add_column_if_missing(
+                connection,
+                dialect,
+                "document_templates",
+                "blank_type",
+                "VARCHAR(80)",
+            )
+        create_index_if_possible(
+            connection,
+            dialect,
+            "ix_document_templates_blank_type",
+            "document_templates",
+            "blank_type",
+        )
+
+        connection.execute(
+            text(
+                """
+                UPDATE document_templates
+                SET requires_numbered_blank = TRUE,
+                    blank_type = :blank_type
+                WHERE (
+                    lower(coalesce(name, '')) LIKE '%вод%'
+                    OR lower(coalesce(file_name, '')) LIKE '%вод%'
+                    OR lower(coalesce(code, '')) LIKE '%driver%'
+                    OR lower(coalesce(name, '')) LIKE '%driver%'
+                    OR lower(coalesce(file_name, '')) LIKE '%driver%'
+                )
+                AND coalesce(requires_numbered_blank, FALSE) = FALSE
+                """
+            ),
+            {"blank_type": BLANK_TYPE_DRIVER_MEDICAL_CERTIFICATE},
+        )
+
+
 def seed_blank_types() -> None:
     if not inspect(engine).has_table("blank_types"):
         return
@@ -228,7 +313,12 @@ def seed_sport_conclusion_phrases() -> None:
 
 
 def init_db() -> None:
+    Base.metadata.create_all(engine, checkfirst=True)
+    ensure_client_patient_numbers()
+    ensure_legacy_import_columns()
+    ensure_client_profile_columns()
     ensure_blank_form_tables()
+    ensure_document_template_blank_columns()
     seed_blank_types()
     seed_sport_conclusion_phrases()
     with SessionLocal() as db:

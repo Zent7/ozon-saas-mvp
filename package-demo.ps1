@@ -28,18 +28,16 @@ $excludedDirs = @(
     "release",
     "backups",
     "storage",
+    "backend\storage",
     "frontend-access",
+    "review-package-chairman-print-20260518",
     "node_modules",
     "frontend\node_modules",
     "frontend\dist",
     "dist",
     "build",
     ".venv",
-    "backend\.venv",
-    "__pycache__",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".ruff_cache"
+    "backend\.venv"
 )
 
 $excludedFilePatterns = @(
@@ -47,10 +45,13 @@ $excludedFilePatterns = @(
     "*.sqlite",
     "*.sqlite3",
     "*.log",
+    "*.zip",
     "*.mp4",
     "*.rar",
+    "*.pyc",
     "photo_*.jpg",
-    "tmp_*"
+    "tmp_*",
+    "temp_*"
 )
 
 if (-not $IncludeLocalClientExport) {
@@ -60,15 +61,21 @@ if (-not $IncludeLocalClientExport) {
 function Test-IsExcludedPath {
     param([string]$RelativePath)
 
+    $normalizedPath = $RelativePath.Replace("/", "\")
+
     foreach ($dir in $excludedDirs) {
         $normalizedDir = $dir.Replace("/", "\").TrimEnd("\")
-        if ($RelativePath -eq $normalizedDir -or $RelativePath.StartsWith("$normalizedDir\")) {
+        if ($normalizedPath -eq $normalizedDir -or $normalizedPath.StartsWith("$normalizedDir\")) {
             return $true
         }
     }
 
+    if ($normalizedPath -match '(^|\\)__pycache__(\\|$)') {
+        return $true
+    }
+
     foreach ($pattern in $excludedFilePatterns) {
-        if ([System.Management.Automation.WildcardPattern]::new($pattern, "IgnoreCase").IsMatch([System.IO.Path]::GetFileName($RelativePath))) {
+        if ([System.Management.Automation.WildcardPattern]::new($pattern, "IgnoreCase").IsMatch([System.IO.Path]::GetFileName($normalizedPath))) {
             return $true
         }
     }
@@ -90,9 +97,6 @@ function Get-RelativePathCompat {
 }
 
 Write-Host "Preparing clean demo package..." -ForegroundColor Cyan
-if (Test-Path -LiteralPath $stagingDir) {
-    Remove-Item -LiteralPath $stagingDir -Recurse -Force
-}
 New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
 
 $files = Get-ChildItem -LiteralPath $root -Recurse -File -Force | Where-Object {

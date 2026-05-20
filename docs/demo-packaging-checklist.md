@@ -67,7 +67,7 @@
 .\start-demo.ps1
 
 После запуска открой:
-http://localhost:5173/demo/index.html
+http://localhost:5173/
 
 Если что-то сломалось, заполни docs/bug-report-template.md и приложи скриншот.
 ```

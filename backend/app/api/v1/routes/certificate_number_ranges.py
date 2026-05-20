@@ -9,7 +9,7 @@ from app.schemas.certificate_number_range import CertificateNumberRangeRead
 router = APIRouter()
 
 
-@router.get("", response_model=list[CertificateNumberRangeRead])
+@router.get("", response_model=list[CertificateNumberRangeRead], deprecated=True)
 def list_certificate_number_ranges(db: Session = Depends(get_db)) -> list[CertificateNumberRangeRead]:
     items = db.execute(
         select(CertificateNumberRange)

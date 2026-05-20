@@ -23,6 +23,21 @@ MONTH_NAMES = {
     12: "декабря",
 }
 
+MONTH_NAMES_EN = {
+    1: "January",
+    2: "February",
+    3: "March",
+    4: "April",
+    5: "May",
+    6: "June",
+    7: "July",
+    8: "August",
+    9: "September",
+    10: "October",
+    11: "November",
+    12: "December",
+}
+
 
 def _text(value: Any) -> str:
     if value is None:
@@ -38,6 +53,21 @@ def _date_parts(value: date | None) -> tuple[str, str, str, str]:
     if value is None:
         return "", "", "", ""
     return value.strftime("%d"), value.strftime("%m"), str(value.year), MONTH_NAMES.get(value.month, "")
+
+
+def _date_english(value: date | None) -> str:
+    if value is None:
+        return ""
+    return f"{value.year}, {MONTH_NAMES_EN.get(value.month, '')}, {value.day:02d}"
+
+
+def _age_on_date(birth_date: date | None, reference_date: date | None) -> str:
+    if birth_date is None or reference_date is None:
+        return ""
+    age = reference_date.year - birth_date.year
+    if (reference_date.month, reference_date.day) < (birth_date.month, birth_date.day):
+        age -= 1
+    return str(max(age, 0))
 
 
 def _first_legacy_value(client: Client, *keys: str) -> str:
@@ -146,6 +176,7 @@ def build_document_context(
     address_parts = _split_address(address)
     services = ", ".join(name for name in (service_names or []) if name) or "Базовая услуга"
     visit_date = _date(encounter.encounter_date) if encounter else ""
+    visit_date_en = _date_english(encounter.encounter_date if encounter else None)
     contract_date = visit_date or _date(date.today())
     total_amount = _text(encounter.total_amount) if encounter else ""
     notes = _text(encounter.comment) if encounter else _text(client.notes)
@@ -163,6 +194,10 @@ def build_document_context(
     resolved_doctor = _text(doctor_name) or "Врач"
     reference_number = _text(client.reference_number) or str(encounter.id if encounter else client.patient_number or client.id)
     category_values = _category_context(_text(client.admission_category))
+    age = _age_on_date(client.birth_date, encounter.encounter_date if encounter else date.today())
+    marine_address_line = address
+    marine_region = address_parts["subject"]
+    position_applied = _text(client.profession) or post
 
     context = {
         "ID": str(encounter.id if encounter else client.id),
@@ -173,6 +208,8 @@ def build_document_context(
         "FullName": full_name,
         "FIO": full_name,
         "ClientCalc": full_name,
+        "ClientCalcUpper": full_name.upper(),
+        "FullNameUpper": full_name.upper(),
         "LastName": _text(client.last_name),
         "LastNameCalc": _text(client.last_name),
         "FirstName": _text(client.first_name),
@@ -196,6 +233,8 @@ def build_document_context(
         "BirthDateCalc_DATEMONTH1": birth_month_name,
         "BirthDateCalc_YEAR1": birth_year,
         "VisitDate": visit_date,
+        "VisitDate_EN": visit_date_en,
+        "VisitDateMarine": visit_date_en,
         "ContractDate": contract_date,
         "VisitDate_DATEFULL": visit_date,
         "DateCalc": visit_date,
@@ -216,6 +255,9 @@ def build_document_context(
         "SubDistrCalc": address_parts["district"],
         "AddressEndCalc": address,
         "AddressCalc": address,
+        "MarineAddressLine": marine_address_line,
+        "MarineRegion": marine_region,
+        "CountryEN": "Russia",
         "DistrictCalc": address_parts["district"],
         "DistrictCalc1": address_parts["district"],
         "CityCalc": address_parts["city"],
@@ -230,6 +272,8 @@ def build_document_context(
         "ApartmentNumberCalc1": address_parts["apartment"],
         "Sex": sex_label,
         "SexCalc": sex_label,
+        "Age": age,
+        "AgeCalc": age,
         "RegistrType": "постоянная",
         "UserName": "Администратор системы",
         "StatusCalc": _status(encounter.status if encounter else None),
@@ -243,6 +287,7 @@ def build_document_context(
         "Services": services,
         "ServiceName": services,
         "Post": post,
+        "PositionApplied": position_applied,
         "CompanyName": work_place or "не указано",
         "Organization": organization,
         "WorkPlace": work_place,
@@ -305,6 +350,12 @@ def build_document_context(
         "LaboratoryStudy": "Без отклонений",
         "LaboratoryStudyCalc": "Без отклонений",
         "Conclusion": "Годен",
+        "MaritalStatus": "",
+        "Weight": "",
+        "Height": "",
+        "HairColor": "",
+        "EyeColor": "",
+        "DistinguishingMark": "",
         "DriveShipCalc": "",
         "ManualControlCalc": "",
         "AutomaticTransmissionCalc": "",

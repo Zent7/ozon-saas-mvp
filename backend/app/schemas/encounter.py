@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from pydantic import BaseModel
@@ -34,3 +34,14 @@ class EncounterRead(EncounterBase):
     status: str
 
     model_config = {"from_attributes": True}
+
+
+class DeletedEncounterRead(BaseModel):
+    id: int
+    center_id: int
+    client_id: int
+    encounter_date: date
+    payment_type: str
+    total_amount: Decimal
+    status: str
+    deleted_at: datetime

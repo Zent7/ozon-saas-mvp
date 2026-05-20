@@ -1,8 +1,10 @@
 from fastapi import APIRouter
 
+from app.api.v1.routes.audit_logs import router as audit_logs_router
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.blanks import router as blanks_router
 from app.api.v1.routes.certificate_number_ranges import router as certificate_number_ranges_router
+from app.api.v1.routes.centers import router as centers_router
 from app.api.v1.routes.client_documents import router as client_documents_router
 from app.api.v1.routes.clients import router as clients_router
 from app.api.v1.routes.dashboard import router as dashboard_router
@@ -19,6 +21,7 @@ from app.api.v1.routes.medical_records import router as medical_records_router
 from app.api.v1.routes.patient_consents import router as patient_consents_router
 from app.api.v1.routes.payments import router as payments_router
 from app.api.v1.routes.recalls import router as recalls_router
+from app.api.v1.routes.reports import router as reports_router
 from app.api.v1.routes.services import router as services_router
 from app.api.v1.routes.staff import router as staff_router
 from app.api.v1.routes.service_categories import router as service_categories_router
@@ -27,16 +30,19 @@ from app.api.v1.routes.visit_types import router as visit_types_router
 
 api_router = APIRouter()
 api_router.include_router(auth_router, prefix="/auth", tags=["auth"])
+api_router.include_router(audit_logs_router, prefix="/audit-logs", tags=["audit-logs"])
 api_router.include_router(staff_router, prefix="/staff", tags=["staff"])
 api_router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 api_router.include_router(health_router, tags=["health"])
 api_router.include_router(imports_router, prefix="/imports", tags=["imports"])
 api_router.include_router(clients_router, prefix="/clients", tags=["clients"])
+api_router.include_router(centers_router, prefix="/centers", tags=["centers"])
 api_router.include_router(client_documents_router, prefix="/client-documents", tags=["client-documents"])
 api_router.include_router(encounters_router, prefix="/encounters", tags=["encounters"])
 api_router.include_router(encounter_services_router, prefix="/encounter-services", tags=["encounter-services"])
 api_router.include_router(visit_types_router, prefix="/visit-types", tags=["visit-types"])
 api_router.include_router(payments_router, prefix="/payments", tags=["payments"])
+api_router.include_router(reports_router, prefix="/reports", tags=["reports"])
 api_router.include_router(service_categories_router, prefix="/service-categories", tags=["service-categories"])
 api_router.include_router(services_router, prefix="/services", tags=["services"])
 api_router.include_router(blanks_router, prefix="/blanks", tags=["blanks"])

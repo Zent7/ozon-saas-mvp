@@ -21,7 +21,19 @@ The script will:
 - run Alembic migrations;
 - start the FastAPI backend on `http://127.0.0.1:8000`;
 - start Vite on `http://127.0.0.1:5173`;
-- open `http://127.0.0.1:5173/demo/index.html`.
+- open `http://127.0.0.1:5173/`.
+
+The backend is expected to run on PostgreSQL. After startup, verify:
+
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/v1/health"
+```
+
+Expected key fields:
+
+- `status = ok`
+- `database_ok = true`
+- `database_dialect = postgresql`
 
 ## Manual fallback
 
@@ -55,7 +67,7 @@ npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 Open:
 
 ```text
-http://127.0.0.1:5173/demo/index.html
+http://127.0.0.1:5173/
 ```
 
 ## Before sending to another computer

@@ -11,6 +11,8 @@ class DocumentTemplateRead(BaseModel):
     description: str | None
     template_type: str
     output_format: str
+    requires_numbered_blank: bool
+    blank_type: str | None
     is_active: bool
 
     model_config = {"from_attributes": True}

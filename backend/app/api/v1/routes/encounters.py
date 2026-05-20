@@ -4,21 +4,29 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.v1.routes.auth import get_optional_current_user
 from app.db.session import get_db
 from app.models.client import Client
 from app.models.encounter import Encounter
 from app.models.payment import Payment
-from app.schemas.encounter import EncounterCreate, EncounterRead, EncounterUpdate
+from app.models.user import User
+from app.schemas.encounter import EncounterCreate, EncounterRead, EncounterUpdate, DeletedEncounterRead
 from app.services.audit import write_audit_log
+from app.services.notifications import build_deletion_email_body, send_deletion_notification
+from app.services.system_user import get_system_user_id
 
 router = APIRouter()
+
+
+def actor_user_id(db: Session, current_user: User | None) -> int | None:
+    return current_user.id if current_user is not None else get_system_user_id(db)
 
 
 def sync_primary_payment(
     db: Session,
     encounter: Encounter,
     *,
-    default_comment: str = "Первичный платеж",
+    default_comment: str = "Первичный платёж",
 ) -> Payment:
     payment = db.execute(
         select(Payment).where(Payment.encounter_id == encounter.id).order_by(Payment.id.asc()).limit(1)
@@ -51,11 +59,38 @@ def list_encounters(
     return [EncounterRead.model_validate(item) for item in encounters]
 
 
+@router.get("/deleted", response_model=list[DeletedEncounterRead])
+def list_deleted_encounters(
+    client_id: int | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[DeletedEncounterRead]:
+    query = select(Encounter).where(Encounter.deleted_at.is_not(None))
+    if client_id is not None:
+        query = query.where(Encounter.client_id == client_id)
+    query = query.order_by(Encounter.deleted_at.desc()).limit(limit)
+    encounters = db.execute(query).scalars().all()
+    return [
+        DeletedEncounterRead(
+            id=encounter.id,
+            center_id=encounter.center_id,
+            client_id=encounter.client_id,
+            encounter_date=encounter.encounter_date,
+            payment_type=encounter.payment_type,
+            total_amount=encounter.total_amount,
+            status=encounter.status,
+            deleted_at=encounter.deleted_at,
+        )
+        for encounter in encounters
+        if encounter.deleted_at is not None
+    ]
+
+
 @router.get("/{encounter_id}", response_model=EncounterRead)
 def get_encounter(encounter_id: int, db: Session = Depends(get_db)) -> EncounterRead:
     encounter = db.get(Encounter, encounter_id)
     if encounter is None or encounter.deleted_at is not None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="РћР±СЂР°С‰РµРЅРёРµ РЅРµ РЅР°Р№РґРµРЅРѕ")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Обращение не найдено")
     return EncounterRead.model_validate(encounter)
 
 
@@ -63,9 +98,10 @@ def get_encounter(encounter_id: int, db: Session = Depends(get_db)) -> Encounter
 def create_encounter(payload: EncounterCreate, db: Session = Depends(get_db)) -> EncounterRead:
     client = db.get(Client, payload.client_id)
     if client is None or client.deleted_at is not None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="РљР»РёРµРЅС‚ РЅРµ РЅР°Р№РґРµРЅ")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Клиент не найден")
 
-    encounter = Encounter(**payload.model_dump(), created_by_user_id=1, status="draft")
+    created_by_user_id = get_system_user_id(db)
+    encounter = Encounter(**payload.model_dump(), created_by_user_id=created_by_user_id, status="draft")
     client.encounter_date_text = payload.encounter_date.isoformat()
     db.add(encounter)
     db.flush()
@@ -77,10 +113,11 @@ def create_encounter(payload: EncounterCreate, db: Session = Depends(get_db)) ->
         entity_type="encounter",
         entity_id=encounter.id,
         action="create",
-        user_id=1,
+        user_id=created_by_user_id,
         center_id=encounter.center_id,
         payload_json={"client_id": encounter.client_id},
     )
+    db.commit()
     return EncounterRead.model_validate(encounter)
 
 
@@ -88,7 +125,7 @@ def create_encounter(payload: EncounterCreate, db: Session = Depends(get_db)) ->
 def update_encounter(encounter_id: int, payload: EncounterUpdate, db: Session = Depends(get_db)) -> EncounterRead:
     encounter = db.get(Encounter, encounter_id)
     if encounter is None or encounter.deleted_at is not None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="РћР±СЂР°С‰РµРЅРёРµ РЅРµ РЅР°Р№РґРµРЅРѕ")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Обращение не найдено")
 
     encounter_date_before_update = encounter.encounter_date
     for key, value in payload.model_dump(exclude_unset=True).items():
@@ -107,27 +144,86 @@ def update_encounter(encounter_id: int, payload: EncounterUpdate, db: Session = 
         entity_type="encounter",
         entity_id=encounter.id,
         action="update",
-        user_id=1,
+        user_id=get_system_user_id(db),
         center_id=encounter.center_id,
         payload_json={"client_id": encounter.client_id, "status": encounter.status},
     )
+    db.commit()
     return EncounterRead.model_validate(encounter)
 
 
 @router.delete("/{encounter_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_encounter(encounter_id: int, db: Session = Depends(get_db)) -> None:
+def delete_encounter(
+    encounter_id: int,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+) -> None:
     encounter = db.get(Encounter, encounter_id)
     if encounter is None or encounter.deleted_at is not None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="РћР±СЂР°С‰РµРЅРёРµ РЅРµ РЅР°Р№РґРµРЅРѕ")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Обращение не найдено")
 
     encounter.deleted_at = datetime.now(timezone.utc)
+    deleted_at_iso = encounter.deleted_at.isoformat()
+    deleted_by_user_id = actor_user_id(db, current_user)
     db.commit()
     write_audit_log(
         db,
         entity_type="encounter",
         entity_id=encounter.id,
         action="delete",
-        user_id=1,
+        user_id=deleted_by_user_id,
         center_id=encounter.center_id,
-        payload_json={"client_id": encounter.client_id},
+        payload_json={
+            "client_id": encounter.client_id,
+            "encounter_date": encounter.encounter_date.isoformat(),
+            "deleted_at": deleted_at_iso,
+        },
     )
+    db.commit()
+
+    try:
+        send_deletion_notification(
+            subject=f"Удалено обращение №{encounter.id}",
+            body=build_deletion_email_body(
+                entity_label="обращение",
+                entity_id=encounter.id,
+                deleted_by=current_user.full_name if current_user is not None else None,
+                deleted_at=deleted_at_iso,
+                details={
+                    "Клиент ID": encounter.client_id,
+                    "Дата обращения": encounter.encounter_date.isoformat(),
+                    "Статус": encounter.status,
+                },
+            ),
+        )
+    except Exception:
+        pass
+
+
+@router.post("/{encounter_id}/restore", response_model=EncounterRead)
+def restore_encounter(
+    encounter_id: int,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+) -> EncounterRead:
+    encounter = db.get(Encounter, encounter_id)
+    if encounter is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Обращение не найдено")
+    if encounter.deleted_at is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Обращение не находится в удалённых")
+
+    encounter.deleted_at = None
+    restored_by_user_id = actor_user_id(db, current_user)
+    db.commit()
+    db.refresh(encounter)
+    write_audit_log(
+        db,
+        entity_type="encounter",
+        entity_id=encounter.id,
+        action="restore",
+        user_id=restored_by_user_id,
+        center_id=encounter.center_id,
+        payload_json={"client_id": encounter.client_id, "status": encounter.status},
+    )
+    db.commit()
+    return EncounterRead.model_validate(encounter)

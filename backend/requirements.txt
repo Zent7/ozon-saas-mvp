@@ -4,6 +4,9 @@ sqlalchemy==2.0.40
 psycopg[binary]==3.2.6
 pydantic==2.11.3
 pydantic-settings==2.8.1
+python-multipart==0.0.20
 alembic==1.15.2
 pyodbc==5.2.0
 xlrd==2.0.1
+xlutils==2.0.0
+openpyxl==3.1.5

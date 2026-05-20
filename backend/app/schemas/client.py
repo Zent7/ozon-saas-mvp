@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -60,5 +60,14 @@ class ClientUpdate(ClientBase):
 class ClientRead(ClientBase):
     id: int
     patient_number: int
+    services: list[str] = []
 
     model_config = {"from_attributes": True}
+
+
+class DeletedClientRead(BaseModel):
+    id: int
+    patient_number: int
+    full_name: str
+    birth_date: date
+    deleted_at: datetime

@@ -22,3 +22,22 @@ def send_deletion_notification(subject: str, body: str) -> bool:
             smtp.login(settings.smtp_user, settings.smtp_password)
         smtp.send_message(message)
     return True
+
+
+def build_deletion_email_body(
+    *,
+    entity_label: str,
+    entity_id: int,
+    deleted_by: str | None,
+    deleted_at: str,
+    details: dict[str, str | int | None],
+) -> str:
+    lines = [
+        f"Удалена сущность: {entity_label}",
+        f"ID: {entity_id}",
+        f"Удалил: {deleted_by or 'неизвестный пользователь'}",
+        f"Удалено: {deleted_at}",
+    ]
+    for key, value in details.items():
+        lines.append(f"{key}: {value if value is not None else '-'}")
+    return "\n".join(lines)

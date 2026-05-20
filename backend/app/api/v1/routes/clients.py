@@ -1,17 +1,23 @@
+from collections import defaultdict
 from datetime import date, datetime, timezone
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import String, and_, case, cast, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.api.v1.routes.auth import get_optional_current_user
 from app.db.session import get_db
 from app.models.client import Client
+from app.models.encounter import Encounter
+from app.models.encounter_service import EncounterService
 from app.models.medical_record import MedicalRecord
-from app.schemas.client import ClientCreate, ClientRead, ClientUpdate
+from app.models.service import Service
+from app.models.user import User
+from app.schemas.client import ClientCreate, ClientRead, ClientUpdate, DeletedClientRead
 from app.services.audit import write_audit_log
 from app.services.duplicates import build_duplicate_check_keys
-from app.services.notifications import send_deletion_notification
+from app.services.notifications import build_deletion_email_body, send_deletion_notification
 from app.services.system_user import get_system_user_id
 
 router = APIRouter()
@@ -43,11 +49,22 @@ def parse_search_date(value: str):
     return None
 
 
+def actor_user_id(db: Session, current_user: User | None) -> int | None:
+    return current_user.id if current_user is not None else get_system_user_id(db)
+
+
+def client_full_name(client: Client) -> str:
+    return f"{client.last_name} {client.first_name} {client.middle_name or ''}".strip()
+
+
 def duplicate_conditions_for(payload: ClientCreate | ClientUpdate):
     if not (payload.last_name and payload.first_name and payload.middle_name):
         return []
 
     return [
+        (Client.last_name == payload.last_name)
+        & (Client.first_name == payload.first_name)
+        & (Client.middle_name == payload.middle_name),
         (func.lower(Client.last_name) == payload.last_name.lower())
         & (func.lower(Client.first_name) == payload.first_name.lower())
         & (func.lower(Client.middle_name) == payload.middle_name.lower())
@@ -81,6 +98,58 @@ def get_next_patient_number(db: Session) -> int:
     return expected_number
 
 
+def latest_services_by_client_ids(db: Session, client_ids: list[int]) -> dict[int, list[str]]:
+    if not client_ids:
+        return {}
+
+    encounter_rows = db.execute(
+        select(Encounter.id, Encounter.client_id)
+        .where(Encounter.deleted_at.is_(None), Encounter.client_id.in_(client_ids))
+        .order_by(Encounter.client_id.asc(), Encounter.created_at.desc(), Encounter.id.desc())
+    ).all()
+
+    latest_encounter_by_client: dict[int, int] = {}
+    for encounter_id, client_id in encounter_rows:
+        latest_encounter_by_client.setdefault(client_id, encounter_id)
+
+    if not latest_encounter_by_client:
+        return {}
+
+    service_rows = db.execute(
+        select(EncounterService.encounter_id, Service.name)
+        .join(Service, Service.id == EncounterService.service_id)
+        .where(EncounterService.encounter_id.in_(list(latest_encounter_by_client.values())))
+        .order_by(EncounterService.encounter_id.asc(), EncounterService.id.asc())
+    ).all()
+
+    names_by_encounter: dict[int, list[str]] = defaultdict(list)
+    for encounter_id, service_name in service_rows:
+        if service_name:
+            names_by_encounter[encounter_id].append(service_name)
+
+    return {
+        client_id: names_by_encounter.get(encounter_id, [])
+        for client_id, encounter_id in latest_encounter_by_client.items()
+    }
+
+
+def serialize_client(db: Session, client: Client) -> ClientRead:
+    services = latest_services_by_client_ids(db, [client.id]).get(client.id, [])
+    payload = ClientRead.model_validate(client).model_dump()
+    payload["services"] = services
+    return ClientRead.model_validate(payload)
+
+
+def serialize_clients(db: Session, clients: list[Client]) -> list[ClientRead]:
+    services_by_client = latest_services_by_client_ids(db, [client.id for client in clients])
+    result: list[ClientRead] = []
+    for client in clients:
+        payload = ClientRead.model_validate(client).model_dump()
+        payload["services"] = services_by_client.get(client.id, [])
+        result.append(ClientRead.model_validate(payload))
+    return result
+
+
 def duplicate_error(payload: ClientCreate | ClientUpdate, client: Client) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
@@ -89,20 +158,57 @@ def duplicate_error(payload: ClientCreate | ClientUpdate, client: Client) -> HTT
             "duplicate_keys": build_duplicate_check_keys(payload),
             "client_id": client.id,
             "patient_number": client.patient_number,
-            "full_name": f"{client.last_name} {client.first_name} {client.middle_name or ''}".strip(),
+            "full_name": client_full_name(client),
         },
+    )
+
+
+def latest_encounter_subquery():
+    return (
+        select(
+            Encounter.id.label("encounter_id"),
+            Encounter.client_id.label("client_id"),
+            Encounter.encounter_date.label("encounter_date"),
+            Encounter.created_at.label("created_at"),
+            func.row_number()
+            .over(
+                partition_by=Encounter.client_id,
+                order_by=(Encounter.created_at.desc(), Encounter.id.desc()),
+            )
+            .label("row_number"),
+        )
+        .where(Encounter.deleted_at.is_(None))
+        .subquery()
     )
 
 
 @router.get("", response_model=list[ClientRead])
 def list_clients(
     search: str | None = Query(default=None),
+    encounter_date: date | None = Query(default=None),
     limit: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> list[ClientRead]:
     value = search.strip() if search else ""
     if not value:
-        return []
+        query = select(Client).where(Client.deleted_at.is_(None))
+        if encounter_date is not None:
+            latest_encounter = latest_encounter_subquery()
+            query = (
+                query.join(latest_encounter, latest_encounter.c.client_id == Client.id)
+                .where(latest_encounter.c.row_number == 1, latest_encounter.c.encounter_date == encounter_date)
+                .order_by(
+                    latest_encounter.c.encounter_date.desc(),
+                    latest_encounter.c.created_at.desc(),
+                    latest_encounter.c.encounter_id.desc(),
+                    Client.patient_number.desc(),
+                )
+            )
+        else:
+            query = query.order_by(Client.patient_number.desc(), Client.id.desc())
+        query = query.limit(limit)
+        clients = db.execute(query).scalars().all()
+        return serialize_clients(db, clients)
 
     pattern = f"%{value}%"
     compact_value = re.sub(r"\s+", "", value.lower())
@@ -166,14 +272,65 @@ def list_clients(
         else_=9,
     )
 
-    query = (
-        select(Client)
-        .where(Client.deleted_at.is_(None), or_(*search_conditions))
-        .order_by(surname_rank.asc(), Client.last_name.asc(), Client.first_name.asc(), Client.patient_number.asc())
-        .limit(limit)
-    )
+    query = select(Client).where(Client.deleted_at.is_(None), or_(*search_conditions))
+    if encounter_date is not None:
+        latest_encounter = latest_encounter_subquery()
+        query = (
+            query.join(latest_encounter, latest_encounter.c.client_id == Client.id)
+            .where(latest_encounter.c.row_number == 1, latest_encounter.c.encounter_date == encounter_date)
+            .order_by(
+                latest_encounter.c.encounter_date.desc(),
+                latest_encounter.c.created_at.desc(),
+                latest_encounter.c.encounter_id.desc(),
+                Client.patient_number.desc(),
+            )
+        )
+    else:
+        query = query.order_by(
+            surname_rank.asc(),
+            Client.last_name.asc(),
+            Client.first_name.asc(),
+            Client.patient_number.asc(),
+        )
+    query = query.limit(limit)
     clients = db.execute(query).scalars().all()
-    return [ClientRead.model_validate(item) for item in clients]
+    return serialize_clients(db, clients)
+
+
+@router.get("/deleted", response_model=list[DeletedClientRead])
+def list_deleted_clients(
+    search: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> list[DeletedClientRead]:
+    query = select(Client).where(Client.deleted_at.is_not(None))
+    value = search.strip() if search else ""
+    if value:
+        pattern = f"%{value}%"
+        query = query.where(
+            or_(
+                Client.last_name.ilike(pattern),
+                Client.first_name.ilike(pattern),
+                Client.middle_name.ilike(pattern),
+                Client.phone.ilike(pattern),
+                Client.card_number.ilike(pattern),
+                cast(Client.patient_number, String).ilike(pattern),
+            )
+        )
+
+    query = query.order_by(Client.deleted_at.desc()).limit(limit)
+    clients = db.execute(query).scalars().all()
+    return [
+        DeletedClientRead(
+            id=client.id,
+            patient_number=client.patient_number,
+            full_name=client_full_name(client),
+            birth_date=client.birth_date,
+            deleted_at=client.deleted_at,
+        )
+        for client in clients
+        if client.deleted_at is not None
+    ]
 
 
 @router.get("/{client_id}", response_model=ClientRead)
@@ -181,7 +338,7 @@ def get_client(client_id: int, db: Session = Depends(get_db)) -> ClientRead:
     client = db.get(Client, client_id)
     if client is None or client.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Клиент не найден")
-    return ClientRead.model_validate(client)
+    return serialize_client(db, client)
 
 
 @router.post("", response_model=ClientRead)
@@ -194,8 +351,8 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db)) -> Clien
 
     next_patient_number = get_next_patient_number(db)
     normalized_data["card_number"] = normalized_data.get("card_number") or f"{next_patient_number:07d}"
-    actor_user_id = get_system_user_id(db)
-    client = Client(**normalized_data, patient_number=next_patient_number, created_by_user_id=actor_user_id)
+    created_by_user_id = get_system_user_id(db)
+    client = Client(**normalized_data, patient_number=next_patient_number, created_by_user_id=created_by_user_id)
     db.add(client)
     db.flush()
     db.add(
@@ -218,9 +375,10 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db)) -> Clien
         entity_type="client",
         entity_id=client.id,
         action="create",
-        user_id=actor_user_id,
+        user_id=created_by_user_id,
         payload_json={"full_name": f"{client.last_name} {client.first_name}"},
     )
+    db.commit()
     return ClientRead.model_validate(client)
 
 
@@ -239,7 +397,7 @@ def update_client(client_id: int, payload: ClientUpdate, db: Session = Depends(g
     for key, value in normalized_data.items():
         setattr(client, key, value)
 
-    actor_user_id = get_system_user_id(db)
+    updated_by_user_id = get_system_user_id(db)
     db.commit()
     db.refresh(client)
     write_audit_log(
@@ -247,36 +405,83 @@ def update_client(client_id: int, payload: ClientUpdate, db: Session = Depends(g
         entity_type="client",
         entity_id=client.id,
         action="update",
-        user_id=actor_user_id,
+        user_id=updated_by_user_id,
         payload_json={"full_name": f"{client.last_name} {client.first_name}"},
     )
+    db.commit()
     return ClientRead.model_validate(client)
 
 
 @router.delete("/{client_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_client(client_id: int, db: Session = Depends(get_db)) -> None:
+def delete_client(
+    client_id: int,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+) -> None:
     client = db.get(Client, client_id)
     if client is None or client.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Клиент не найден")
 
     client.deleted_at = datetime.now(timezone.utc)
-    full_name = f"{client.last_name} {client.first_name} {client.middle_name or ''}".strip()
-    actor_user_id = get_system_user_id(db)
+    full_name = client_full_name(client)
+    deleted_at_iso = client.deleted_at.isoformat()
+    deleted_by_user_id = actor_user_id(db, current_user)
     write_audit_log(
         db,
         entity_type="client",
         entity_id=client.id,
         action="delete",
-        user_id=actor_user_id,
-        payload_json={"full_name": full_name, "patient_number": client.patient_number},
+        user_id=deleted_by_user_id,
+        payload_json={
+            "full_name": full_name,
+            "patient_number": client.patient_number,
+            "deleted_at": deleted_at_iso,
+        },
     )
     db.commit()
 
     try:
         send_deletion_notification(
             subject=f"Удален клиент №{client.patient_number}",
-            body=f"Удален клиент: {full_name}\nID: {client.id}\nНомер пациента: {client.patient_number}",
+            body=build_deletion_email_body(
+                entity_label="клиент",
+                entity_id=client.id,
+                deleted_by=current_user.full_name if current_user is not None else None,
+                deleted_at=deleted_at_iso,
+                details={
+                    "ФИО": full_name,
+                    "Номер пациента": client.patient_number,
+                },
+            ),
         )
     except Exception:
         # Email must not block the operator workflow; audit log already keeps the deletion.
         pass
+
+
+@router.post("/{client_id}/restore", response_model=ClientRead)
+def restore_client(
+    client_id: int,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+) -> ClientRead:
+    client = db.get(Client, client_id)
+    if client is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Клиент не найден")
+    if client.deleted_at is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Клиент не находится в удаленных")
+
+    client.deleted_at = None
+    restored_by_user_id = actor_user_id(db, current_user)
+    db.commit()
+    db.refresh(client)
+    write_audit_log(
+        db,
+        entity_type="client",
+        entity_id=client.id,
+        action="restore",
+        user_id=restored_by_user_id,
+        payload_json={"full_name": client_full_name(client), "patient_number": client.patient_number},
+    )
+    db.commit()
+    return ClientRead.model_validate(client)

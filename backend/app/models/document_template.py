@@ -17,4 +17,6 @@ class DocumentTemplate(TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     template_type: Mapped[str] = mapped_column(String(50), default="docx")
     output_format: Mapped[str] = mapped_column(String(50), default="docx")
+    requires_numbered_blank: Mapped[bool] = mapped_column(Boolean, default=False)
+    blank_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

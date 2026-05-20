@@ -31,6 +31,7 @@ from app.models.blank_form import (
     BlankType,
 )
 from app.models.client import Client
+from app.models.document_template import DocumentTemplate
 from app.models.encounter import Encounter
 from app.models.generated_document import GeneratedDocument
 from app.models.user import User
@@ -51,6 +52,10 @@ class BlankRangeOverlapError(BlankServiceError):
 
 class BlankRangeInvalidError(BlankServiceError):
     """Невалидный диапазон номеров."""
+
+
+class BlankIssuanceContextError(BlankServiceError):
+    """Недостаточно контекста для выдачи номерного бланка."""
 
 
 @dataclass
@@ -334,6 +339,150 @@ def stats(db: Session, *, center_id: int | None = None) -> list[dict[str, object
     return result
 
 
+def list_free_series(
+    db: Session,
+    *,
+    blank_type: str,
+    center_id: int | None = None,
+) -> list[dict[str, object]]:
+    forms = list_forms(
+        db,
+        blank_type=blank_type,
+        status=BLANK_STATUS_FREE,
+        center_id=center_id,
+        limit=1000,
+    )
+    grouped: dict[str | None, dict[str, object]] = {}
+    for form in forms:
+        bucket = grouped.setdefault(
+            form.series,
+            {
+                "series": form.series,
+                "free_count": 0,
+                "next_form_id": form.id,
+                "next_full_number": form.full_number,
+            },
+        )
+        bucket["free_count"] = int(bucket["free_count"]) + 1
+    return sorted(
+        grouped.values(),
+        key=lambda item: ((item["series"] or "") == "", item["series"] or ""),
+    )
+
+
+def get_next_free_form(
+    db: Session,
+    *,
+    blank_type: str,
+    center_id: int | None = None,
+    series: str | None = None,
+) -> BlankForm | None:
+    query = (
+        select(BlankForm)
+        .where(
+            BlankForm.blank_type == blank_type,
+            BlankForm.status == BLANK_STATUS_FREE,
+        )
+        .order_by(BlankForm.number_value.asc(), BlankForm.id.asc())
+        .limit(1)
+    )
+    if center_id is not None:
+        query = query.where(BlankForm.center_id == center_id)
+    series_clean = (series or "").strip()
+    if series is not None:
+        query = query.where(BlankForm.series == (series_clean or None))
+    return db.execute(query).scalar_one_or_none()
+
+
+def create_auto_number_form(
+    db: Session,
+    *,
+    blank_type: str,
+    center_id: int | None,
+    series: str,
+    user_id: int | None = None,
+) -> BlankForm:
+    """Создаёт следующий свободный номер для серий без заранее заведённых бланков."""
+
+    series_clean = (series or "").strip()
+    if not series_clean:
+        raise BlankRangeInvalidError("Для автонумерации укажите серию или сокращение услуги")
+
+    blank_type_record = get_blank_type(db, blank_type)
+    if blank_type_record is None or not blank_type_record.is_active:
+        raise BlankServiceError(f"Неизвестный тип бланка: {blank_type}")
+
+    batch = db.execute(
+        select(BlankBatch)
+        .where(
+            BlankBatch.deleted_at.is_(None),
+            BlankBatch.blank_type == blank_type,
+            BlankBatch.center_id.is_(center_id) if center_id is None else BlankBatch.center_id == center_id,
+            BlankBatch.series == series_clean,
+            BlankBatch.comment == "Автонумерация по сокращению услуги",
+        )
+        .order_by(BlankBatch.id.asc())
+        .limit(1)
+        .with_for_update()
+    ).scalar_one_or_none()
+    if batch is None:
+        batch = BlankBatch(
+            center_id=center_id,
+            blank_type=blank_type,
+            series=series_clean,
+            number_from=1,
+            number_to=0,
+            number_width=7,
+            quantity=0,
+            received_at=date.today(),
+            comment="Автонумерация по сокращению услуги",
+            created_by_user_id=user_id,
+        )
+        db.add(batch)
+        db.flush()
+
+    max_number = db.execute(
+        select(func.max(BlankForm.number_value)).where(
+            BlankForm.blank_type == blank_type,
+            BlankForm.center_id.is_(center_id) if center_id is None else BlankForm.center_id == center_id,
+            BlankForm.series == series_clean,
+        )
+    ).scalar_one_or_none()
+    next_number = int(max_number or 0) + 1
+
+    form = BlankForm(
+        batch_id=batch.id,
+        center_id=center_id,
+        blank_type=blank_type,
+        series=series_clean,
+        number_value=next_number,
+        full_number=format_full_number(series_clean, next_number, 7),
+        status=BLANK_STATUS_FREE,
+    )
+    db.add(form)
+    try:
+        batch.number_to = max(batch.number_to or 0, next_number)
+        batch.quantity = int(batch.quantity or 0) + 1
+        db.flush()
+    except IntegrityError as exc:
+        raise BlankRangeOverlapError("Не удалось присвоить уникальный номер. Повторите попытку.") from exc
+
+    write_audit_log(
+        db,
+        entity_type="blank_form",
+        entity_id=form.id,
+        action="auto_create",
+        user_id=user_id or 1,
+        center_id=center_id,
+        payload_json={
+            "blank_type": blank_type,
+            "series": series_clean,
+            "full_number": form.full_number,
+        },
+    )
+    return form
+
+
 def spoil_form(
     db: Session,
     *,
@@ -390,6 +539,15 @@ def issue_next_blank(
       без новой выдачи;
     * аналогично для ``client_document_id``.
     """
+
+    if center_id is None:
+        raise BlankIssuanceContextError(
+            "Нельзя выдать номерной бланк без center_id. Сформируйте документ в контексте обращения."
+        )
+    if encounter_id is None:
+        raise BlankIssuanceContextError(
+            "Нельзя выдать номерной бланк без encounter_id. Сформируйте документ по уже оформленному обращению."
+        )
 
     if generated_document_id is not None:
         existing = db.execute(
@@ -458,6 +616,66 @@ def issue_next_blank(
     return form
 
 
+def issue_specific_blank(
+    db: Session,
+    *,
+    form_id: int,
+    blank_type: str,
+    client_id: int,
+    center_id: int | None,
+    encounter_id: int | None = None,
+    generated_document_id: int | None = None,
+    client_document_id: int | None = None,
+    user_id: int | None = None,
+) -> BlankForm:
+    if center_id is None:
+        raise BlankIssuanceContextError(
+            "Нельзя выдать номерной бланк без center_id. Сформируйте документ в контексте обращения."
+        )
+    if encounter_id is None:
+        raise BlankIssuanceContextError(
+            "Нельзя выдать номерной бланк без encounter_id. Сформируйте документ по уже оформленному обращению."
+        )
+
+    form = db.get(BlankForm, form_id)
+    if form is None:
+        raise BlankServiceError("Бланк не найден")
+    if form.blank_type != blank_type:
+        raise BlankServiceError("Выбранный бланк не соответствует типу документа")
+    if form.center_id != center_id:
+        raise BlankServiceError("Выбранный бланк относится к другому медцентру")
+    if form.status != BLANK_STATUS_FREE:
+        raise BlankServiceError("Выбранный бланк уже занят. Найдите следующий свободный номер.")
+
+    form.status = BLANK_STATUS_ISSUED
+    form.client_id = client_id
+    form.encounter_id = encounter_id
+    form.generated_document_id = generated_document_id
+    form.client_document_id = client_document_id
+    form.issued_at = datetime.utcnow()
+    form.issued_by_user_id = user_id
+    db.flush()
+
+    write_audit_log(
+        db,
+        entity_type="blank_form",
+        entity_id=form.id,
+        action="issue",
+        user_id=user_id or 1,
+        center_id=form.center_id,
+        payload_json={
+            "blank_type": form.blank_type,
+            "full_number": form.full_number,
+            "client_id": client_id,
+            "encounter_id": encounter_id,
+            "generated_document_id": generated_document_id,
+            "client_document_id": client_document_id,
+            "mode": "specific",
+        },
+    )
+    return form
+
+
 def cancel_for_generated_document(
     db: Session,
     *,
@@ -494,13 +712,62 @@ def cancel_for_generated_document(
     return form
 
 
-def is_driver_certificate_template(template_name: str | None, file_name: str | None) -> bool:
-    """Эвристика: документ требует номерного бланка водительской справки."""
+def spoil_for_generated_document(
+    db: Session,
+    *,
+    generated_document_id: int,
+    reason: str | None,
+    user_id: int | None,
+) -> BlankForm | None:
+    form = db.execute(
+        select(BlankForm).where(BlankForm.generated_document_id == generated_document_id)
+    ).scalar_one_or_none()
+    if form is None:
+        return None
+    if form.status != BLANK_STATUS_ISSUED:
+        return form
 
-    haystack = " ".join(filter(None, [template_name or "", file_name or ""])).lower()
-    if not haystack:
-        return False
-    return ("вод" in haystack) or ("driver" in haystack)
+    form.status = BLANK_STATUS_SPOILED
+    form.spoiled_at = datetime.utcnow()
+    form.spoiled_by_user_id = user_id
+    form.spoiled_reason = (reason or "").strip() or "Испорчен при печати"
+    db.flush()
+
+    document = db.get(GeneratedDocument, generated_document_id)
+    if document is not None and document.cancelled_at is None:
+        document.cancelled_at = datetime.utcnow()
+        document.cancelled_by_user_id = user_id
+        document.cancelled_reason = form.spoiled_reason
+        db.flush()
+
+    write_audit_log(
+        db,
+        entity_type="blank_form",
+        entity_id=form.id,
+        action="spoil_after_print",
+        user_id=user_id or 1,
+        center_id=form.center_id,
+        payload_json={
+            "blank_type": form.blank_type,
+            "full_number": form.full_number,
+            "generated_document_id": generated_document_id,
+            "reason": form.spoiled_reason,
+        },
+    )
+    return form
+
+
+
+def resolve_required_blank_type(template: DocumentTemplate) -> str | None:
+    if not template.requires_numbered_blank:
+        return None
+
+    blank_type = (template.blank_type or "").strip()
+    if not blank_type:
+        raise BlankServiceError(
+            f"Для шаблона {template.name!r} включен номерной бланк, но не задан blank_type."
+        )
+    return blank_type
 
 
 def reuse_blank_for_existing_document(
@@ -577,3 +844,5 @@ def enrich_form_for_read(
         if user is not None:
             payload["issued_by_name"] = user.full_name
     return payload
+
+
