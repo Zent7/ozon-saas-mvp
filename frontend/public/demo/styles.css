@@ -1790,21 +1790,6 @@ textarea {
   max-width: 420px;
 }
 
-.sketch-date-filter {
-  min-width: 170px;
-  max-width: 190px;
-}
-
-.sketch-date-filter span {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.sketch-add-button {
-  padding-inline: 18px;
-  height: 44px;
-}
-
 .sketch-search span {
   display: none;
 }
@@ -1925,10 +1910,68 @@ textarea {
   padding-right: 12px !important;
 }
 
+.encounter-date-filter-button {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 100%;
+  border: 0;
+  padding: 4px 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.encounter-date-filter-button:hover {
+  color: #136f63;
+}
+
+.encounter-date-filter-button small {
+  font-size: 10px;
+  font-weight: 600;
+  color: #136f63;
+}
+
+.encounter-date-filter-input {
+  position: absolute;
+  inset: 0 10px 0 0;
+  z-index: 2;
+  width: calc(100% - 10px);
+  height: 100%;
+  border: 0;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.encounter-date-filter-clear {
+  position: absolute;
+  z-index: 3;
+  right: 12px;
+  bottom: 3px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(19, 111, 99, 0.25);
+  border-radius: 999px;
+  padding: 0;
+  background: #ffffff;
+  color: #136f63;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .col-resize-handle {
   position: absolute;
   top: 0;
   right: 0;
+  z-index: 4;
   width: 10px;
   height: 100%;
   border: 0;
@@ -1999,12 +2042,34 @@ textarea {
   color: #8a5200;
 }
 
-.excel-doctor-mark--required-history {
-  color: #6f4f1a;
+.sketch-table__grid--skeleton {
+  cursor: default;
+  pointer-events: none;
 }
 
-.excel-doctor-mark--history {
-  color: #31527d;
+.dashboard-table-skeleton-bar {
+  display: block;
+  width: min(74%, 84px);
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #e5e9ed 25%, #f4f6f8 50%, #e5e9ed 75%);
+  background-size: 200% 100%;
+  animation: dashboard-table-skeleton-pulse 1.2s ease-in-out infinite;
+}
+
+.sketch-table__grid--skeleton > span:nth-child(n + 7):nth-child(-n + 19) .dashboard-table-skeleton-bar {
+  width: 8px;
+  margin-inline: auto;
+}
+
+@keyframes dashboard-table-skeleton-pulse {
+  from {
+    background-position: 200% 0;
+  }
+
+  to {
+    background-position: -200% 0;
+  }
 }
 
 .sketch-toolbar__meta {
@@ -2264,6 +2329,18 @@ textarea {
   font-weight: 700;
 }
 
+.doctor-classic-title--stacked {
+  display: grid;
+  gap: 2px;
+  line-height: 1.2;
+}
+
+.doctor-classic-title--stacked small {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .doctor-classic-close,
 .chairman-close,
 .psychiatrist-close {
@@ -2281,6 +2358,53 @@ textarea {
 .chairman-form,
 .psychiatrist-form {
   padding: 16px;
+}
+
+.chairman-form-context {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(23, 48, 74, 0.16);
+  border-radius: 8px;
+  background: #f6f8fa;
+}
+
+.chairman-form-context strong {
+  color: #17304a;
+  font-size: 14px;
+}
+
+.chairman-form-context span {
+  color: #5a6673;
+  font-size: 12px;
+}
+
+.chairman-blood .doctor-classic-select {
+  min-width: 136px;
+  padding-right: 34px;
+  appearance: auto;
+  cursor: pointer;
+}
+
+.chairman-blood-row label {
+  cursor: default;
+}
+
+.chairman-form--lmk .chairman-conclusion-right,
+.chairman-form--prof .chairman-conclusion-right,
+.chairman-form--marine .chairman-conclusion-right,
+.chairman-form--drug .chairman-conclusion-right,
+.chairman-form--sport .chairman-conclusion-right {
+  display: none;
+}
+
+.chairman-form--lmk .chairman-footer,
+.chairman-form--prof .chairman-footer,
+.chairman-form--marine .chairman-footer,
+.chairman-form--drug .chairman-footer,
+.chairman-form--sport .chairman-footer {
+  grid-template-columns: repeat(2, minmax(0, max-content));
 }
 
 .doctor-classic-body {
@@ -3330,13 +3454,6 @@ textarea {
   display: block;
   width: 188px;
   margin: 0 auto 9px;
-}
-
-.driver-print-classic__button--result {
-  display: block;
-  width: 116px;
-  min-height: 32px;
-  margin-left: auto;
 }
 
 .driver-print-classic__error {
@@ -4625,11 +4742,6 @@ textarea {
 
   .sketch-search {
     min-width: 0;
-  }
-
-  .sketch-date-filter {
-    min-width: 0;
-    max-width: none;
   }
 
   .sketch-doctors {

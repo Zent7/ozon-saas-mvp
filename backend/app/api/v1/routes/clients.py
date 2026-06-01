@@ -205,7 +205,7 @@ def list_clients(
                 )
             )
         else:
-            query = query.order_by(Client.patient_number.desc(), Client.id.desc())
+            query = query.order_by(Client.created_at.desc(), Client.id.desc())
         query = query.limit(limit)
         clients = db.execute(query).scalars().all()
         return serialize_clients(db, clients)

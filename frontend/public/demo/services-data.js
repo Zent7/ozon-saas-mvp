@@ -169,7 +169,7 @@ window.servicesData = {
       notes: "форма 072у",
       isActive: true,
       sortOrder: 10,
-      doctorRoleIds: []
+      doctorRoleIds: [13]
     },
     {
       id: 2,
@@ -179,7 +179,7 @@ window.servicesData = {
       notes: "",
       isActive: true,
       sortOrder: 20,
-      doctorRoleIds: []
+      doctorRoleIds: [13]
     },
     {
       id: 9,
@@ -189,7 +189,7 @@ window.servicesData = {
       notes: "",
       isActive: true,
       sortOrder: 30,
-      doctorRoleIds: []
+      doctorRoleIds: [13]
     },
     {
       id: 3,
@@ -199,7 +199,7 @@ window.servicesData = {
       notes: "",
       isActive: true,
       sortOrder: 40,
-      doctorRoleIds: []
+      doctorRoleIds: [13]
     },
     {
       id: 10,
@@ -209,7 +209,7 @@ window.servicesData = {
       notes: "",
       isActive: true,
       sortOrder: 50,
-      doctorRoleIds: []
+      doctorRoleIds: [13]
     },
     {
       id: 11,
@@ -219,7 +219,7 @@ window.servicesData = {
       notes: "",
       isActive: true,
       sortOrder: 60,
-      doctorRoleIds: []
+      doctorRoleIds: [13]
     },
     {
       id: 4,
@@ -229,7 +229,7 @@ window.servicesData = {
       notes: "",
       isActive: true,
       sortOrder: 70,
-      doctorRoleIds: []
+      doctorRoleIds: [13]
     },
     {
       id: 12,
@@ -239,7 +239,7 @@ window.servicesData = {
       notes: "",
       isActive: true,
       sortOrder: 80,
-      doctorRoleIds: []
+      doctorRoleIds: [1, 13]
     },
     {
       id: 30,
@@ -249,7 +249,7 @@ window.servicesData = {
       notes: "больничный для учащихся",
       isActive: true,
       sortOrder: 90,
-      doctorRoleIds: []
+      doctorRoleIds: [13]
     },
     {
       id: 5,
@@ -259,7 +259,7 @@ window.servicesData = {
       notes: "",
       isActive: true,
       sortOrder: 100,
-      doctorRoleIds: []
+      doctorRoleIds: [13]
     },
 
     {

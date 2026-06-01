@@ -23,6 +23,7 @@ from app.models.encounter_service import EncounterService
 from app.models.generated_document import GeneratedDocument
 from app.models.medical_record import MedicalRecord, MedicalRecordEntry
 from app.models.patient_consent import PatientConsent
+from app.models.payment import Payment
 
 
 API = os.environ.get("API_BASE_URL", "http://127.0.0.1:8000/api/v1").rstrip("/")
@@ -78,6 +79,7 @@ def cleanup(client_id: int | None) -> None:
         db.execute(delete(DoctorExam).where(DoctorExam.client_id == client_id))
         if encounter_ids:
             db.execute(delete(EncounterService).where(EncounterService.encounter_id.in_(encounter_ids)))
+            db.execute(delete(Payment).where(Payment.encounter_id.in_(encounter_ids)))
             db.execute(delete(Encounter).where(Encounter.id.in_(encounter_ids)))
         db.execute(delete(Client).where(Client.id == client_id))
         db.commit()
@@ -152,6 +154,17 @@ def main() -> None:
         )
         assert status == 200, (status, exam)
 
+        status, doctor_statuses = request("GET", f"/dashboard/client-doctor-statuses?client_ids={client_id}")
+        assert status == 200 and isinstance(doctor_statuses, list) and len(doctor_statuses) == 1, (
+            status,
+            doctor_statuses,
+        )
+        doctor_status = doctor_statuses[0]
+        assert doctor_status["client_id"] == client_id and doctor_status["encounter_id"] == encounter_id, doctor_status
+        assert doctor_status["encounter_status"] == "draft", doctor_status
+        assert any(item["service_id"] == service_id for item in doctor_status["services"]), doctor_status
+        assert "therapist" in doctor_status["completed_doctor_role_ids"], doctor_status
+
         status, templates = request("GET", "/documents/templates")
         assert status == 200 and templates, (status, templates)
         template_id = next((item["id"] for item in templates if item["template_type"] == "docx"), templates[0]["id"])
@@ -201,6 +214,7 @@ def main() -> None:
                 "duplicate_status": duplicate_status,
                 "encounter_id": encounter_id,
                 "doctor_exam_id": exam["id"],
+                "dashboard_doctor_statuses": len(doctor_statuses),
                 "generated_document_id": generated_document_id,
                 "journal_entries": len(journal_entries),
                 "medical_records": len(medical_records),

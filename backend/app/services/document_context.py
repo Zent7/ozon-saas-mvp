@@ -85,7 +85,7 @@ def _first_legacy_value(client: Client, *keys: str) -> str:
 def _split_address(address: str) -> dict[str, str]:
     parts = [part.strip() for part in re.split(r",|\n", address or "") if part.strip()]
     result = {
-        "subject": parts[0] if parts else "",
+        "subject": "",
         "district": "",
         "city": "",
         "street": "",
@@ -93,18 +93,77 @@ def _split_address(address: str) -> dict[str, str]:
         "body": "",
         "apartment": "",
     }
+
+    def is_country(part: str) -> bool:
+        return part.lower().replace(".", "").strip() in {"россия", "рф", "российская федерация"}
+
+    marker_patterns = {
+        "subject": re.compile(
+            r"обл\.?|область|край|респ\.?|республика|автоном|ао\b|округ|санкт-петербург|спб|москва|севастополь",
+            re.IGNORECASE,
+        ),
+        "district": re.compile(r"район|р-н", re.IGNORECASE),
+        "city": re.compile(r"(^|\s)(г\.|гор\.|город)\s*|санкт-петербург|спб|москва|севастополь", re.IGNORECASE),
+        "street": re.compile(
+            r"(^|\s)(ул\.|улица|пр-?кт|просп\.?|проспект|пер\.|переулок|наб\.|шоссе|б-р|бул\.?|бульвар)\s*",
+            re.IGNORECASE,
+        ),
+        "house": re.compile(r"(^|\s)(д\.|дом)\s*", re.IGNORECASE),
+        "body": re.compile(r"(^|\s)(корпус|корп\.?|к\.)\s*", re.IGNORECASE),
+        "apartment": re.compile(r"(^|\s)(кв\.|квартира)\s*", re.IGNORECASE),
+    }
+
+    if parts and is_country(parts[0]):
+        result.update(
+            {
+                "subject": parts[1] if len(parts) > 1 else "",
+                "district": parts[2] if len(parts) > 2 else "",
+                "city": parts[3] if len(parts) > 3 else "",
+                "street": parts[4] if len(parts) > 4 else "",
+                "house": marker_patterns["house"].sub("", parts[5]).strip() if len(parts) > 5 else "",
+                "body": marker_patterns["body"].sub("", parts[6]).strip() if len(parts) > 6 else "",
+                "apartment": marker_patterns["apartment"].sub("", parts[7]).strip() if len(parts) > 7 else "",
+            }
+        )
+        return result
+
     for part in parts:
-        lower = part.lower()
-        if any(marker in lower for marker in ("г ", "г.", "город", "п ", "п.", "дер ", "дер.")):
+        if not result["subject"] and marker_patterns["subject"].search(part):
+            result["subject"] = part
+        elif not result["district"] and marker_patterns["district"].search(part):
+            result["district"] = part
+        elif not result["city"] and marker_patterns["city"].search(part):
             result["city"] = part
-        elif any(marker in lower for marker in ("ул ", "ул.", "улица", "пр ", "пр.", "пер ", "пер.")):
+        elif not result["street"] and marker_patterns["street"].search(part):
             result["street"] = part
-        elif any(marker in lower for marker in ("д ", "д.", "дом")):
-            result["house"] = re.sub(r"(?i)\b(д|дом)\.?\s*", "", part).strip()
-        elif any(marker in lower for marker in ("корп", "к.")):
-            result["body"] = re.sub(r"(?i)\b(корпус|корп|к)\.?\s*", "", part).strip()
-        elif any(marker in lower for marker in ("кв ", "кв.", "квартира")):
-            result["apartment"] = re.sub(r"(?i)\b(квартира|кв)\.?\s*", "", part).strip()
+        elif not result["house"] and marker_patterns["house"].search(part):
+            result["house"] = marker_patterns["house"].sub("", part).strip()
+        elif not result["body"] and marker_patterns["body"].search(part):
+            result["body"] = marker_patterns["body"].sub("", part).strip()
+        elif not result["apartment"] and marker_patterns["apartment"].search(part):
+            result["apartment"] = marker_patterns["apartment"].sub("", part).strip()
+
+    if not result["subject"] and parts:
+        result["subject"] = next(
+            (
+                part
+                for part in parts
+                if not any(marker_patterns[key].search(part) for key in ("city", "street", "house", "body", "apartment"))
+            ),
+            "",
+        )
+    if not result["city"]:
+        result["city"] = next(
+            (
+                part
+                for part in parts
+                if part
+                and part != result["subject"]
+                and part != result["district"]
+                and not any(marker_patterns[key].search(part) for key in ("street", "house", "body", "apartment"))
+            ),
+            "",
+        )
     return result
 
 
@@ -136,24 +195,47 @@ def _category_context(category_text: str) -> dict[str, str]:
         "Tm": "",
         "Tb": "",
         "M": "",
-        "1A": "",
-        "1B": "",
-        "1C": "",
-        "1D": "",
-        "1CE": "",
-        "1DE": "",
+        "A1": "",
+        "B1": "",
+        "C1": "",
+        "D1": "",
+        "C1E": "",
+        "D1E": "",
+    }
+    aliases = {
+        "A1": ("1A",),
+        "B1": ("1B",),
+        "C1": ("1C",),
+        "D1": ("1D",),
+        "C1E": ("1CE",),
+        "D1E": ("1DE",),
     }
     source = category_text.upper()
     for key in categories:
-        if re.search(rf"(^|[^A-Z0-9]){re.escape(key.upper())}([^A-Z0-9]|$)", source):
+        keys = (key, *aliases.get(key, ()))
+        if any(re.search(rf"(^|[^A-Z0-9]){re.escape(item.upper())}([^A-Z0-9]|$)", source) for item in keys):
             categories[key] = "X"
 
     context: dict[str, str] = {}
+    legacy_aliases = {
+        "A1": "1A",
+        "B1": "1B",
+        "C1": "1C",
+        "D1": "1D",
+        "C1E": "1CE",
+        "D1E": "1DE",
+    }
     for key, value in categories.items():
         context[f"Category{key}"] = value
         context[f"Category{key}1"] = value
         context[f"{key}Calc"] = value
         context[f"Category{key}Calc"] = value
+        legacy_key = legacy_aliases.get(key)
+        if legacy_key:
+            context[f"Category{legacy_key}"] = value
+            context[f"Category{legacy_key}1"] = value
+            context[f"{legacy_key}Calc"] = value
+            context[f"Category{legacy_key}Calc"] = value
     return context
 
 
@@ -183,8 +265,8 @@ def build_document_context(
     sex = _text(client.sex).upper()
     sex_label = {"M": "муж", "MALE": "муж", "F": "жен", "FEMALE": "жен"}.get(sex, _text(client.sex))
     organization = _text(client.organization) or _first_legacy_value(client, "Организация", "organization", "CompanyName")
-    work_place = organization or _first_legacy_value(client, "Место работы", "WorkPlace", "qdfMain.WorkPlace")
-    post = _first_legacy_value(client, "Должность", "Post", "qdfMain.Post") or "не указано"
+    work_place = _text(client.work_place) or organization or _first_legacy_value(client, "Место работы", "WorkPlace", "qdfMain.WorkPlace")
+    post = _text(client.profession) or _first_legacy_value(client, "Должность", "Post", "qdfMain.Post") or "не указано"
     document_series = _text(client.document_series) or _first_legacy_value(client, "DocumentSeries", "qdfMain.DocumentSeries")
     document_number = _text(client.document_number) or _first_legacy_value(client, "DocumentNumber", "qdfMain.DocumentNumber")
     document_issued_by = _text(client.document_issued_by) or _first_legacy_value(client, "WhoGive", "qdfMain.WhoGive")
@@ -350,6 +432,16 @@ def build_document_context(
         "LaboratoryStudy": "Без отклонений",
         "LaboratoryStudyCalc": "Без отклонений",
         "Conclusion": "Годен",
+        "SportDiagnosis": "",
+        "SportMedicalRequirements": "",
+        "SportContraindications": "",
+        "SportEkg": "",
+        "SportEkgConclusion": "",
+        "SportFluorography": "",
+        "SportConclusionText": "",
+        "SportConclusion": "",
+        "ChairmanDoctor": "",
+        "SportDoctor": "",
         "MaritalStatus": "",
         "Weight": "",
         "Height": "",

@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://medcenters:medcenters@127.0.0.1:5434/medcenters"
     allow_sqlite: bool = False
     frontend_origin: str = "http://localhost:5173"
+    public_frontend_origin: str = "https://demo.med-center.online"
     generated_documents_dir: str = "storage/generated"
     deletion_notify_email: str | None = None
     smtp_host: str | None = None

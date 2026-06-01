@@ -9,12 +9,19 @@ import zipfile
 from xml.etree.ElementTree import ParseError
 
 import xlrd
+import xlwt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from xlrd import xldate
 from xlutils.copy import copy as copy_xls_workbook
 
 from app.core.config import settings
+from app.models.blank_form import (
+    BLANK_STATUS_FREE,
+    BLANK_STATUS_ISSUED,
+    BLANK_TYPE_DRIVER_MEDICAL_CERTIFICATE,
+    BlankForm,
+)
 from app.models.client import Client
 from app.models.doctor_exam import DoctorExam
 from app.models.document_journal import DocumentJournalEntry
@@ -355,6 +362,25 @@ def _write_xls_cell(target_sheet, source_sheet, row_index: int, col_index: int, 
         # Some legacy sheets have blank trailing rows without style metadata.
         # In that case we keep the written value without cloning formatting.
         return
+
+
+def _copy_xls_target_cell_style(target_sheet, target_row: int, target_col: int, source_row: int, source_col: int) -> None:
+    target_row_obj = target_sheet._Worksheet__rows.get(target_row)
+    if target_row_obj is None:
+        return
+    target_cell = target_row_obj._Row__cells.get(target_col)
+    if target_cell is None:
+        return
+
+    source_row_obj = target_sheet._Worksheet__rows.get(source_row)
+    if source_row_obj is None:
+        return
+    source_cell = source_row_obj._Row__cells.get(source_col)
+    if source_cell is None:
+        return
+    source_xf_idx = getattr(source_cell, "xf_idx", None)
+    if source_xf_idx is not None:
+        target_cell.xf_idx = source_xf_idx
 
 
 def _xls_excel_date(value: date | datetime | str | None) -> float | str:
@@ -785,6 +811,184 @@ def _restriction_text(value: object) -> str:
     return "установлено"
 
 
+def _xls_blank_or_dash(value: object) -> str:
+    text = str(value or "").strip()
+    return text or "-"
+
+
+def _driver_exam_line(exam: DoctorExam | None, fallback: str = "Противопоказания отсутствуют") -> str:
+    if exam is None:
+        return fallback
+    data = _build_exam_export(exam)
+    doctor = str(data.get("doctor") or "").strip()
+    if not doctor:
+        return fallback
+    conclusion = _first_non_empty(
+        data.get("diagnosis"),
+        data.get("objective"),
+        data.get("title"),
+        "Противопоказания отсутствуют",
+    )
+    return " ".join(part for part in [doctor, conclusion] if part).strip()
+
+
+def _driver_auxiliary_line(context: dict[str, str], key: str, fallback: str = "Не установлено") -> str:
+    value = str(context.get(key) or "").strip()
+    return value or fallback
+
+
+DRIVER_XLS_CATEGORY_KEYS = ("A", "B", "C", "D", "BE", "CE", "DE", "Tm", "Tb", "M", "A1", "B1", "C1", "D1", "C1E", "D1E")
+DRIVER_XLS_CATEGORY_CELLS_LEFT = (
+    (10, 2),
+    (10, 4),
+    (10, 6),
+    (10, 8),
+    (10, 10),
+    (10, 12),
+    (10, 14),
+    (10, 16),
+    (10, 18),
+    (10, 20),
+    (10, 22),
+    (10, 24),
+    (10, 26),
+    (10, 28),
+    (10, 30),
+    (10, 32),
+)
+DRIVER_XLS_CATEGORY_CELLS_RIGHT = (
+    (10, 35),
+    (10, 37),
+    (10, 39),
+    (10, 41),
+    (10, 43),
+    (10, 45),
+    (10, 47),
+    (10, 49),
+    (10, 51),
+    (10, 53),
+    (10, 55),
+    (10, 57),
+    (10, 59),
+    (10, 61),
+    (10, 63),
+    (10, 65),
+)
+DRIVER_CATEGORY_FIELD_KEYS = {
+    "A": "categoryA",
+    "B": "categoryB",
+    "C": "categoryC",
+    "D": "categoryD",
+    "BE": "categoryBE",
+    "CE": "categoryCE",
+    "DE": "categoryDE",
+    "Tm": "categoryTram",
+    "Tb": "categoryTrolleybus",
+    "M": "categoryM",
+    "A1": "categoryA1",
+    "B1": "categoryB1",
+    "C1": "categoryC1",
+    "D1": "categoryD1",
+    "C1E": "categoryC1E",
+    "D1E": "categoryD1E",
+}
+
+
+def _truthy_driver_value(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value or "").strip().lower()
+    return text not in {"", "0", "false", "no", "нет", "не установлено", "z"}
+
+
+def _driver_category_tokens(value: object) -> set[str]:
+    text = str(value or "")
+    raw_tokens = re.findall(r"[A-Za-zА-Яа-я0-9]+", text)
+    aliases = {
+        "1A": "A1",
+        "1B": "B1",
+        "1C": "C1",
+        "1D": "D1",
+        "1CE": "C1E",
+        "1DE": "D1E",
+        "Е": "E",
+        "ВЕ": "BE",
+        "СЕ": "CE",
+        "ДЕ": "DE",
+    }
+    tokens: set[str] = set()
+    for token in raw_tokens:
+        normalized = aliases.get(token.upper(), token)
+        normalized = {"TM": "Tm", "TB": "Tb"}.get(normalized.upper(), normalized.upper())
+        if normalized in DRIVER_XLS_CATEGORY_KEYS or normalized == "E":
+            tokens.add(normalized)
+    if "E" in tokens:
+        tokens.update({"BE", "CE", "DE"})
+    return tokens
+
+
+def _driver_categories_from_chairman(fields: dict) -> set[str] | None:
+    exact_fields = {field_key for field_key in DRIVER_CATEGORY_FIELD_KEYS.values() if field_key in fields}
+    if "categoryE" in fields:
+        exact_fields.add("categoryE")
+    if exact_fields:
+        selected = {
+            category
+            for category, field_key in DRIVER_CATEGORY_FIELD_KEYS.items()
+            if _truthy_driver_value(fields.get(field_key))
+        }
+        if _truthy_driver_value(fields.get("categoryE")) and not selected.intersection({"BE", "CE", "DE"}):
+            selected.update({"BE", "CE", "DE"})
+        return selected
+    driver_categories = fields.get("driverCategories")
+    if str(driver_categories or "").strip():
+        return _driver_category_tokens(driver_categories)
+    return None
+
+
+def _driver_categories_from_context(context: dict[str, str], client: Client) -> set[str]:
+    selected = {
+        category
+        for category in DRIVER_XLS_CATEGORY_KEYS
+        if _truthy_driver_value(context.get(f"Category{category}") or context.get(f"{category}Calc"))
+    }
+    selected.update(_driver_category_tokens(client.admission_category))
+    return selected
+
+
+def _driver_category_marks(context: dict[str, str], client: Client, exams_by_role: dict[str, DoctorExam]) -> list[str]:
+    chairman = exams_by_role.get("chairman")
+    chairman_categories = _driver_categories_from_chairman(chairman.fields_json or {}) if chairman and chairman.is_completed else None
+    selected = chairman_categories if chairman_categories is not None else _driver_categories_from_context(context, client)
+    return ["V" if category in selected else "Z" for category in DRIVER_XLS_CATEGORY_KEYS]
+
+
+def _driver_marker_style(source_book, source_sheet, row_index: int, col_index: int):
+    xf = source_book.xf_list[source_sheet.cell_xf_index(row_index, col_index)]
+    source_border = xf.border
+
+    style = xlwt.XFStyle()
+    font = xlwt.Font()
+    font.name = "Arial Cyr"
+    font.height = 320
+    font.bold = False
+    font.italic = False
+    font.underline = xlwt.Font.UNDERLINE_NONE
+    style.font = font
+
+    alignment = xlwt.Alignment()
+    alignment.horz = xlwt.Alignment.HORZ_CENTER
+    alignment.vert = xlwt.Alignment.VERT_CENTER
+    style.alignment = alignment
+
+    return style
+
+
+def _write_driver_marker_cells(source_book, source_sheet, target_sheet, cells: tuple[tuple[int, int], ...], marks: list[str]) -> None:
+    for (row_index, col_index), mark in zip(cells, marks):
+        target_sheet.write(row_index, col_index, mark, _driver_marker_style(source_book, source_sheet, row_index, col_index))
+
+
 def _fill_driver_xls_sheets(
     source_book,
     target_book,
@@ -794,14 +998,13 @@ def _fill_driver_xls_sheets(
     exams_by_role: dict[str, DoctorExam],
 ) -> None:
     driver_lines = [
-        _exam_conclusion_line(exams_by_role.get("therapist")),
-        _exam_conclusion_line(exams_by_role.get("ophthalmologist")),
-        _exam_conclusion_line(exams_by_role.get("neurologist"), "не установлено"),
-        _exam_conclusion_line(exams_by_role.get("otolaryngologist"), "не установлено"),
-        _first_non_empty(
-            _build_exam_export(exams_by_role.get("chairman")).get("doctor"),
-            _build_exam_export(exams_by_role.get("therapist")).get("doctor"),
-        ),
+        _driver_exam_line(exams_by_role.get("therapist")),
+        _driver_exam_line(exams_by_role.get("ophthalmologist")),
+        _driver_exam_line(exams_by_role.get("neurologist"), "не установлено"),
+        _driver_exam_line(exams_by_role.get("otolaryngologist"), "не установлено"),
+        _driver_auxiliary_line(context, "InstrumentalExamination"),
+        _driver_auxiliary_line(context, "LaboratoryStudy"),
+        _build_exam_export(exams_by_role.get("chairman")).get("doctor"),
     ]
     issue_date = encounter.encounter_date if encounter else date.today()
     front_source, front_target, _ = _sheet_pair(source_book, target_book, "Водительская Лицевая")
@@ -810,17 +1013,31 @@ def _fill_driver_xls_sheets(
             front_target,
             front_source,
             [
+                ((15, 2), context.get("ClientCalc", "")),
                 ((15, 28), context.get("ClientCalc", "")),
+                ((16, 8), context.get("BirthDateCalc_DAY", "")),
+                ((16, 15), context.get("BirthDateCalc_DATEMONTH", "")),
+                ((16, 22), context.get("BirthDateCalc_YEAR", "")),
                 ((16, 35), context.get("BirthDateCalc_DAY", "")),
                 ((16, 41), context.get("BirthDateCalc_DATEMONTH", "")),
                 ((16, 48), context.get("BirthDateCalc_YEAR", "")),
+                ((18, 9), context.get("SubjectCalc", "")),
                 ((18, 36), context.get("SubjectCalc", "")),
-                ((19, 31), context.get("DistrictCalc", "")),
+                ((19, 4), _xls_blank_or_dash(context.get("DistrictCalc"))),
+                ((19, 31), _xls_blank_or_dash(context.get("DistrictCalc"))),
+                ((20, 4), context.get("CityCalc", "")),
                 ((20, 30), context.get("CityCalc", "")),
+                ((21, 2), context.get("StreetCalc", "")),
+                ((21, 18), context.get("HouseNumberCalc", "")),
                 ((21, 30), context.get("StreetCalc", "")),
                 ((21, 45), context.get("HouseNumberCalc", "")),
-                ((22, 31), context.get("HouseBodyCalc", "")),
+                ((22, 3), _xls_blank_or_dash(context.get("HouseBodyCalc"))),
+                ((22, 12), context.get("ApartmentNumberCalc", "")),
+                ((22, 31), _xls_blank_or_dash(context.get("HouseBodyCalc"))),
                 ((22, 38), context.get("ApartmentNumberCalc", "")),
+                ((23, 15), issue_date.day),
+                ((23, 19), context.get("VisitDate_DATEMONTH", "")),
+                ((23, 23), issue_date.year),
                 ((23, 41), issue_date.day),
                 ((23, 45), context.get("VisitDate_DATEMONTH", "")),
                 ((23, 49), issue_date.year),
@@ -832,31 +1049,31 @@ def _fill_driver_xls_sheets(
                 ((35, 39), driver_lines[2]),
                 ((37, 12), driver_lines[3]),
                 ((37, 39), driver_lines[3]),
+                ((39, 12), driver_lines[4]),
+                ((39, 39), driver_lines[4]),
+                ((41, 12), driver_lines[5]),
+                ((41, 39), driver_lines[5]),
             ],
         )
+        for target_coord, style_coord in [
+            ((28, 12), (28, 39)),
+            ((30, 12), (30, 39)),
+            ((35, 12), (35, 39)),
+            ((37, 12), (37, 39)),
+            ((39, 12), (39, 39)),
+            ((41, 12), (41, 39)),
+        ]:
+            _copy_xls_target_cell_style(front_target, *target_coord, *style_coord)
     back_source, back_target, _ = _sheet_pair(source_book, target_book, "Водительская Оборотная")
     if back_source and back_target:
-        restriction_cells = [
-            ((14, 29), _restriction_text(context.get("DriveShipCalc"))),
-            ((14, 62), _restriction_text(context.get("DriveShipCalc"))),
-            ((17, 29), _restriction_text(context.get("ManualControlCalc"))),
-            ((17, 62), _restriction_text(context.get("ManualControlCalc"))),
-            ((20, 29), _restriction_text(context.get("AutomaticTransmissionCalc"))),
-            ((20, 62), _restriction_text(context.get("AutomaticTransmissionCalc"))),
-            ((25, 29), _restriction_text(context.get("ParkingSystemCalc"))),
-            ((25, 62), _restriction_text(context.get("ParkingSystemCalc"))),
-            ((27, 29), _restriction_text(context.get("VisionTCCalc"))),
-            ((27, 62), _restriction_text(context.get("VisionTCCalc"))),
-            ((29, 29), _restriction_text(context.get("HearingTCCalc"))),
-            ((29, 62), _restriction_text(context.get("HearingTCCalc"))),
-            ((31, 29), _restriction_text(context.get("3040"))),
-            ((31, 62), _restriction_text(context.get("3040"))),
-            ((33, 29), _restriction_text(context.get("3201"))),
-            ((33, 62), _restriction_text(context.get("3201"))),
-            ((36, 8), driver_lines[4]),
-            ((36, 41), driver_lines[4]),
+        category_marks = _driver_category_marks(context, client, exams_by_role)
+        _write_driver_marker_cells(source_book, back_source, back_target, DRIVER_XLS_CATEGORY_CELLS_LEFT, category_marks)
+        _write_driver_marker_cells(source_book, back_source, back_target, DRIVER_XLS_CATEGORY_CELLS_RIGHT, category_marks)
+        back_cells = [
+            ((36, 8), driver_lines[6]),
+            ((36, 41), driver_lines[6]),
         ]
-        _write_xls_pairs(back_target, back_source, restriction_cells)
+        _write_xls_pairs(back_target, back_source, back_cells)
 
 
 def _fill_tractor_xls_sheets(source_book, target_book, exams_by_role: dict[str, DoctorExam]) -> None:
@@ -1212,6 +1429,7 @@ def _generate_runtime_xls(
         _fill_journal_344_sheet(source_sheet, target_sheet, context, client, encounter)
 
     _apply_xls_auto_markers(source_book, target_book, context, client, encounter, exams_by_role)
+    _apply_print_variant_to_xls_workbook(target_book, print_variant)
     target_book.save(str(output_path))
 
 
@@ -1226,6 +1444,52 @@ def _first_field_value(fields: dict, *keys: str) -> str:
     return ""
 
 
+def _sport_context_overrides(exams: list[DoctorExam]) -> dict[str, str]:
+    empty_overrides = {
+        "SportDiagnosis": "",
+        "SportMedicalRequirements": "",
+        "SportContraindications": "",
+        "SportEkg": "",
+        "SportEkgConclusion": "",
+        "SportFluorography": "",
+        "SportConclusionText": "",
+        "SportConclusion": "",
+        "ChairmanDoctor": "",
+        "SportDoctor": "",
+    }
+    chairman = _exam_map(exams).get("chairman")
+    if chairman is None:
+        return empty_overrides
+
+    fields = chairman.fields_json or {}
+    diagnosis = _first_field_value(fields, "diagnosis", "diagnosisShort", "diagnosisText", "diagnoz")
+    conclusion = _first_field_value(fields, "conclusion", "result")
+    conclusion_text = _first_field_value(fields, "conclusionText", "sportConclusionText", "issuedConclusion")
+    ekg = _first_field_value(fields, "ekg", "EKG", "ecg")
+    ekg_conclusion = _first_field_value(fields, "ekgConclusion", "EKGConclusion", "ecgConclusion")
+    medical_requirements = _first_field_value(fields, "medicalRequirements", "requirements")
+    fluorography = _first_field_value(fields, "fluorography", "fluoro")
+    chairman_doctor = str(chairman.doctor_name or "").strip()
+
+    contraindications = ""
+    if conclusion:
+        contraindications = "выявлены" if conclusion.lower().startswith("не") else "не выявлены"
+
+    return {
+        **empty_overrides,
+        "SportDiagnosis": diagnosis,
+        "SportMedicalRequirements": medical_requirements,
+        "SportContraindications": contraindications,
+        "SportEkg": ekg,
+        "SportEkgConclusion": ekg_conclusion,
+        "SportFluorography": fluorography,
+        "SportConclusionText": conclusion_text,
+        "SportConclusion": _first_non_empty(conclusion_text, conclusion),
+        "ChairmanDoctor": chairman_doctor,
+        "SportDoctor": chairman_doctor,
+    }
+
+
 def _get_journal_info(template: DocumentTemplate) -> tuple[str, str] | None:
     name = f"{template.name} {template.file_name}".lower()
     if "вод" in name or "driver" in name:
@@ -1237,6 +1501,28 @@ def _get_journal_info(template: DocumentTemplate) -> tuple[str, str] | None:
     if "086" in name:
         return ("086", "Журнал справок 086у")
     return None
+
+
+def _medical_record_context_overrides(medical_record: MedicalRecord | None) -> dict[str, str]:
+    if medical_record is None:
+        return {}
+
+    overrides: dict[str, str] = {}
+    if medical_record.marital_status:
+        overrides["MaritalStatus"] = medical_record.marital_status
+    if medical_record.work_place:
+        overrides["CompanyName"] = medical_record.work_place
+        overrides["WorkPlace"] = medical_record.work_place
+        overrides["qdfMain.WorkPlace"] = medical_record.work_place
+    if medical_record.position:
+        overrides["Post"] = medical_record.position
+        overrides["PositionApplied"] = medical_record.position
+        overrides["qdfMain.Post"] = medical_record.position
+    if medical_record.health_group:
+        overrides["HealthGroup"] = medical_record.health_group
+        overrides["BloodType"] = medical_record.health_group
+        overrides["qdfMain.BloodType"] = medical_record.health_group
+    return overrides
 
 
 def _load_encounter_document_values(db: Session, client: Client, encounter: Encounter | None) -> dict[str, object]:
@@ -1254,6 +1540,12 @@ def _load_encounter_document_values(db: Session, client: Client, encounter: Enco
             }
             for index, name in enumerate(service_names, start=1)
         ]
+        medical_record = db.execute(
+            select(MedicalRecord)
+            .where(MedicalRecord.client_id == client.id, MedicalRecord.deleted_at.is_(None))
+            .order_by(MedicalRecord.updated_at.desc(), MedicalRecord.id.desc())
+        ).scalars().first()
+        context_overrides = _medical_record_context_overrides(medical_record)
         return {
             "service_names": service_names,
             "service_rows": service_rows,
@@ -1261,7 +1553,7 @@ def _load_encounter_document_values(db: Session, client: Client, encounter: Enco
             "diagnosis": "",
             "mkb10": "",
             "exams": [],
-            "context_overrides": {},
+            "context_overrides": context_overrides,
         }
 
     service_items = (
@@ -1317,14 +1609,16 @@ def _load_encounter_document_values(db: Session, client: Client, encounter: Enco
         .where(MedicalRecord.client_id == client.id, MedicalRecord.deleted_at.is_(None))
         .order_by(MedicalRecord.updated_at.desc(), MedicalRecord.id.desc())
     ).scalars().first()
-    context_overrides = {
-        "MaritalStatus": medical_record.marital_status if medical_record and medical_record.marital_status else "",
-        "Weight": "",
-        "Height": "",
-        "HairColor": "",
-        "EyeColor": "",
-        "DistinguishingMark": "",
-    }
+    context_overrides = _medical_record_context_overrides(medical_record)
+    context_overrides.update(
+        {
+            "Weight": "",
+            "Height": "",
+            "HairColor": "",
+            "EyeColor": "",
+            "DistinguishingMark": "",
+        }
+    )
     for exam in exams:
         if exam.doctor_name and exam.doctor_name not in doctor_names:
             doctor_names.append(exam.doctor_name)
@@ -1350,6 +1644,13 @@ def _load_encounter_document_values(db: Session, client: Client, encounter: Enco
         context_overrides["DistinguishingMark"] = context_overrides["DistinguishingMark"] or _first_field_value(
             fields, "distinguishingMark", "distinguishingMarks", "specialMarks", "special_mark"
         )
+    context_overrides.update(
+        {
+            key: value
+            for key, value in _sport_context_overrides(exams).items()
+            if value not in (None, "")
+        }
+    )
 
     return {
         "service_names": service_names,
@@ -1530,6 +1831,63 @@ def generate_document(
                         user_id=1,
                     )
 
+        elif blank_form_id is not None and not is_side_print:
+            if encounter is None or encounter.center_id is None:
+                raise ValueError(
+                    "Р”Р»СЏ РїРµС‡Р°С‚Рё РЅР° РЅРѕРјРµСЂРЅРѕРј Р±Р»Р°РЅРєРµ С‚СЂРµР±СѓРµС‚СЃСЏ encounter_id Рё center_id. "
+                    "РЎРЅР°С‡Р°Р»Р° РѕС„РѕСЂРјРёС‚Рµ РѕР±СЂР°С‰РµРЅРёРµ РІ РЅСѓР¶РЅРѕРј РјРµРґС†РµРЅС‚СЂРµ."
+                )
+            candidate_form = db.get(BlankForm, blank_form_id)
+            if candidate_form is None:
+                raise ValueError("Р‘Р»Р°РЅРє РЅРµ РЅР°Р№РґРµРЅ")
+            blank_type = template.blank_type or candidate_form.blank_type or BLANK_TYPE_DRIVER_MEDICAL_CERTIFICATE
+            if candidate_form.status == BLANK_STATUS_FREE:
+                blank_form = issue_specific_blank(
+                    db,
+                    form_id=blank_form_id,
+                    blank_type=blank_type,
+                    client_id=client.id,
+                    center_id=encounter.center_id,
+                    encounter_id=encounter.id,
+                    user_id=1,
+                )
+            elif (
+                candidate_form.status == BLANK_STATUS_ISSUED
+                and candidate_form.client_id == client.id
+                and candidate_form.encounter_id == encounter.id
+            ):
+                blank_form = candidate_form
+            else:
+                raise ValueError("Р’С‹Р±СЂР°РЅРЅС‹Р№ Р±Р»Р°РЅРє СѓР¶Рµ РЅРµРґРѕСЃС‚СѓРїРµРЅ РґР»СЏ СЌС‚РѕР№ РїРµС‡Р°С‚Рё")
+
+        if is_side_print and blank_form_id is not None:
+            if encounter is None or encounter.center_id is None:
+                raise ValueError(
+                    "Для печати на номерном бланке требуется encounter_id и center_id. "
+                    "Сначала оформите обращение в нужном медцентре."
+                )
+            candidate_form = db.get(BlankForm, blank_form_id)
+            if candidate_form is None:
+                raise ValueError("Бланк не найден")
+            if candidate_form.status == BLANK_STATUS_FREE:
+                blank_form = issue_specific_blank(
+                    db,
+                    form_id=blank_form_id,
+                    blank_type=template.blank_type or BLANK_TYPE_DRIVER_MEDICAL_CERTIFICATE,
+                    client_id=client.id,
+                    center_id=encounter.center_id,
+                    encounter_id=encounter.id,
+                    user_id=1,
+                )
+            elif (
+                candidate_form.status == BLANK_STATUS_ISSUED
+                and candidate_form.client_id == client.id
+                and candidate_form.encounter_id == encounter.id
+            ):
+                blank_form = candidate_form
+            else:
+                raise ValueError("Выбранный бланк уже недоступен для этой печати")
+
         context = build_document_context(
             client,
             encounter,
@@ -1543,6 +1901,12 @@ def generate_document(
                 key: str(value).strip()
                 for key, value in (runtime_values.get("context_overrides") or {}).items()
                 if value not in (None, "")
+            }
+        )
+        context.update(
+            {
+                key: str(value or "").strip()
+                for key, value in _sport_context_overrides(list(runtime_values.get("exams", []))).items()
             }
         )
         if blank_form is not None:

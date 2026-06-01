@@ -199,7 +199,7 @@ SERVICE_DOCTOR_ROLE_IDS = {
     4: [1],
     10: [1],
     11: [1, 2, 3, 4],
-    12: [1],
+    12: [1, 13],
     24: [1],
     27: [1],
     30: [1],
@@ -228,6 +228,11 @@ SERVICE_RECALL_AFTER_DAYS = {
 
 SERVICE_CATALOG = [item for item in SERVICE_CATALOG if item[0] != 36]
 SERVICE_DOCTOR_ROLE_IDS = {service_id: role_ids for service_id, role_ids in SERVICE_DOCTOR_ROLE_IDS.items() if service_id != 36}
+CERTIFICATE_SERVICE_LEGACY_IDS = {legacy_id for legacy_id, group_id, _, _ in SERVICE_CATALOG if group_id == 7}
+for service_id in CERTIFICATE_SERVICE_LEGACY_IDS:
+    role_ids = SERVICE_DOCTOR_ROLE_IDS.setdefault(service_id, [])
+    if 13 not in role_ids:
+        role_ids.append(13)
 
 SERVICE_GROUP_SORT_OVERRIDES = {
     "legacy-group-2": 10,  # ВУ

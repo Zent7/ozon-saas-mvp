@@ -719,9 +719,12 @@ def spoil_for_generated_document(
     reason: str | None,
     user_id: int | None,
 ) -> BlankForm | None:
-    form = db.execute(
-        select(BlankForm).where(BlankForm.generated_document_id == generated_document_id)
-    ).scalar_one_or_none()
+    document = db.get(GeneratedDocument, generated_document_id)
+    form = db.get(BlankForm, document.blank_form_id) if document is not None and document.blank_form_id else None
+    if form is None:
+        form = db.execute(
+            select(BlankForm).where(BlankForm.generated_document_id == generated_document_id)
+        ).scalar_one_or_none()
     if form is None:
         return None
     if form.status != BLANK_STATUS_ISSUED:
@@ -733,7 +736,6 @@ def spoil_for_generated_document(
     form.spoiled_reason = (reason or "").strip() or "Испорчен при печати"
     db.flush()
 
-    document = db.get(GeneratedDocument, generated_document_id)
     if document is not None and document.cancelled_at is None:
         document.cancelled_at = datetime.utcnow()
         document.cancelled_by_user_id = user_id

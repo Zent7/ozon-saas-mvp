@@ -52,6 +52,26 @@
 
   window.rememberChairmanMedicalRequirement = rememberMedicalRequirementValue;
 
+  const AUTO_EKG_CONCLUSION_PREFIX =
+    "Ритм синусовый, ЧСС , нормальная электрическая позиция сердца, ЭКГ-комплексы без особенностей";
+
+  function extractRuDate(value) {
+    return String(value ?? "").match(/\b\d{2}\.\d{2}\.\d{4}\b/)?.[0] || "";
+  }
+
+  function todayRuDate() {
+    return new Date().toLocaleDateString("ru-RU");
+  }
+
+  function buildAutoEkgConclusion(date) {
+    const finalDate = extractRuDate(date) || todayRuDate();
+    return `${AUTO_EKG_CONCLUSION_PREFIX} от ${finalDate}`;
+  }
+
+  function isAutoEkgConclusion(value) {
+    return String(value ?? "").trim().startsWith(`${AUTO_EKG_CONCLUSION_PREFIX} от `);
+  }
+
   function closeMedicalRequirementsPicker() {
     document.querySelector("[data-medical-requirements-picker]")?.remove();
   }
@@ -747,25 +767,63 @@
       return legacyValues.includes(normalized) ? "" : normalized;
     };
     const ekgValue = emptyLegacyValue(fields.ekg, ['Медицинский центр ООО "ЦМО "ЮЛМЕД" ЭКГ от 07.04.2025']);
-    const ekgConclusionValue = emptyLegacyValue(fields.ekgConclusion, [
+    const examDateValue = fields.examDate ?? "";
+    const ekgDate = extractRuDate(ekgValue) || extractRuDate(examDateValue) || todayRuDate();
+    const storedEkgConclusionValue = emptyLegacyValue(fields.ekgConclusion, [
       "Ритм синусовый, ЧСС , нормальная электрическая позиция сердца, ЭКГ-комплексы без особенностей от 07.04.2025",
     ]);
+    const ekgConclusionValue = String(storedEkgConclusionValue).trim()
+      ? storedEkgConclusionValue
+      : buildAutoEkgConclusion(ekgDate);
     const noteValue = emptyLegacyValue(fields.note, ["прио/"]);
+    const fieldOptions = (key) => template.fields.find((field) => field.key === key)?.options || [];
+    const renderChairmanSelect = (name, value, options) => {
+      const currentValue = String(value ?? "");
+      const selectOptions = currentValue && !options.includes(currentValue) ? [...options, currentValue] : options;
+
+      return `
+        <select class="doctor-classic-select" name="${escapeHtml(name)}">
+          ${selectOptions
+            .map(
+              (option) => `
+                <option value="${escapeHtml(option)}" ${option === currentValue ? "selected" : ""}>
+                  ${escapeHtml(option)}
+                </option>
+              `,
+            )
+            .join("")}
+        </select>
+      `;
+    };
+
+    const chairmanInfo = window.getChairmanFormInfo?.(exam, client) || {};
+    const chairmanType = chairmanInfo.type || "default";
+    const chairmanTitle = chairmanInfo.label || template.name;
+    const templateLabel = chairmanInfo.templateName || "шаблон будет выбран по услуге";
 
     return `
       <div class="doctor-classic-backdrop" data-doctor-exam-modal>
         <div class="chairman-window">
           <div class="doctor-classic-titlebar">
-            <div class="doctor-classic-title">${escapeHtml(template.name)}</div>
+            <div class="doctor-classic-title doctor-classic-title--stacked">
+              <span>${escapeHtml(chairmanTitle)}</span>
+              <small>${escapeHtml(templateLabel)}</small>
+            </div>
             <button type="button" class="doctor-classic-close" data-doctor-exam-close>×</button>
           </div>
 
           <form
-            class="chairman-form"
+            class="chairman-form chairman-form--${escapeHtml(chairmanType)}"
             data-doctor-exam-form
             data-exam-id="${escapeHtml(exam.id)}"
             data-doctor-role-id="${escapeHtml(template.id)}"
+            data-chairman-form-type="${escapeHtml(chairmanType)}"
           >
+            <div class="chairman-form-context">
+              <strong>${escapeHtml(chairmanTitle)}</strong>
+              <span>${escapeHtml(chairmanInfo.note || "")}</span>
+            </div>
+
             <div class="chairman-top">
               <div class="chairman-top-left">
                 <div class="chairman-mini-row">
@@ -804,11 +862,11 @@
                 <div class="chairman-blood">
                   <div class="chairman-blood-row">
                     <label>Группа крови</label>
-                    <input class="doctor-classic-input" type="text" name="bloodGroup" value="${escapeHtml(fields.bloodGroup ?? "")}" />
+                    ${renderChairmanSelect("bloodGroup", fields.bloodGroup ?? "0 (I)", fieldOptions("bloodGroup"))}
                   </div>
                   <div class="chairman-blood-row">
                     <label>резус-фактор</label>
-                    <input class="doctor-classic-input" type="text" name="rhesusFactor" value="${escapeHtml(fields.rhesusFactor ?? "")}" />
+                    ${renderChairmanSelect("rhesusFactor", fields.rhesusFactor ?? "Rh(+)", fieldOptions("rhesusFactor"))}
                   </div>
                   <div class="chairman-blood-row">
                     <label>кровь - откуда данные</label>
@@ -830,7 +888,7 @@
               <div class="chairman-meta-grid">
                 <div class="chairman-meta-item">
                   <label>Дата экзамена:</label>
-                  <input class="doctor-classic-input" type="text" name="examDate" value="${escapeHtml(fields.examDate ?? "")}" />
+                  <input class="doctor-classic-input" type="text" name="examDate" value="${escapeHtml(examDateValue)}" />
                 </div>
                 <div class="chairman-meta-item">
                   <label>№ Логотипа:</label>
@@ -904,10 +962,19 @@
                     ${renderCheckboxField("categoryB", !!fields.categoryB, "B")}
                     ${renderCheckboxField("categoryC", !!fields.categoryC, "C")}
                     ${renderCheckboxField("categoryD", !!fields.categoryD, "D")}
-                    ${renderCheckboxField("categoryE", !!fields.categoryE, "E")}
-                    ${renderCheckboxField("categoryTram", !!fields.categoryTram, "трамвай (п.6.)")}
+                    ${renderCheckboxField("categoryBE", !!(fields.categoryBE || fields.categoryE), "BE")}
+                    ${renderCheckboxField("categoryCE", !!(fields.categoryCE || fields.categoryE), "CE")}
+                    ${renderCheckboxField("categoryDE", !!(fields.categoryDE || fields.categoryE), "DE")}
+                    ${renderCheckboxField("categoryTram", !!fields.categoryTram, "Tm")}
+                    ${renderCheckboxField("categoryTrolleybus", !!fields.categoryTrolleybus, "Tb")}
+                    ${renderCheckboxField("categoryM", !!fields.categoryM, "M")}
+                    ${renderCheckboxField("categoryA1", !!fields.categoryA1, "A1")}
+                    ${renderCheckboxField("categoryB1", !!fields.categoryB1, "B1")}
+                    ${renderCheckboxField("categoryC1", !!fields.categoryC1, "C1")}
+                    ${renderCheckboxField("categoryD1", !!fields.categoryD1, "D1")}
+                    ${renderCheckboxField("categoryC1E", !!fields.categoryC1E, "C1E")}
+                    ${renderCheckboxField("categoryD1E", !!fields.categoryD1E, "D1E")}
                     ${renderCheckboxField("categoryTractor", !!fields.categoryTractor, "тракторы (п.8.)")}
-                    ${renderCheckboxField("categoryTrolleybus", !!fields.categoryTrolleybus, "троллейбус (п.6.)")}
                     ${renderCheckboxField("categoryBoat", !!fields.categoryBoat, "лайнеры и катера (п.9)")}
                     ${renderCheckboxField("categorySailing", !!fields.categorySailing, "парусный спорт")}
                   </div>
@@ -1529,6 +1596,22 @@
           });
         });
       });
+
+      const syncAutoEkgConclusion = () => {
+        const conclusionInput = form.elements.ekgConclusion;
+        if (!conclusionInput) return;
+        const currentValue = String(conclusionInput.value || "").trim();
+        if (currentValue && !isAutoEkgConclusion(currentValue)) return;
+        const ekgDate =
+          extractRuDate(form.elements.ekg?.value) ||
+          extractRuDate(form.elements.examDate?.value) ||
+          todayRuDate();
+        conclusionInput.value = buildAutoEkgConclusion(ekgDate);
+      };
+      form.elements.examDate?.addEventListener("input", syncAutoEkgConclusion);
+      form.elements.examDate?.addEventListener("change", syncAutoEkgConclusion);
+      form.elements.ekg?.addEventListener("input", syncAutoEkgConclusion);
+      form.elements.ekg?.addEventListener("change", syncAutoEkgConclusion);
 
       form.querySelectorAll("input, textarea, select").forEach((field) => {
         const saveChairmanDraft = (event) => {

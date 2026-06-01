@@ -1,5 +1,14 @@
 ﻿const API_BASE_URL = window.DEMO_API_BASE_URL || "http://127.0.0.1:8000/api/v1";
 
+function getLocalDateInputValue(value = new Date()) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 const appState = {
   page: "dashboard",
   dashboardPage: 1,
@@ -16,10 +25,10 @@ const appState = {
   serviceGroupFilter: "all",
   visitServiceGroupFilter: "all",
   visitServiceSearch: "",
-  cashDateFrom: new Date().toISOString().slice(0, 10),
-  cashDateTo: new Date().toISOString().slice(0, 10),
-  reportDateFrom: new Date().toISOString().slice(0, 10),
-  reportDateTo: new Date().toISOString().slice(0, 10),
+  cashDateFrom: getLocalDateInputValue(),
+  cashDateTo: getLocalDateInputValue(),
+  reportDateFrom: getLocalDateInputValue(),
+  reportDateTo: getLocalDateInputValue(),
   calendarFilter: "active",
   calendarServiceGroupFilter: "all",
   blanksTab: "overview",
@@ -173,6 +182,11 @@ const data = {
   doctorExams: [],
   mkb10History: [],
   backendClients: [],
+  backendClientsLoaded: false,
+  dashboardDoctorStatuses: {},
+  dashboardDoctorStatusesLoading: false,
+  dashboardDoctorStatusesError: "",
+  dashboardDoctorStatusesRequestId: 0,
   backendSearch: "",
   backendSearchLoading: false,
   backendSearchError: "",
@@ -274,9 +288,9 @@ const centerSelect = document.getElementById("centerSelect");
 const toast = document.getElementById("toast");
 
 const navItems = [
+  { id: "dashboard", label: "Главная" },
   { id: "chart", label: "Амбулаторная карта", toast: "Открыта амбулаторная карта" },
   { id: "calendar", label: "Календарь", toast: "Открыт календарь сроков" },
-  { id: "dashboard", label: "Главная" },
   { id: "doctors", label: "Врачи", toast: "Открыт раздел: Врачи" },
   { id: "services", label: "Услуги", toast: "Открыт раздел: Услуги" },
   { id: "blanks", label: "Бланки", toast: "Открыт раздел: Бланки" },
@@ -353,15 +367,166 @@ const TRACTOR_SERVICE_LEGACY_IDS = new Set([7]);
 const GIMS_SERVICE_LEGACY_IDS = new Set([37]);
 const LMK_SERVICE_LEGACY_IDS = new Set([18, 19]);
 const PROF_SERVICE_LEGACY_IDS = new Set([16]);
+const CERTIFICATE_SERVICE_LEGACY_IDS = new Set([2, 3, 4, 5, 9, 10, 11, 12, 24, 30, 31, 32, 38, 39]);
 const SPORT_SERVICE_LEGACY_IDS = new Set([4, 5]);
+const EKG_SERVICE_LEGACY_IDS = new Set([6, 20, 21, 27]);
 const SPORT_SERVICE_NAMES = new Set([
   "справка для участия в соревнованиях",
   "справка спорт + экг",
   "справка для спорта",
   "спортивная справка",
 ]);
-const DRIVER_BASE_CATEGORIES = new Set(["A", "B", "M"]);
-const DRIVER_CATEGORY_OPTIONS = ["A", "B", "C", "D", "BE", "CE", "DE", "M", "Tm", "Tb"];
+const CHAIRMAN_FORM_CONFIGS = {
+  driver: {
+    type: "driver",
+    label: "Председатель: водительская комиссия",
+    templateType: "driver",
+    printMode: "driver-flow",
+    note: "Используется водительский шаблон и бланк водительской комиссии.",
+  },
+  tractor: {
+    type: "tractor",
+    label: "Председатель: тракторная/071У комиссия",
+    templateType: "071",
+    printMode: "document",
+    note: "Подтягивается шаблон 071У или тракторной справки.",
+  },
+  gims: {
+    type: "gims",
+    label: "Председатель: ГИМС",
+    templateType: "gims",
+    printMode: "document",
+    note: "Подтягивается шаблон ГИМС.",
+  },
+  lmk: {
+    type: "lmk",
+    label: "Председатель: ЛМК",
+    templateType: "lmk",
+    printMode: "document",
+    note: "Подтягивается шаблон личной медицинской книжки.",
+  },
+  prof: {
+    type: "prof",
+    label: "Председатель: профосмотр 29Н",
+    templateType: "prof",
+    printMode: "document",
+    note: "Подтягивается шаблон заключения 29Н.",
+  },
+  marine: {
+    type: "marine",
+    label: "Председатель: морская комиссия",
+    templateType: "marine",
+    printMode: "document",
+    note: "Подтягивается морской сертификат.",
+  },
+  drug: {
+    type: "drug",
+    label: "Председатель: drug/alcohol test",
+    templateType: "drug",
+    printMode: "document",
+    note: "Подтягивается шаблон drug/alcohol test.",
+  },
+  sport: {
+    type: "sport",
+    label: "Председатель: спортивная справка",
+    templateType: "sport",
+    printMode: "document",
+    note: "Подтягивается спортивный шаблон.",
+  },
+  ekg: {
+    type: "ekg",
+    label: "ЭКГ",
+    templateType: "ekg",
+    printMode: "service-card",
+    note: "Открывается отдельная карточка ЭКГ без водительских категорий.",
+  },
+  certificate086: {
+    type: "certificate086",
+    label: "Председатель: справка 086у",
+    templateType: "086",
+    printMode: "document",
+    note: "Подтягивается шаблон справки 086у.",
+  },
+  certificate070: {
+    type: "certificate070",
+    label: "Председатель: справка 070у",
+    templateType: "070",
+    printMode: "document",
+    note: "Подтягивается шаблон справки 070у.",
+  },
+  certificate072: {
+    type: "certificate072",
+    label: "Председатель: санаторно-курортная карта 072у",
+    templateType: "072",
+    printMode: "document",
+    note: "Подтягивается шаблон 072у.",
+  },
+  certificate082: {
+    type: "certificate082",
+    label: "Председатель: справка 082у",
+    templateType: "082",
+    printMode: "document",
+    note: "Подтягивается шаблон справки 082у.",
+  },
+  certificate095: {
+    type: "certificate095",
+    label: "Председатель: справка 095у",
+    templateType: "095",
+    printMode: "document",
+    note: "Подтягивается шаблон справки 095у.",
+  },
+  gsu: {
+    type: "gsu",
+    label: "Председатель: справка 001 ГСУ",
+    templateType: "gsu",
+    printMode: "document",
+    note: "Подтягивается шаблон справки 001 ГСУ.",
+  },
+  gostaina: {
+    type: "gostaina",
+    label: "Председатель: справка гостайна",
+    templateType: "gostaina",
+    printMode: "document",
+    note: "Подтягивается шаблон справки для гостайны.",
+  },
+  gto: {
+    type: "gto",
+    label: "Председатель: справка ГТО",
+    templateType: "gto",
+    printMode: "document",
+    note: "Подтягивается шаблон справки ГТО.",
+  },
+  pool: {
+    type: "pool",
+    label: "Председатель: справка в бассейн",
+    templateType: "pool",
+    printMode: "document",
+    note: "Подтягивается шаблон справки в бассейн.",
+  },
+  guard: {
+    type: "guard",
+    label: "Председатель: справка ЧОД/охрана",
+    templateType: "guard",
+    printMode: "document",
+    note: "Подтягивается шаблон справки для охраны.",
+  },
+  certificate: {
+    type: "certificate",
+    label: "Председатель: справка",
+    templateType: "medical",
+    printMode: "document",
+    note: "Шаблон подбирается по выбранной услуге.",
+  },
+  default: {
+    type: "default",
+    label: "Председатель комиссии",
+    templateType: "driver",
+    printMode: "driver-flow",
+    note: "Если тип услуги не определен, используется общий сценарий председателя.",
+  },
+};
+const DRIVER_BASE_CATEGORIES = new Set(["A", "B", "M", "A1", "B1"]);
+const DRIVER_CATEGORY_OPTIONS = ["A", "B", "C", "D", "BE", "CE", "DE", "Tm", "Tb", "M", "A1", "B1", "C1", "D1", "C1E", "D1E"];
 const DRIVER_CATEGORY_ADVANCED_ROLES = ["therapist", "ophthalmologist", "neurologist", "otolaryngologist", "chairman"];
 const DRIVER_CATEGORY_BASE_ROLES = ["therapist", "ophthalmologist", "chairman"];
 const DRIVER_CATEGORY_DOCTOR_RULES = new Map([
@@ -562,7 +727,7 @@ function applyPersistedDemoState() {
     appState.selectedClientId = savedAppState.selectedClientId;
   }
   if (typeof savedAppState.centerFilter === "string") appState.centerFilter = savedAppState.centerFilter;
-  if (typeof savedAppState.clientSearch === "string") appState.clientSearch = savedAppState.clientSearch;
+  appState.clientSearch = "";
   if (typeof savedAppState.clientEncounterDate === "string") appState.clientEncounterDate = savedAppState.clientEncounterDate;
   if (Number.isFinite(savedAppState.dashboardPage) && savedAppState.dashboardPage > 0) {
     appState.dashboardPage = savedAppState.dashboardPage;
@@ -625,7 +790,7 @@ function persistDemoState() {
       JSON.stringify({
         selectedClientId: selectedClient?.backendId || selectedClient?.id || null,
         activeEncounterId: activeVisit?.backendId || null,
-        clientSearch: appState.clientSearch || "",
+        clientSearch: "",
         savedAt: new Date().toISOString(),
       }),
     );
@@ -651,7 +816,7 @@ function persistDemoState() {
         page: appState.page,
         selectedClientId: appState.selectedClientId,
         centerFilter: appState.centerFilter,
-        clientSearch: appState.clientSearch,
+        clientSearch: "",
         clientEncounterDate: appState.clientEncounterDate,
         dashboardPage: appState.dashboardPage,
         serviceGroupFilter: appState.serviceGroupFilter,
@@ -771,11 +936,13 @@ let _clientPoolCache = null;
 
 function getClientPool() {
   if (_clientPoolCache) return _clientPoolCache;
-  const merged = [...(data.backendClients || []), ...(data.clients || [])];
+  const sourceClients = data.backendClientsLoaded || data.backendSearchLoading
+    ? [...(data.backendClients || []), ...(data.clients || [])]
+    : data.clients || [];
   const uniqueClients = [];
   const seen = new Set();
 
-  merged.forEach((client) => {
+  sourceClients.forEach((client) => {
     const key = String(client?.backendId || client?.id || "");
     if (!key || seen.has(key)) return;
     seen.add(key);
@@ -918,15 +1085,133 @@ function isProfService(service) {
   return PROF_SERVICE_LEGACY_IDS.has(Number(service?.legacySourceId));
 }
 
+function getServiceGroup(service) {
+  return serviceGroups.find((group) => String(group.id) === String(service?.groupId || service?.category_id || ""));
+}
+
+function isCertificateService(service) {
+  const legacyId = Number(service?.legacySourceId ?? service?.legacy_source_id ?? service?.id);
+  const group = getServiceGroup(service);
+  const groupCode = String(group?.code || "").trim().toLowerCase();
+  const groupName = String(group?.name || "").trim().toLowerCase();
+  const normalizedName = String(service?.name || "").trim().toLowerCase();
+  return (
+    CERTIFICATE_SERVICE_LEGACY_IDS.has(legacyId) ||
+    groupCode === "legacy-group-7" ||
+    groupName === "справки" ||
+    normalizedName.includes("справк")
+  );
+}
+
 function isSportService(service) {
   const legacyId = Number(service?.legacySourceId ?? service?.legacy_source_id);
   const normalizedName = String(service?.name || "").trim().toLowerCase();
   return SPORT_SERVICE_LEGACY_IDS.has(legacyId) || SPORT_SERVICE_NAMES.has(normalizedName);
 }
 
+function isStandaloneEkgService(service) {
+  const legacyId = Number(service?.legacySourceId ?? service?.legacy_source_id);
+  const normalizedName = String(service?.name || "").trim().toLowerCase();
+  return (
+    EKG_SERVICE_LEGACY_IDS.has(legacyId) ||
+    (normalizedName.includes("экг") && !normalizedName.includes("спорт"))
+  );
+}
+
+function getServicesForVisit(visit) {
+  return getSelectedVisitServiceIds(visit)
+    .map((serviceId) => getServiceById(serviceId))
+    .filter(Boolean);
+}
+
+function getChairmanFormTypeForVisit(visit) {
+  const services = getServicesForVisit(visit);
+  const serviceText = [
+    ...(Array.isArray(visit?.serviceNames) ? visit.serviceNames : []),
+    ...services.map((service) => service.name),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (services.some(isDriverService) || serviceText.includes("водител")) return "driver";
+  if (services.some(isGimsService) || serviceText.includes("гимс")) return "gims";
+  if (services.some(isLmkService) || serviceText.includes("лмк") || serviceText.includes("медицинская книж")) return "lmk";
+  if (services.some(isProfService) || serviceText.includes("профосмотр") || serviceText.includes("29н")) return "prof";
+  if (services.some(isTractorService) || serviceText.includes("трактор") || serviceText.includes("071")) return "tractor";
+  if (serviceText.includes("драг") || serviceText.includes("drug") || serviceText.includes("alcohol")) return "drug";
+  if (serviceText.includes("морск") || serviceText.includes("marine") || serviceText.includes("seafar")) return "marine";
+  if (services.some(isSportService) || serviceText.includes("спорт")) return "sport";
+  if (services.some(isStandaloneEkgService) || serviceText.includes("экг")) return "ekg";
+  if (serviceText.includes("070") || serviceText.includes("путевк")) return "certificate070";
+  if (serviceText.includes("072") || serviceText.includes("санатор")) return "certificate072";
+  if (serviceText.includes("082") || serviceText.includes("границ")) return "certificate082";
+  if (serviceText.includes("086")) return "certificate086";
+  if (serviceText.includes("095")) return "certificate095";
+  if (serviceText.includes("001") || serviceText.includes("гсу") || serviceText.includes("госслуж")) return "gsu";
+  if (serviceText.includes("989") || serviceText.includes("гостайн") || serviceText.includes("гос.тайн")) return "gostaina";
+  if (serviceText.includes("гто") || serviceText.includes("1144")) return "gto";
+  if (serviceText.includes("басс")) return "pool";
+  if (serviceText.includes("чод") || serviceText.includes("охран")) return "guard";
+  if (services.some(isCertificateService)) return "certificate";
+  return "default";
+}
+
+function getChairmanFormConfigForVisit(visit) {
+  const type = getChairmanFormTypeForVisit(visit);
+  return CHAIRMAN_FORM_CONFIGS[type] || CHAIRMAN_FORM_CONFIGS.default;
+}
+
+function getChairmanFormInfo(examOrVisit = null, client = null) {
+  const visit = examOrVisit?.visitId
+    ? data.visits.find((item) => String(item.id) === String(examOrVisit.visitId))
+    : examOrVisit;
+  const resolvedClient = client || (visit ? getClientPool().find((item) => String(item.id) === String(visit.clientId)) : getSelectedClient());
+  const config = getChairmanFormConfigForVisit(visit);
+  const template = data.documentTemplatesLoaded ? pickDocumentTemplate(config.templateType, visit, resolvedClient) : null;
+  return {
+    ...config,
+    template,
+    templateId: template?.id || null,
+    templateName: template?.name || template?.file_name || "",
+  };
+}
+
+async function openChairmanTemplateFile(examId = null) {
+  const exam = examId ? data.doctorExams.find((item) => String(item.id) === String(examId)) : null;
+  const client = exam ? getClientPool().find((item) => String(item.id) === String(exam.clientId)) : getSelectedClient();
+  if (!data.documentTemplatesLoaded) {
+    await loadDocumentTemplatesFromBackend();
+  }
+  const info = getChairmanFormInfo(exam, client);
+  if (!info.templateId) {
+    showToast(`Не найден файловый шаблон для формы "${info.label}"`);
+    return false;
+  }
+  window.open(buildTemplateFileUrl(info.templateId), "_blank", "noopener,noreferrer");
+  return true;
+}
+
 function normalizeDriverCategories(categories = []) {
-  const source = Array.isArray(categories) && categories.length ? categories : ["A", "B"];
-  return DRIVER_CATEGORY_OPTIONS.filter((item) => source.includes(item));
+  const source = Array.isArray(categories)
+    ? categories
+    : String(categories || "")
+        .split(/[\s,;/]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+  if (!source.length) return ["A", "B"];
+  const expanded = new Set(source);
+  if (expanded.has("E")) {
+    expanded.add("BE");
+    expanded.add("CE");
+    expanded.add("DE");
+  }
+  if (expanded.has("1A")) expanded.add("A1");
+  if (expanded.has("1B")) expanded.add("B1");
+  if (expanded.has("1C")) expanded.add("C1");
+  if (expanded.has("1D")) expanded.add("D1");
+  if (expanded.has("1CE")) expanded.add("C1E");
+  if (expanded.has("1DE")) expanded.add("D1E");
+  return DRIVER_CATEGORY_OPTIONS.filter((item) => expanded.has(item));
 }
 
 function getDriverCategoryPrice(categories = []) {
@@ -939,11 +1224,11 @@ function getDriverCategoryRuleKey(categories = [], { includeTransport = true } =
   const normalized = normalizeDriverCategories(categories);
   const parts = new Set();
 
-  if (normalized.includes("A")) parts.add("A");
-  if (normalized.includes("B") || normalized.includes("BE")) parts.add("B");
-  if (normalized.includes("C") || normalized.includes("CE")) parts.add("C");
-  if (normalized.includes("D") || normalized.includes("DE")) parts.add("D");
-  if (normalized.some((item) => item === "BE" || item === "CE" || item === "DE")) parts.add("E");
+  if (normalized.includes("A") || normalized.includes("A1")) parts.add("A");
+  if (normalized.includes("B") || normalized.includes("B1") || normalized.includes("BE")) parts.add("B");
+  if (normalized.includes("C") || normalized.includes("C1") || normalized.includes("CE") || normalized.includes("C1E")) parts.add("C");
+  if (normalized.includes("D") || normalized.includes("D1") || normalized.includes("DE") || normalized.includes("D1E")) parts.add("D");
+  if (normalized.some((item) => item === "BE" || item === "CE" || item === "DE" || item === "C1E" || item === "D1E")) parts.add("E");
 
   const key = ["A", "B", "C", "D", "E"].filter((item) => parts.has(item)).join("");
   const transport = [];
@@ -996,9 +1281,19 @@ function collectChairmanDriverCategories(fields = {}) {
   if (fields.categoryB) categories.push("B");
   if (fields.categoryC) categories.push("C");
   if (fields.categoryD) categories.push("D");
-  if (fields.categoryE) categories.push("E");
+  const legacyE = Boolean(fields.categoryE) && !fields.categoryBE && !fields.categoryCE && !fields.categoryDE;
+  if (fields.categoryBE || legacyE) categories.push("BE");
+  if (fields.categoryCE || legacyE) categories.push("CE");
+  if (fields.categoryDE || legacyE) categories.push("DE");
   if (fields.categoryTram) categories.push("Tm");
   if (fields.categoryTrolleybus) categories.push("Tb");
+  if (fields.categoryM) categories.push("M");
+  if (fields.categoryA1) categories.push("A1");
+  if (fields.categoryB1) categories.push("B1");
+  if (fields.categoryC1) categories.push("C1");
+  if (fields.categoryD1) categories.push("D1");
+  if (fields.categoryC1E) categories.push("C1E");
+  if (fields.categoryD1E) categories.push("D1E");
   if (fields.categoryTractor) categories.push("tractor");
   if (fields.categoryBoat) categories.push("boat");
   if (fields.categorySailing) categories.push("sailing");
@@ -1034,11 +1329,18 @@ function applyDriverSelectionsToChairmanFields(fields = {}, detail = {}, visit =
     categoryB: hasCategoryOverrides ? categories.includes("B") : Boolean(fields.categoryB),
     categoryC: hasCategoryOverrides ? categories.includes("C") : Boolean(fields.categoryC),
     categoryD: hasCategoryOverrides ? categories.includes("D") : Boolean(fields.categoryD),
-    categoryE: hasCategoryOverrides
-      ? (categories.includes("BE") || categories.includes("CE") || categories.includes("DE") || categories.includes("E"))
-      : Boolean(fields.categoryE),
+    categoryBE: hasCategoryOverrides ? categories.includes("BE") : Boolean(fields.categoryBE || fields.categoryE),
+    categoryCE: hasCategoryOverrides ? categories.includes("CE") : Boolean(fields.categoryCE || fields.categoryE),
+    categoryDE: hasCategoryOverrides ? categories.includes("DE") : Boolean(fields.categoryDE || fields.categoryE),
     categoryTram: hasCategoryOverrides ? categories.includes("Tm") : Boolean(fields.categoryTram),
     categoryTrolleybus: hasCategoryOverrides ? categories.includes("Tb") : Boolean(fields.categoryTrolleybus),
+    categoryM: hasCategoryOverrides ? categories.includes("M") : Boolean(fields.categoryM),
+    categoryA1: hasCategoryOverrides ? categories.includes("A1") : Boolean(fields.categoryA1),
+    categoryB1: hasCategoryOverrides ? categories.includes("B1") : Boolean(fields.categoryB1),
+    categoryC1: hasCategoryOverrides ? categories.includes("C1") : Boolean(fields.categoryC1),
+    categoryD1: hasCategoryOverrides ? categories.includes("D1") : Boolean(fields.categoryD1),
+    categoryC1E: hasCategoryOverrides ? categories.includes("C1E") : Boolean(fields.categoryC1E),
+    categoryD1E: hasCategoryOverrides ? categories.includes("D1E") : Boolean(fields.categoryD1E),
     categoryTractor: hasCategoryOverrides ? sourceCategories.includes("tractor") : Boolean(fields.categoryTractor),
     categoryBoat: hasCategoryOverrides ? (sourceCategories.includes("boat") || Boolean(detail.boatFit)) : Boolean(fields.categoryBoat),
     categorySailing: hasCategoryOverrides ? sourceCategories.includes("sailing") : Boolean(fields.categorySailing),
@@ -1062,8 +1364,16 @@ function applyDriverSelectionsToChairmanFields(fields = {}, detail = {}, visit =
 
 function getDriverDetailFromVisit(visit) {
   if (!visit) return {};
-  const details = Object.values(getVisitServiceDetails(visit));
-  return details.find((detail) => Array.isArray(detail?.categories) && detail.categories.length) || {};
+  const serviceDetails = getVisitServiceDetails(visit);
+  const details = Object.values(serviceDetails);
+  const detailWithCategories = details.find((detail) =>
+    Array.isArray(detail?.categories)
+      ? detail.categories.length
+      : String(detail?.categories || "").trim(),
+  );
+  if (detailWithCategories) return detailWithCategories;
+  const driverServiceId = getSelectedVisitServiceIds(visit).find((serviceId) => isDriverService(getServiceById(serviceId)));
+  return driverServiceId ? (serviceDetails[String(driverServiceId)] ||= {}) : {};
 }
 
 function getDoctorRoleCodeById(roleId) {
@@ -1078,10 +1388,17 @@ function getDoctorRoleCodeSetFromService(service, detail = {}) {
   if (isSportService(service)) {
     return new Set(["chairman"]);
   }
+  if (isStandaloneEkgService(service)) {
+    return new Set(["chairman"]);
+  }
 
   const roleCodes = (service.doctorRoleIds || [])
     .map((roleId) => getDoctorRoleCodeById(roleId))
     .filter(Boolean);
+
+  if (isCertificateService(service)) {
+    roleCodes.push("chairman");
+  }
 
   if (
     roleCodes.length &&
@@ -1091,6 +1408,37 @@ function getDoctorRoleCodeSetFromService(service, detail = {}) {
   }
 
   return new Set(roleCodes);
+}
+
+function getRequiredDoctorRoleCountsForVisit(visit) {
+  const serviceDetails = getVisitServiceDetails(visit);
+  const counts = new Map();
+  getSelectedVisitServiceIds(visit).forEach((serviceId) => {
+    const service = getServiceById(serviceId);
+    const detail = serviceDetails[String(serviceId)] || {};
+    getDoctorRoleCodeSetFromService(service, detail).forEach((code) => {
+      const current = counts.get(code) || 0;
+      counts.set(code, code === "chairman" && isCertificateService(service) ? current + 1 : Math.max(current, 1));
+    });
+  });
+  return counts;
+}
+
+function getRequiredDoctorRoleCountsForClient(client, currentVisit = null) {
+  const counts = new Map(currentVisit ? getRequiredDoctorRoleCountsForVisit(currentVisit) : []);
+  if (!client) return counts;
+
+  getVisitsForClient(client.id).forEach((visit) => {
+    if (currentVisit && String(visit.id) === String(currentVisit.id)) return;
+    if (visit.status === "closed") return;
+    const visitCounts = getRequiredDoctorRoleCountsForVisit(visit);
+    const chairmanCount = Number(visitCounts.get("chairman") || 0);
+    if (chairmanCount > 0) {
+      counts.set("chairman", Number(counts.get("chairman") || 0) + chairmanCount);
+    }
+  });
+
+  return counts;
 }
 
 function getRequiredDoctorRoleCodesForVisit(visit) {
@@ -1149,14 +1497,23 @@ function mapApiClient(client) {
     fullName: joinClientName(client) || `Пациент ${client.patient_number || client.id}`,
     birthDate: formatApiDate(client.birth_date),
     birthPlace: client.birth_place || client.legacy_payload_json?.birth_place || "",
+    sex: client.sex || "",
+    gender: client.sex || "",
     phone: client.phone || "",
     center: client.center || "Медцентр 1",
     document: joinDocument(client),
+    documentType: client.document_type || "",
+    documentSeries: client.document_series || "",
+    documentNumber: client.document_number || "",
+    documentIssuedBy: client.document_issued_by || client.legacy_payload_json?.WhoGive || client.legacy_payload_json?.["qdfMain.WhoGive"] || "",
+    documentIssuedDate: formatApiDate(client.document_issued_date),
     snils: client.snils || "",
+    email: client.email || "",
     note: client.notes || "",
     lastVisit: client.real_date_text || client.encounter_date_text || "",
     services,
     registration: client.registration_text || client.address_text || "",
+    admissionCategory: client.admission_category || "",
     category: resolveAdmissionCategoryValue(client.admission_category, services),
     referenceNumber: client.reference_number || "",
     gynecologist: client.doctor_gynecologist || "",
@@ -1256,19 +1613,23 @@ function hasCompletedDoctorExamHistory(clientId, doctorRoleId, currentVisitId = 
   );
 }
 
-function buildDoctorMark(roleCode, client, currentVisit, requiredDoctors, completedDoctors) {
+function buildDoctorMark(roleCode, requiredDoctors, completedDoctors) {
+  const requiredCount = requiredDoctors instanceof Map
+    ? Number(requiredDoctors.get(roleCode) || 0)
+    : requiredDoctors.has(roleCode)
+      ? 1
+      : 0;
   if (completedDoctors.has(roleCode)) {
     return { value: "✓", title: "Врач пройден в текущем обращении" };
   }
-  const hasHistory = hasCompletedDoctorExamHistory(client?.id, roleCode, currentVisit?.id || null);
-  if (requiredDoctors.has(roleCode)) {
-    if (hasHistory) {
-      return { value: "x↺", title: "Требуется в текущем обращении; есть прошлый осмотр в другом обращении" };
-    }
-    return { value: "x", title: "Требуется в текущем обращении" };
-  }
-  if (hasHistory) {
-    return { value: "↺", title: "Есть прошлый осмотр в другом обращении" };
+  if (requiredCount > 0) {
+    const requiredTitle = requiredCount > 1
+      ? `Требуется в текущем обращении: ${requiredCount}`
+      : "Требуется в текущем обращении";
+    return {
+      value: "×",
+      title: requiredTitle,
+    };
   }
   return { value: "", title: "" };
 }
@@ -1875,7 +2236,7 @@ function createVisitForClient(clientId, options = {}) {
 
 function createVisitForClientIfNeeded(clientId, options = {}) {
   const existing = getCurrentVisitForClient(clientId);
-  if (existing && existing.status !== "closed") return existing;
+  if (!options.forceNew && existing && existing.status !== "closed") return existing;
   return createVisitForClient(clientId, options);
 }
 
@@ -2068,13 +2429,11 @@ async function loadDoctorExamsForClient(client, visit = null) {
           : (exam.fields_json || {}),
     }));
 
-    const loadedIds = new Set(mapped.map((exam) => String(exam.id)));
     data.doctorExams = [
       ...data.doctorExams.filter(
         (exam) =>
           String(exam.clientId) !== String(client.id) ||
-          (visit && String(exam.visitId) !== String(visit.id)) ||
-          !loadedIds.has(String(exam.id)),
+          (visit && String(exam.visitId) !== String(visit.id)),
       ),
       ...mapped,
     ];
@@ -2085,32 +2444,105 @@ async function loadDoctorExamsForClient(client, visit = null) {
   }
 }
 
-async function preloadDoctorMarksForClients(clients) {
+function parseDashboardDoctorStatusServiceDetail(notes) {
+  if (!notes) return {};
+  try {
+    const detail = JSON.parse(notes);
+    return detail && typeof detail === "object" ? detail : {};
+  } catch {
+    return {};
+  }
+}
+
+function mapDashboardDoctorStatus(status) {
+  const services = Array.isArray(status?.services)
+    ? status.services.map((service) => ({
+        serviceId: String(service.service_id),
+        detail: parseDashboardDoctorStatusServiceDetail(service.notes),
+      }))
+    : [];
+  return {
+    clientId: status?.client_id,
+    encounterId: status?.encounter_id || null,
+    encounterStatus: status?.encounter_status || null,
+    services,
+    completedDoctorRoleIds: Array.isArray(status?.completed_doctor_role_ids)
+      ? status.completed_doctor_role_ids.slice()
+      : [],
+  };
+}
+
+function getDashboardDoctorStatus(client) {
+  const clientId = client?.backendId || client?.id;
+  return clientId ? data.dashboardDoctorStatuses[String(clientId)] || null : null;
+}
+
+function getDashboardDoctorStatusVisit(client) {
+  const status = getDashboardDoctorStatus(client);
+  if (!status?.encounterId) return null;
+  return {
+    id: `dashboard-encounter-${status.encounterId}`,
+    backendId: status.encounterId,
+    clientId: client.id,
+    serviceIds: status.services.map((service) => service.serviceId),
+    serviceDetails: status.services.reduce((result, service) => {
+      result[service.serviceId] = service.detail;
+      return result;
+    }, {}),
+    status: status.encounterStatus || "draft",
+  };
+}
+
+function areDashboardDoctorStatusesReady(clients) {
+  return (Array.isArray(clients) ? clients : []).every((client) => {
+    const clientId = client?.backendId || client?.id;
+    return clientId && Object.hasOwn(data.dashboardDoctorStatuses, String(clientId));
+  });
+}
+
+async function loadDashboardDoctorStatuses(clients, { render = true } = {}) {
   const items = Array.isArray(clients) ? clients.filter(Boolean) : [];
-  if (!items.length) return;
   const ids = items.map((c) => c?.backendId || c?.id).filter(Boolean);
-  if (!ids.length) return;
+  if (!ids.length) {
+    data.dashboardDoctorStatusesLoading = false;
+    data.dashboardDoctorStatusesError = "";
+    if (render) renderApp();
+    return;
+  }
+
+  const requestId = ++data.dashboardDoctorStatusesRequestId;
+  data.dashboardDoctorStatusesLoading = true;
+  data.dashboardDoctorStatusesError = "";
+  if (render) renderApp();
+
   try {
     const params = ids.map((id) => `client_ids=${encodeURIComponent(id)}`).join("&");
-    const exams = await apiRequest(`/doctor-exams?${params}`);
-    const examsByClientId = {};
-    for (const exam of Array.isArray(exams) ? exams : []) {
-      const cid = String(exam.client_id);
-      if (!examsByClientId[cid]) examsByClientId[cid] = [];
-      examsByClientId[cid].push({
-        doctorRoleId: exam.doctor_role_id,
-        isCompleted: Boolean(exam.is_completed),
-        backendEncounterId: exam.encounter_id || null,
-        visitId: exam.encounter_id ? `encounter-${exam.encounter_id}` : null,
-      });
+    const statuses = await apiRequest(`/dashboard/client-doctor-statuses?${params}`);
+    if (requestId !== data.dashboardDoctorStatusesRequestId) return;
+
+    const nextStatuses = { ...data.dashboardDoctorStatuses };
+    ids.forEach((id) => {
+      nextStatuses[String(id)] = mapDashboardDoctorStatus({ client_id: id });
+    });
+    for (const status of Array.isArray(statuses) ? statuses : []) {
+      nextStatuses[String(status.client_id)] = mapDashboardDoctorStatus(status);
     }
-    for (const client of items) {
-      const cid = String(client?.backendId || client?.id);
-      syncCompletedDoctorMarksToClient(client, examsByClientId[cid] || []);
-    }
+    data.dashboardDoctorStatuses = nextStatuses;
   } catch (error) {
-    console.warn("Failed to preload doctor marks", error);
+    if (requestId !== data.dashboardDoctorStatusesRequestId) return;
+    data.dashboardDoctorStatusesError = humanizeApiError(error, "Не удалось загрузить отметки врачей");
+    console.warn("Failed to load dashboard doctor statuses", error);
+  } finally {
+    if (requestId !== data.dashboardDoctorStatusesRequestId) return;
+    data.dashboardDoctorStatusesLoading = false;
+    if (render) renderApp();
   }
+}
+
+async function refreshDashboardDoctorStatusForExam(exam, options = {}) {
+  const client = getClientPool().find((item) => String(item.id) === String(exam?.clientId));
+  if (!client) return;
+  await loadDashboardDoctorStatuses([client], options);
 }
 
 async function loadClientWorkspace(client) {
@@ -2138,7 +2570,7 @@ async function restoreWorkplaceSelection() {
     if (!client) return;
 
     appState.selectedClientId = client.id;
-    appState.clientSearch = saved.clientSearch || client.fullName || "";
+    appState.clientSearch = "";
     await loadClientWorkspace(client);
 
     if (saved.activeEncounterId) {
@@ -2257,6 +2689,33 @@ function openDoctorExamCard({ clientId, visitId, doctorRoleId }) {
   window.closeServiceCardOverlays?.();
 
   const finalVisitId = visitId || getOrCreateDraftVisit(clientId).id;
+  const visit = data.visits.find((item) => String(item.id) === String(finalVisitId));
+  const chairmanFormType = getChairmanFormTypeForVisit(visit);
+  if (
+    doctorRoleId === "chairman" &&
+    (chairmanFormType === "sport" || chairmanFormType === "ekg") &&
+    typeof window.openSportCard === "function"
+  ) {
+    const cardService = getServicesForVisit(visit).find((service) =>
+      chairmanFormType === "ekg" ? isStandaloneEkgService(service) : isSportService(service)
+    ) || { name: CHAIRMAN_FORM_CONFIGS[chairmanFormType]?.label || CHAIRMAN_FORM_CONFIGS.sport.label };
+    appState.doctorExamModal = {
+      isOpen: false,
+      clientId: null,
+      visitId: null,
+      doctorRoleId: null,
+    };
+    appState.activeVisitId = finalVisitId;
+    persistDemoState();
+    window.openSportCard({
+      clientId,
+      visitId: finalVisitId,
+      service: cardService,
+      doctorRoleId: "chairman",
+    });
+    return;
+  }
+
   const exam = getOrCreateDoctorExam(clientId, finalVisitId, doctorRoleId);
 
   if (!exam) {
@@ -2288,23 +2747,73 @@ function closeDoctorExamCard() {
   renderApp();
 }
 
+function normalizeChairmanRecordValue(value) {
+  const text = String(value ?? "").trim();
+  return text || null;
+}
+
+function buildChairmanMedicalRecordNotes(fields = {}) {
+  const notes = [
+    ["medicalRequirements", "Мед. требования"],
+    ["ekg", "ЭКГ"],
+    ["ekgConclusion", "Заключение ЭКГ"],
+    ["fluorography", "Флюорография"],
+    ["bloodSource", "Кровь - откуда данные"],
+    ["conclusion", "Заключение председателя"],
+    ["note", "Примечание"],
+  ]
+    .map(([key, label]) => {
+      const value = normalizeChairmanRecordValue(fields[key]);
+      return value ? `${label}: ${value}` : "";
+    })
+    .filter(Boolean);
+
+  if (fields.vaccinationRefusal) notes.push("Подписан отказ от прививок");
+  if (fields.needsKekReferral) notes.push("Нуждается в направлении на КЭК");
+  if (fields.stampApplied) notes.push("Печать поставлена");
+
+  return notes.join("\n");
+}
+
+function buildChairmanMedicalRecordData(fields = {}) {
+  const recordNotes = buildChairmanMedicalRecordNotes(fields);
+  return {
+    bloodGroup: normalizeChairmanRecordValue(fields.bloodGroup),
+    rhFactor: normalizeChairmanRecordValue(fields.rhesusFactor),
+    diagnosis: normalizeChairmanRecordValue(fields.diagnosis),
+    mkb10: normalizeChairmanRecordValue(fields.mkb10),
+    recordNotes: recordNotes || null,
+  };
+}
+
+function getCompletedChairmanExam(exams = []) {
+  return (Array.isArray(exams) ? exams : []).find(
+    (entry) => String(entry?.doctorRoleId || "") === "chairman" && entry?.isCompleted,
+  ) || null;
+}
+
 async function syncChairmanExamToClientAndMedicalRecord(exam) {
   if (!exam || exam.doctorRoleId !== "chairman") return;
 
-  const client = data.clients.find((item) => String(item.id) === String(exam.clientId));
+  const client = getClientPool().find((item) => String(item.id) === String(exam.clientId));
   if (!client) return;
   const raw = client.rawApiClient || {};
   const visit = data.visits.find((item) => String(item.id) === String(exam.visitId));
   const driverDetail = getDriverDetailFromVisit(visit);
   const fields = exam.fields || {};
+  const chairmanFormInfo = getChairmanFormInfo(visit, client);
+  const isDriverChairmanFlow = chairmanFormInfo.printMode === "driver-flow";
 
-  const chairmanCategories = collectChairmanDriverCategories(fields);
-  const admissionCategory = String(fields.driverCategories || "").trim() || chairmanCategories.join(", ");
-  const indicationsList = collectChairmanDriverIndications(fields);
-  const limitationsList = collectChairmanDriverLimitations(fields);
+  const chairmanCategories = isDriverChairmanFlow ? collectChairmanDriverCategories(fields) : [];
+  const admissionCategory = isDriverChairmanFlow
+    ? String(fields.driverCategories || "").trim() || chairmanCategories.join(", ")
+    : "";
+  const indicationsList = isDriverChairmanFlow ? collectChairmanDriverIndications(fields) : [];
+  const limitationsList = isDriverChairmanFlow ? collectChairmanDriverLimitations(fields) : [];
   const indicationsText = indicationsList.join(", ") || String(fields.diagnosis || raw.indications || "").trim() || null;
+  const chairmanMedicalRecordData = buildChairmanMedicalRecordData(fields);
 
-  if (visit && Object.keys(driverDetail).length) {
+  if (isDriverChairmanFlow && visit && Object.keys(driverDetail).length) {
     driverDetail.categories = chairmanCategories.slice();
     driverDetail.indications = indicationsList;
     driverDetail.limitations = limitationsList;
@@ -2319,21 +2828,31 @@ async function syncChairmanExamToClientAndMedicalRecord(exam) {
     ...raw,
     admission_category: admissionCategory || null,
     indications: indicationsText,
-    mkb10: String(fields.mkb10 || raw.mkb10 || "").trim() || null,
+    mkb10: chairmanMedicalRecordData.mkb10 || String(raw.mkb10 || "").trim() || null,
   };
 
   client.category = resolveAdmissionCategoryValue(nextRaw.admission_category, client.services);
+  client.admissionCategory = nextRaw.admission_category || "";
   client.mkb10 = nextRaw.mkb10 || "";
   client.rawApiClient = nextRaw;
 
-  const currentRecord = data.medicalRecords?.[0] || null;
+  const backendClientId = nextRaw.id || client.backendId || client.id;
+  const currentRecord = (data.medicalRecords || []).find(
+    (record) => String(record?.client_id) === String(backendClientId),
+  ) || null;
+  const recordDiagnosis = chairmanMedicalRecordData.diagnosis || indicationsText || currentRecord?.diagnosis || null;
+  const recordMkb10 = chairmanMedicalRecordData.mkb10 || nextRaw.mkb10 || currentRecord?.mkb10 || null;
+  const recordNotes = chairmanMedicalRecordData.recordNotes || currentRecord?.notes || null;
+
   if (currentRecord && String(currentRecord.client_id) === String(nextRaw.id || client.backendId || client.id)) {
+    currentRecord.blood_group = chairmanMedicalRecordData.bloodGroup || currentRecord.blood_group || null;
+    currentRecord.rh_factor = chairmanMedicalRecordData.rhFactor || currentRecord.rh_factor || null;
     currentRecord.dispensary_observation = indicationsText;
-    currentRecord.diagnosis = indicationsText;
-    currentRecord.mkb10 = nextRaw.mkb10 || null;
+    currentRecord.diagnosis = recordDiagnosis;
+    currentRecord.mkb10 = recordMkb10;
+    currentRecord.notes = recordNotes;
   }
 
-  const backendClientId = nextRaw.id || client.backendId || client.id;
   if (!backendClientId) {
     persistDemoState();
     return;
@@ -2389,22 +2908,38 @@ async function syncChairmanExamToClientAndMedicalRecord(exam) {
   });
   upsertClientInMemory(savedClient);
 
-  const recordPayload = currentRecord
-    ? {
-        ...currentRecord,
-        client_id: backendClientId,
-        dispensary_observation: indicationsText,
-        diagnosis: indicationsText,
-        mkb10: nextRaw.mkb10 || null,
-      }
-    : null;
-  if (recordPayload) {
-    const savedRecord = await apiRequest(`/medical-records/${encodeURIComponent(currentRecord.id)}`, {
-      method: "PUT",
+  const recordPayload = {
+    ...(currentRecord || {}),
+    client_id: backendClientId,
+    center_id: currentRecord?.center_id ?? null,
+    card_number: currentRecord?.card_number || nextRaw.card_number || null,
+    opened_at: currentRecord?.opened_at || parseRuDateToIso(fields.examDate, "") || null,
+    insurance_org: currentRecord?.insurance_org || null,
+    oms_policy: currentRecord?.oms_policy || nextRaw.oms_policy || null,
+    marital_status: currentRecord?.marital_status || null,
+    education: currentRecord?.education || null,
+    employment_status: currentRecord?.employment_status || null,
+    work_place: currentRecord?.work_place || nextRaw.work_place || nextRaw.organization || null,
+    position: currentRecord?.position || null,
+    disability: currentRecord?.disability || null,
+    blood_group: chairmanMedicalRecordData.bloodGroup || currentRecord?.blood_group || null,
+    rh_factor: chairmanMedicalRecordData.rhFactor || currentRecord?.rh_factor || null,
+    allergies: currentRecord?.allergies || null,
+    dispensary_observation: indicationsText || currentRecord?.dispensary_observation || null,
+    health_group: currentRecord?.health_group || null,
+    diagnosis: recordDiagnosis,
+    mkb10: recordMkb10,
+    notes: recordNotes,
+  };
+
+  const savedRecord = await apiRequest(
+    currentRecord?.id ? `/medical-records/${encodeURIComponent(currentRecord.id)}` : "/medical-records",
+    {
+      method: currentRecord?.id ? "PUT" : "POST",
       body: JSON.stringify(recordPayload),
-    });
-    data.medicalRecords = [savedRecord];
-  }
+    },
+  );
+  data.medicalRecords = [savedRecord];
 
   persistDemoState();
 }
@@ -2444,9 +2979,11 @@ async function saveDoctorExam(examId, updatedFields) {
         console.warn("Не удалось полностью досинхронизировать председателя", chairmanSyncError);
         showToast("Карточка председателя сохранена, но обращение/карта обновились не полностью");
       }
+      await refreshDashboardDoctorStatusForExam(exam, { render: false });
       return true;
     }
     await syncDoctorExamToBackend(exam);
+    await refreshDashboardDoctorStatusForExam(exam, { render: false });
     return true;
   } catch (error) {
     exam.fields = previousFields;
@@ -2507,6 +3044,7 @@ async function deleteDoctorExam(examId) {
     await apiRequest(`/doctor-exams/${encodeURIComponent(exam.backendId)}`, {
       method: "DELETE",
     });
+    await refreshDashboardDoctorStatusForExam(exam, { render: false });
     return true;
   } catch (error) {
     data.doctorExams.splice(examIndex, 0, exam);
@@ -2607,7 +3145,13 @@ function normalizeEncounterDateFilterValue(value) {
   });
 }
 
+function isCompleteEncounterDateFilter(value) {
+  const text = String(value || "").trim();
+  return !text || /^\d{4}-\d{2}-\d{2}$/.test(text) || /^\d{2}\.\d{2}\.\d{4}$/.test(text);
+}
+
 function matchesEncounterDate(client) {
+  if (!isCompleteEncounterDateFilter(appState.clientEncounterDate)) return true;
   const filterDate = normalizeEncounterDateFilterValue(appState.clientEncounterDate);
   if (!filterDate) return true;
   const clientDate = normalizeEncounterDateFilterValue(client?.encounterDate || client?.lastVisit || client?.rawApiClient?.encounter_date_text);
@@ -2623,9 +3167,27 @@ function filteredClients() {
     .filter((client) => buildClientSearchHaystack(client).includes(search));
 }
 
+function getDashboardClientPage() {
+  const allClients = data.backendClientsLoaded ? filteredClients() : [];
+  const totalPages = Math.max(1, Math.ceil(allClients.length / DASHBOARD_PAGE_SIZE));
+  const currentPage = Math.min(Math.max(1, appState.dashboardPage || 1), totalPages);
+  const pageStartIndex = (currentPage - 1) * DASHBOARD_PAGE_SIZE;
+  return {
+    allClients,
+    currentPage,
+    currentClients: allClients.slice(pageStartIndex, pageStartIndex + DASHBOARD_PAGE_SIZE),
+    pageStartIndex,
+    totalPages,
+  };
+}
+
+function getVisibleDashboardClients() {
+  return getDashboardClientPage().currentClients;
+}
+
 async function loadClientsFromBackend(searchValue) {
   const search = String(searchValue || "").trim();
-  const encounterDate = String(appState.clientEncounterDate || "").trim();
+  const encounterDate = parseRuDateToIso(appState.clientEncounterDate, "");
   const requestId = ++clientSearchRequestId;
 
   data.backendSearchLoading = true;
@@ -2643,13 +3205,14 @@ async function loadClientsFromBackend(searchValue) {
     if (requestId !== clientSearchRequestId) return;
 
     data.backendClients = Array.isArray(clients) ? clients.map(mapApiClient) : [];
+    data.backendClientsLoaded = true;
     invalidateClientPool();
-    await preloadDoctorMarksForClients(data.backendClients);
+    await loadDashboardDoctorStatuses(getVisibleDashboardClients(), { render: false });
     if (requestId !== clientSearchRequestId) return;
     data.backendSearch = search;
 
-    if (!data.backendClients.some((client) => String(client.id) === String(appState.selectedClientId))) {
-      appState.selectedClientId = data.backendClients[0]?.id || null;
+    if (!getClientPool().some((client) => String(client.id) === String(appState.selectedClientId))) {
+      appState.selectedClientId = data.backendClients[0]?.id || data.clients[0]?.id || null;
       appState.activeVisitId = null;
     }
     const selectedClient = getSelectedClient();
@@ -2660,10 +3223,11 @@ async function loadClientsFromBackend(searchValue) {
   } catch (error) {
     if (requestId !== clientSearchRequestId) return;
     data.backendClients = [];
+    data.backendClientsLoaded = false;
     invalidateClientPool();
     data.backendSearch = search;
-    data.backendSearchError = "Backend недоступен. Проверь, что сервер запущен на http://127.0.0.1:8000";
-    data.backendSearchError = humanizeApiError(error, "Backend недоступен. Проверь, что сервер запущен на http://127.0.0.1:8000");
+    data.backendSearchError = `Backend недоступен: ${API_BASE_URL}`;
+    data.backendSearchError = humanizeApiError(error, `Backend недоступен: ${API_BASE_URL}`);
     console.error("Client search API error:", error);
   } finally {
     if (requestId !== clientSearchRequestId) return;
@@ -2672,8 +3236,11 @@ async function loadClientsFromBackend(searchValue) {
   }
 }
 
-function scheduleClientSearch(searchValue) {
+function scheduleClientSearch(searchValue, { render = true } = {}) {
   window.clearTimeout(clientSearchTimer);
+  data.backendSearchLoading = true;
+  data.backendSearchError = "";
+  if (render) renderApp();
   clientSearchTimer = window.setTimeout(() => {
     loadClientsFromBackend(searchValue);
   }, 250);
@@ -2786,6 +3353,9 @@ function renderNav() {
       if (page === "dashboard") {
         resetDashboardClientSelection();
       }
+      if (page === "cash") {
+        resetCashPeriodToToday();
+      }
       if (page === "reports" && !canAccessReportsWorkspace()) {
         showToast("Отчеты доступны только председателю");
         return;
@@ -2842,19 +3412,11 @@ function buildExcelRows(clients) {
   const organizations = ["-", "-", 'ООО "РАДУГА-2"', "-", "-", "-", "Самозанятый"];
 
   return clients.map((client) => {
-    const currentVisit = getCurrentVisitForClient(client.id);
-    const requiredDoctors = new Set(currentVisit ? getRequiredDoctorRoleCodesForVisit(currentVisit) : []);
-    const completedDoctors = new Set(
-      (Array.isArray(data.doctorExams) ? data.doctorExams : [])
-        .filter(
-          (exam) =>
-            String(exam?.clientId) === String(client.id) &&
-            String(exam?.visitId) === String(currentVisit?.id || "") &&
-            exam?.isCompleted,
-        )
-        .map((exam) => exam.doctorRoleId),
-    );
-    const markDoctor = (roleCode) => buildDoctorMark(roleCode, client, currentVisit, requiredDoctors, completedDoctors);
+    const status = getDashboardDoctorStatus(client);
+    const currentVisit = getDashboardDoctorStatusVisit(client);
+    const requiredDoctors = currentVisit ? getRequiredDoctorRoleCountsForVisit(currentVisit) : new Map();
+    const completedDoctors = new Set(status?.completedDoctorRoleIds || []);
+    const markDoctor = (roleCode) => buildDoctorMark(roleCode, requiredDoctors, completedDoctors);
 
     return {
       id: client.id,
@@ -2877,17 +3439,7 @@ function buildExcelRows(clients) {
       phthisiatrician: markDoctor("phthisiatrist"),
       uzist: markDoctor("uzist"),
       chairman: markDoctor("chairman"),
-      stamp:
-        (Array.isArray(data.doctorExams) ? data.doctorExams : []).some(
-          (exam) =>
-            String(exam?.clientId) === String(client.id) &&
-            String(exam?.visitId) === String(currentVisit?.id || "") &&
-            String(exam?.doctorRoleId || "") === "chairman" &&
-            exam?.isCompleted &&
-            exam?.fields?.stampApplied,
-        )
-          ? "✓"
-          : "",
+      stamp: "",
       note: client.note || "",
       encounterDate: client.encounterDate || "",
       cardNumber: client.cardNumber || "",
@@ -2921,7 +3473,7 @@ function renderExcelDoctorCell(row, key) {
   const mark = row[key];
   const value = typeof mark === "object" && mark !== null ? mark.value || "" : mark || "";
   const title = typeof mark === "object" && mark !== null ? mark.title || "" : "";
-  const modifier = value === "✓" ? "done" : value === "x↺" ? "required-history" : value === "x" ? "required" : value === "↺" ? "history" : "empty";
+  const modifier = value === "✓" ? "done" : value === "×" ? "required" : "empty";
   return `<span class="excel-doctor-mark excel-doctor-mark--${modifier}" title="${escapeHtml(title)}" data-row-doctor-role-id="${escapeHtml(doctorRoleId)}">${escapeHtml(value)}</span>`;
 }
 
@@ -3185,12 +3737,25 @@ function renderAmbulatoryCardPage() {
   `;
 }
 
+function renderDashboardTableSkeleton(rowCount = 8) {
+  return Array.from(
+    { length: rowCount },
+    () => `
+      <div class="sketch-table__grid sketch-table__grid--row sketch-table__grid--skeleton" aria-hidden="true">
+        ${columnKeys.map(() => '<span><i class="dashboard-table-skeleton-bar"></i></span>').join("")}
+      </div>
+    `,
+  ).join("");
+}
+
 function renderSketchHome() {
-  const allClients = filteredClients();
-  const totalPages = Math.max(1, Math.ceil(allClients.length / DASHBOARD_PAGE_SIZE));
-  const currentPage = Math.min(Math.max(1, appState.dashboardPage || 1), totalPages);
-  const pageStartIndex = (currentPage - 1) * DASHBOARD_PAGE_SIZE;
-  const currentClients = allClients.slice(pageStartIndex, pageStartIndex + DASHBOARD_PAGE_SIZE);
+  const {
+    allClients,
+    currentPage,
+    currentClients,
+    pageStartIndex,
+    totalPages,
+  } = getDashboardClientPage();
   const selectedClient = currentClients.find((client) => client.id === appState.selectedClientId) || getSelectedClient();
   const duplicateCandidates = findDuplicateCandidates(appState.clientSearch).filter((client) => client.id !== selectedClient?.id);
   const doctorButtons = [
@@ -3207,36 +3772,6 @@ function renderSketchHome() {
     "Фтизиатр",
     "Узист",
   ];
-  const legacyExcelColumns = [
-    "№",
-    "ФИО",
-    "Дата рождения",
-    "Регистрация",
-    "Категории и условия допуска",
-    "№ справки",
-    "Гинеколог",
-    "Стоматолог",
-    "Дерматолог",
-    "Невролог",
-    "Хирург",
-    "Отоларинголог",
-    "Офтальмолог",
-    "Терапевт",
-    "Психиатр",
-    "Инфекционист",
-    "Фтизиатр",
-    "Узист",
-    "Председатель",
-    "Примечания",
-    "Дата обращения",
-    "Номер карты",
-    "б/н",
-    "ФГ",
-    "Организация",
-    "МКБ10",
-    "Реальная дата",
-  ];
-
   const excelColumns = [
     "№",
     "ФИО",
@@ -3263,7 +3798,14 @@ function renderSketchHome() {
     "Организация",
     "Агент",
   ];
-  const excelRows = buildExcelRows(currentClients);
+  const dashboardStatusesReady = areDashboardDoctorStatusesReady(currentClients);
+  const tableLoading =
+    data.backendSearchLoading ||
+    data.dashboardDoctorStatusesLoading ||
+    (!data.backendClientsLoaded && !data.backendSearchError) ||
+    (!dashboardStatusesReady && !data.dashboardDoctorStatusesError);
+  const tableError = data.backendSearchError || data.dashboardDoctorStatusesError;
+  const excelRows = tableLoading || tableError ? [] : buildExcelRows(currentClients);
   const pageNumbers = [];
   const pageWindowStart = Math.max(1, currentPage - 2);
   const pageWindowEnd = Math.min(totalPages, pageWindowStart + 4);
@@ -3286,14 +3828,12 @@ function renderSketchHome() {
               <span></span>
               <input id="clientSearchInput" value="${escapeHtml(appState.clientSearch)}" placeholder="поиск" />
             </label>
-            <label class="field sketch-date-filter">
-              <span>Дата обращения</span>
-              <input id="clientEncounterDateInput" type="date" value="${escapeHtml(appState.clientEncounterDate || "")}" />
-            </label>
-            <button class="primary-button sketch-add-button" id="addClientButton">Добавить</button>
+            <button class="primary-button" id="addClientButton" type="button">Добавить</button>
             <div class="sketch-toolbar__meta">
               ${
-                allClients.length
+                tableLoading
+                  ? "Загрузка данных..."
+                  : allClients.length
                   ? `Показано ${pageStartIndex + 1}-${pageStartIndex + currentClients.length} из ${allClients.length}`
                   : "Клиенты не найдены"
               }
@@ -3331,7 +3871,32 @@ function renderSketchHome() {
                 .map(
                   (column, index) => `
                     <span class="sketch-head-cell sketch-head-cell--resizable">
-                      <span>${column}</span>
+                      ${
+                        column === "Дата обращения"
+                          ? `
+                            <button class="encounter-date-filter-button" type="button" data-encounter-date-filter>
+                              <span>Дата обращения</span>
+                              ${
+                                appState.clientEncounterDate
+                                  ? `<small>${escapeHtml(normalizeEncounterDateFilterValue(appState.clientEncounterDate))}</small>`
+                                  : ""
+                              }
+                            </button>
+                            <input
+                              class="encounter-date-filter-input"
+                              id="clientEncounterDateColumnInput"
+                              type="date"
+                              value="${escapeHtml(parseRuDateToIso(appState.clientEncounterDate, ""))}"
+                              aria-label="Фильтр по дате обращения"
+                            />
+                            ${
+                              appState.clientEncounterDate
+                                ? '<button class="encounter-date-filter-clear" type="button" data-clear-encounter-date-filter aria-label="Сбросить фильтр даты обращения">×</button>'
+                                : ""
+                            }
+                          `
+                          : `<span>${column}</span>`
+                      }
                       <button class="col-resize-handle" data-resize-col="${columnKeys[index]}" aria-label="Изменить ширину столбца ${column}"></button>
                     </span>
                   `,
@@ -3339,7 +3904,11 @@ function renderSketchHome() {
                 .join("")}
             </div>
             ${
-              excelRows.length
+              tableLoading
+                ? renderDashboardTableSkeleton()
+                : tableError
+                  ? '<div class="empty">Данные таблицы временно недоступны</div>'
+                  : excelRows.length
                 ? excelRows
                     .map(
                       (row) => `
@@ -3776,7 +4345,13 @@ function normalizeCashFilterDate(value) {
   if (!text) return "";
   const date = parseCalendarDate(text);
   if (!date) return "";
-  return date.toISOString().slice(0, 10);
+  return getLocalDateInputValue(date);
+}
+
+function resetCashPeriodToToday() {
+  const today = getLocalDateInputValue();
+  appState.cashDateFrom = today;
+  appState.cashDateTo = today;
 }
 
 function isVisitInCashPeriod(visit) {
@@ -3874,7 +4449,7 @@ function renderCashPage() {
   const discountTotal = rows.reduce((sum, row) => sum + row.discount, 0);
   const cashTotal = rows.reduce((sum, row) => sum + row.cashAmount, 0);
   const nonCashTotal = rows.reduce((sum, row) => sum + row.nonCashAmount, 0);
-  const dateFrom = normalizeCashFilterDate(appState.cashDateFrom) || new Date().toISOString().slice(0, 10);
+  const dateFrom = normalizeCashFilterDate(appState.cashDateFrom) || getLocalDateInputValue();
   const dateTo = normalizeCashFilterDate(appState.cashDateTo) || dateFrom;
 
   return `
@@ -3976,7 +4551,7 @@ function renderCashPage() {
 }
 
 function renderReportsPage() {
-  const normalizedFrom = normalizeCashFilterDate(appState.reportDateFrom) || new Date().toISOString().slice(0, 10);
+  const normalizedFrom = normalizeCashFilterDate(appState.reportDateFrom) || getLocalDateInputValue();
   const normalizedTo = normalizeCashFilterDate(appState.reportDateTo) || normalizedFrom;
   const report = data.reportSummary;
   const totals = report?.totals || {
@@ -4150,7 +4725,7 @@ function renderVisitServicePicker(activeVisit) {
     .find((service) => isDriverService(service));
   const selectedDriverId = selectedDriverService ? getServiceToken(selectedDriverService) : null;
   const driverDetail = selectedDriverId ? serviceDetails[selectedDriverId] || {} : {};
-  const driverCategories = normalizeDriverCategories(driverDetail.categories);
+  const driverCategories = normalizeDriverCategories(driverDetail.categories || activeVisit?.admissionCategory || getSelectedClient()?.admissionCategory || getSelectedClient()?.category);
   const driverPrice = Number(driverDetail.unitPrice ?? (selectedDriverService ? getDriverCategoryPrice(driverCategories) : 0));
 
   return `
@@ -4493,18 +5068,57 @@ function splitClientAddressParts(client) {
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean);
-  const cityPart = parts.find((part) => /г\.|гор\.|город|санкт-петербург|спб|москва/i.test(part)) || parts[0] || "";
-  const streetPart = parts.find((part) => /ул\.|улиц|пр-?кт|просп|пер\.|наб\.|шоссе|б-р|бул/i.test(part)) || "";
-  const housePart = parts.find((part) => /дом|д\.|корп|кв\.|квартира/i.test(part)) || "";
+  const isCountryPart = (part) => /^(россия|рф|российская федерация)$/i.test(String(part || "").replace(/\./g, "").trim());
+  const hasSubjectMarker = (part) => /обл\.?|область|край|респ\.?|республика|автоном|ао\b|округ|санкт-петербург|спб|москва|севастополь/i.test(part);
+  const hasDistrictMarker = (part) => /район|р-н/i.test(part);
+  const hasCityMarker = (part) => /(^|\s)(г\.|гор\.|город)\s*|санкт-петербург|спб|москва|севастополь/i.test(part);
+  const hasStreetMarker = (part) => /(^|\s)(ул\.|улица|пр-?кт|просп\.?|проспект|пер\.|переулок|наб\.|шоссе|б-р|бул\.?|бульвар)\s*/i.test(part);
+  const hasHouseMarker = (part) => /(^|\s)(д\.|дом)\s*/i.test(part);
+  const hasBuildingMarker = (part) => /корпус|корп\.?|к\.\s*/i.test(part);
+  const hasFlatMarker = (part) => /(^|\s)(кв\.|квартира)\s*/i.test(part);
+  const stripMarker = (part, pattern) => String(part || "").replace(pattern, "").trim();
+
+  let subjectPart = "";
+  let districtPart = "";
+  let cityPart = "";
+  let streetPart = "";
+  let housePart = "";
+  let buildingPart = "";
+  let flatPart = "";
+
+  if (parts.length && isCountryPart(parts[0])) {
+    subjectPart = parts[1] || "";
+    districtPart = parts[2] || "";
+    cityPart = parts[3] || "";
+    streetPart = parts[4] || "";
+    housePart = parts[5] || "";
+    buildingPart = parts[6] || "";
+    flatPart = parts[7] || "";
+  } else {
+    subjectPart = parts.find(hasSubjectMarker) || "";
+    districtPart = parts.find(hasDistrictMarker) || "";
+    cityPart = parts.find(hasCityMarker) || parts.find((part) => part && part !== subjectPart && part !== districtPart && !hasStreetMarker(part) && !hasHouseMarker(part)) || "";
+    streetPart = parts.find(hasStreetMarker) || "";
+    housePart = parts.find(hasHouseMarker) || "";
+    buildingPart = parts.find(hasBuildingMarker) || "";
+    flatPart = parts.find(hasFlatMarker) || "";
+  }
+
+  const houseFull = [housePart, buildingPart, flatPart]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(", ");
 
   return {
     full: normalizeSheetValue(source),
-    subject: normalizeSheetValue(cityPart || "Российская Федерация"),
-    district: normalizeSheetValue(parts.find((part) => /район|р-н/i.test(part)) || ""),
+    subject: normalizeSheetValue(subjectPart || "Российская Федерация"),
+    district: normalizeSheetValue(districtPart),
     city: normalizeSheetValue(cityPart),
     locality: normalizeSheetValue(parts.find((part) => /пос\.|село|деревня|насел/i.test(part)) || cityPart),
     street: normalizeSheetValue(streetPart),
-    house: normalizeSheetValue(housePart),
+    house: normalizeSheetValue(
+      stripMarker(houseFull, /(^|\s)(д\.|дом|корпус|корп\.?|к\.|кв\.|квартира)\s*/gi),
+    ),
   };
 }
 
@@ -4720,13 +5334,17 @@ function renderMedicalRecordBackendBlock(selectedClient, exams = []) {
 
   const draft = buildMedicalRecordDraft(selectedClient, record, data.medicalRecordEntries);
   const entries = buildAmbulatorySheetEntries(data.medicalRecordEntries, exams);
+  const chairmanExam = getCompletedChairmanExam(exams);
+  const chairmanMedicalRecordData = buildChairmanMedicalRecordData(chairmanExam?.fields || {});
   const primaryEntries = entries.slice(0, 3);
   const secondaryEntries = entries.slice(3, 6);
   const entriesHeight = getMedicalRecordPanelHeight();
   const cardNumber = draft.cardNumber;
   const openedAt = draft.openedAt;
-  const diagnosis = draft.diagnosis;
-  const mkb10 = draft.mkb10;
+  const diagnosis = chairmanMedicalRecordData.diagnosis || draft.diagnosis;
+  const mkb10 = chairmanMedicalRecordData.mkb10 || draft.mkb10;
+  const bloodGroup = chairmanMedicalRecordData.bloodGroup || draft.bloodGroup;
+  const rhFactor = chairmanMedicalRecordData.rhFactor || draft.rhFactor;
   const jobLine = [draft.workPlace, draft.position].map((item) => String(item || "").trim()).filter(Boolean).join(", ");
   const clinicName = normalizeSheetValue(selectedClient?.center || "Медцентр");
   const clinicDetails = [
@@ -4744,6 +5362,7 @@ function renderMedicalRecordBackendBlock(selectedClient, exams = []) {
   const memberNames = normalizeSheetValue(visibleEntries.map((entry) => entry.doctorName).slice(0, 4).join(", "));
   const commissionDate = (data.medicalRecordEditMode ? draft.entries : primaryEntries)[0]?.entryDate || openedAt;
   const commissionText =
+    chairmanMedicalRecordData.recordNotes ||
     draft.recordNotes ||
     "В соответствии с постановлением Совета Министров - Правительства Российской Федерации медицинских противопоказаний не выявлено.";
   const stampStatus = (Array.isArray(exams) ? exams : []).some(
@@ -4948,8 +5567,8 @@ function renderMedicalRecordBackendBlock(selectedClient, exams = []) {
       </div>
 
       <div class="ambulatory-sheet__grid ambulatory-sheet__grid--compact">
-        <div class="ambulatory-sheet__line"><span>21. Группа крови</span>${renderMedicalRecordControl("bloodGroup", draft.bloodGroup)}</div>
-        <div class="ambulatory-sheet__line"><span>22. Rh-фактор</span>${renderMedicalRecordControl("rhFactor", draft.rhFactor)}</div>
+        <div class="ambulatory-sheet__line"><span>21. Группа крови</span>${renderMedicalRecordControl("bloodGroup", bloodGroup)}</div>
+        <div class="ambulatory-sheet__line"><span>22. Rh-фактор</span>${renderMedicalRecordControl("rhFactor", rhFactor)}</div>
         <div class="ambulatory-sheet__line ambulatory-sheet__line--wide"><span>23. Аллергические реакции</span>${renderMedicalRecordControl("allergies", draft.allergies, { multiline: true, rows: 2 })}</div>
       </div>
 
@@ -4998,7 +5617,7 @@ function renderMedicalRecordBackendBlock(selectedClient, exams = []) {
             <div class="ambulatory-sheet__line"><span>Врач</span><strong>${escapeHtml(chairmanName)}</strong></div>
             <div class="ambulatory-sheet__line"><span>Дата</span><strong>${escapeHtml(commissionDate)}</strong></div>
           </div>
-          <div class="ambulatory-sheet__line ambulatory-sheet__line--wide"><span>Проведенное обследование и лечение</span>${renderMedicalRecordControl("recordNotes", draft.recordNotes, { multiline: true, rows: 3 })}</div>
+          <div class="ambulatory-sheet__line ambulatory-sheet__line--wide"><span>Проведенное обследование и лечение</span>${renderMedicalRecordControl("recordNotes", chairmanMedicalRecordData.recordNotes || draft.recordNotes, { multiline: true, rows: 3 })}</div>
           <div class="ambulatory-sheet__commission-grid ambulatory-sheet__commission-grid--triple">
             <div class="ambulatory-sheet__line"><span>Флюорография</span><strong>-</strong></div>
             <div class="ambulatory-sheet__line"><span>Диагноз основного заболевания</span>${renderMedicalRecordControl("diagnosisCommission", diagnosis)}</div>
@@ -5107,6 +5726,8 @@ async function saveMedicalRecordForm() {
         journal_number: raw.journal_number || null,
         no_number: raw.no_number || null,
         flg: raw.flg || null,
+        profession: getMedicalRecordTextValue(formData, "position"),
+        work_place: getMedicalRecordTextValue(formData, "workPlace"),
         organization: raw.organization || null,
         mkb10: pickValue("mkb10", "mkb10Factors", "mkb10Commission"),
         real_date_text: raw.real_date_text || null,
@@ -5516,23 +6137,88 @@ function getDocumentsForVisit(visitId) {
     .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
 }
 
-function pickDocumentTemplate(type, visit = null) {
+function pickDocumentTemplate(type, visit = null, client = null) {
   const templates = Array.isArray(data.documentTemplates) ? data.documentTemplates : [];
   if (!templates.length) return null;
 
   const normalizedType = String(type || "").toLowerCase();
   const serviceText = (visit?.serviceNames || []).join(" ").toLowerCase();
   const usableTemplates = templates.filter((template) => !String(template.file_name || template.name || "").includes("_5.docx"));
+  const getTemplateFieldTexts = (template) =>
+    [template.name, template.code, template.file_name, repairDemoText(template.name || ""), repairDemoText(template.code || ""), repairDemoText(template.file_name || "")]
+      .map((value) => String(value || "").toLowerCase())
+      .filter(Boolean);
+  const normalizeTemplateKey = (value) =>
+    String(value || "")
+      .toLowerCase()
+      .replace(/\.(docx|xml|xls)$/i, "")
+      .replace(/ё/g, "е")
+      .replace(/[c]/g, "с")
+      .replace(/[a]/g, "а")
+      .replace(/[e]/g, "е")
+      .replace(/[o]/g, "о")
+      .replace(/[p]/g, "р")
+      .replace(/[x]/g, "х")
+      .replace(/[b]/g, "в")
+      .replace(/[h]/g, "н")
+      .replace(/[k]/g, "к")
+      .replace(/[m]/g, "м")
+      .replace(/[t]/g, "т")
+      .replace(/[y]/g, "у")
+      .replace(/[._()[\]{}!"'`«»№,:;]+/g, " ")
+      .replace(/[-–—+/\\]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const getTemplateKeys = (template) => getTemplateFieldTexts(template).map(normalizeTemplateKey).filter(Boolean);
   const matchesAny = (template, keywords) => {
-    const text = `${template.name || ""} ${template.code || ""} ${template.file_name || ""} ${repairDemoText(template.name || "")} ${repairDemoText(template.code || "")} ${repairDemoText(template.file_name || "")}`.toLowerCase();
+    const text = getTemplateFieldTexts(template).join(" ");
     return keywords.some((keyword) => text.includes(keyword));
   };
-  const docxTemplates = usableTemplates.filter((template) => template.template_type !== "xml");
+  const docxTemplates = usableTemplates.filter((template) => template.template_type === "docx");
   const xlsTemplates = usableTemplates.filter((template) => template.template_type === "xls");
   const xmlTemplates = usableTemplates.filter((template) => template.template_type === "xml");
   const findDocx = (keywords) => docxTemplates.find((template) => matchesAny(template, keywords)) || null;
   const findXls = (keywords) => xlsTemplates.find((template) => matchesAny(template, keywords)) || null;
   const findXml = (keywords) => xmlTemplates.find((template) => matchesAny(template, keywords)) || null;
+  const findTemplateByPreferredKeys = (templateList, preferredKeys) => {
+    const keys = preferredKeys.map(normalizeTemplateKey).filter(Boolean);
+    for (const key of keys) {
+      const found = templateList.find((template) => getTemplateKeys(template).some((templateKey) => templateKey === key));
+      if (found) return found;
+    }
+    return null;
+  };
+  const findTemplateSafely = (templateList, preferredKeys, fallbackKeywords = [], excludedKeywords = []) =>
+    findTemplateByPreferredKeys(templateList, preferredKeys) ||
+    templateList.find(
+      (template) =>
+        fallbackKeywords.length &&
+        matchesAny(template, fallbackKeywords) &&
+        !excludedKeywords.some((keyword) => matchesAny(template, [keyword])),
+    ) ||
+    null;
+  const findDocxSafely = (preferredKeys, fallbackKeywords = [], excludedKeywords = []) =>
+    findTemplateSafely(docxTemplates, preferredKeys, fallbackKeywords, excludedKeywords);
+  const findStandaloneEkgTemplate = () => findDocxSafely(["экг_шаблон", "экг шаблон"], ["экг"], ["спорт"]);
+  const getClientSexKey = () => {
+    const sex = String(client?.sex || client?.rawApiClient?.sex || client?.gender || client?.rawApiClient?.gender || "").toLowerCase();
+    if (/^(f|female|woman|ж|жен|женский)$/.test(sex) || sex.includes("жен")) return "female";
+    if (/^(m|male|man|м|муж|мужской)$/.test(sex) || sex.includes("муж")) return "male";
+    const patronymic = String(client?.fullName || "").trim().split(/\s+/)[2] || "";
+    if (/(вна|чна|ична)$/i.test(patronymic)) return "female";
+    if (/(вич|ич)$/i.test(patronymic)) return "male";
+    return "";
+  };
+  const find086Template = () => {
+    const sex = getClientSexKey();
+    if (sex === "male") {
+      return findDocxSafely(["086у.муж_шаблон", "086у муж шаблон", "086у.муж_шаблон_2", "086у муж шаблон 2"], ["086у.муж", "086у муж"], ["жен"]);
+    }
+    if (sex === "female") {
+      return findDocxSafely(["086у.жен_шаблон", "086у жен шаблон", "086у.жен_шаблон_2", "086у жен шаблон 2"], ["086у.жен", "086у жен"], ["муж"]);
+    }
+    return findDocxSafely(["086у.муж_шаблон", "086у.жен_шаблон"], ["086"], []);
+  };
 
   if (normalizedType === "contract") {
     return findDocx(["договор_шаблон_2", "договор"]) || null;
@@ -5544,6 +6230,29 @@ function pickDocumentTemplate(type, visit = null) {
     return findXml(["водительская_шаблон2", "водительская_шаблон", "водитель"]) || xmlTemplates[0] || null;
   }
 
+  if (normalizedType === "070") return findDocxSafely(["070 новый шабл"], ["070"], ["13070"]);
+  if (normalizedType === "071") return findDocxSafely(["cправка_мед. осмотр_шаблон", "справка_мед. осмотр_шаблон", "справка шаблон"], ["071", "мед. осмотр"]);
+  if (normalizedType === "072") return findDocxSafely(["072у_шаблон", "072 сюрина ноый шабл"], ["072"], ["13072"]);
+  if (normalizedType === "082") return findDocxSafely(["082у_шаблон"], ["082у"], ["13082"]);
+  if (normalizedType === "086") return find086Template();
+  if (normalizedType === "095") return findDocxSafely(["095у_справка_шаблон"], ["095"], []);
+  if (normalizedType === "gsu") return findDocxSafely(["гсу001_шаблон"], ["гсу001", "001"], []);
+  if (normalizedType === "gostaina") return findDocxSafely(["гос.тайна_шаблон", "гос тайна шаблон"], ["гостайн", "гос.тайн", "989"], []);
+  if (normalizedType === "gto") return findDocxSafely(["гто1144_шаблон"], ["гто1144", "1144", "гто"], []);
+  if (normalizedType === "pool") return findDocxSafely(["cправкабассейн_шаблон", "справкабассейн_шаблон"], ["бассейн"], []);
+  if (normalizedType === "sport") return findDocxSafely(["cпортэкг_шаблон", "спортэкг_шаблон"], ["спортэкг", "спорт"], []);
+  if (normalizedType === "ekg") return findStandaloneEkgTemplate();
+  if (normalizedType === "lmk") return findDocxSafely(["лмк_шаблон"], ["лмк"], []);
+  if (normalizedType === "gims") return findDocxSafely(["гимс"], ["гимс"], []);
+  if (normalizedType === "chod" || normalizedType === "guard") {
+    return findDocxSafely(["охрана_шаблон"], ["охрана"], []) || findTemplateSafely(xmlTemplates, ["чод_новый", "чод"], ["чод"], []);
+  }
+  if (normalizedType === "prof") return findDocxSafely(["заключение29н_шаблон"], ["заключение29н", "профосмотр", "29н"], []);
+  if (normalizedType === "drug") return findDocxSafely(["драг тест морская шаблон"], ["драг"], []);
+  if (normalizedType === "marine") return findDocxSafely(["серт морская шаблон"], ["морская", "marine", "seafarer"], ["драг"]);
+  if (normalizedType === "13082") return findDocxSafely(["13082"], ["13082"], []);
+  if (normalizedType === "13098") return findDocxSafely(["13098"], ["13098"], []);
+
   if (normalizedType === "driver" || serviceText.includes("водител")) {
     return (
       findXls(["все нужные шаблоны", "водительская", "тракторная"]) ||
@@ -5553,32 +6262,31 @@ function pickDocumentTemplate(type, visit = null) {
     );
   }
 
-  if (normalizedType === "086") return findDocx(["086у.муж", "086у.жен", "086"]) || null;
-  if (normalizedType === "095") return findDocx(["095"]) || null;
-  if (serviceText.includes("082") || serviceText.includes("границ")) return findDocx(["082у_шаблон", "082"]) || null;
-  if (serviceText.includes("086")) return findDocx(["086у.муж", "086у.жен", "086"]) || null;
-  if (serviceText.includes("095")) return findDocx(["095"]) || null;
-  if (serviceText.includes("бассейн")) return findDocx(["бассейн"]) || null;
+  if (serviceText.includes("082") || serviceText.includes("границ")) return findDocxSafely(["082у_шаблон"], ["082у"], ["13082"]);
+  if (serviceText.includes("086")) return find086Template();
+  if (serviceText.includes("095")) return findDocxSafely(["095у_справка_шаблон"], ["095"], []);
+  if (serviceText.includes("бассейн")) return findDocxSafely(["cправкабассейн_шаблон", "справкабассейн_шаблон"], ["бассейн"], []);
   if (serviceText.includes("070") || serviceText.includes("путевк")) {
-    return findDocx(["070 новый шабл", "070"]) || null;
+    return findDocxSafely(["070 новый шабл"], ["070"], ["13070"]);
   }
-  if (serviceText.includes("гто")) return findDocx(["гто1144", "1144"]) || null;
-  if (serviceText.includes("гимс")) return findDocx(["гимс"]) || null;
-  if (serviceText.includes("гостайн") || serviceText.includes("гос.тайн")) return findDocx(["гос.тайна"]) || null;
-  if (serviceText.includes("гсу") || serviceText.includes("госслуж")) return findDocx(["гсу001"]) || null;
-  if (serviceText.includes("охран") || serviceText.includes("чод")) return findDocx(["охрана"]) || null;
+  if (serviceText.includes("гто")) return findDocxSafely(["гто1144_шаблон"], ["гто1144", "1144", "гто"], []);
+  if (serviceText.includes("гимс")) return findDocxSafely(["гимс"], ["гимс"], []);
+  if (serviceText.includes("гостайн") || serviceText.includes("гос.тайн")) return findDocxSafely(["гос.тайна_шаблон", "гос тайна шаблон"], ["гос.тайна"], []);
+  if (serviceText.includes("гсу") || serviceText.includes("госслуж")) return findDocxSafely(["гсу001_шаблон"], ["гсу001"], []);
+  if (serviceText.includes("охран") || serviceText.includes("чод")) return findDocxSafely(["охрана_шаблон"], ["охрана"], []) || findTemplateSafely(xmlTemplates, ["чод_новый", "чод"], ["чод"], []);
   if (serviceText.includes("трактор")) return findDocx(["трактроная", "трактор"]) || null;
-  if (serviceText.includes("экг")) return findDocx(["спортэкг", "экг"]) || null;
-  if (serviceText.includes("лмк") || serviceText.includes("медицинская книж")) return findDocx(["лмк"]) || null;
-  if (serviceText.includes("профосмотр") || serviceText.includes("29н")) return findDocx(["заключение29н", "профосмотр"]) || null;
+  if (serviceText.includes("спорт")) return findDocxSafely(["cпортэкг_шаблон", "спортэкг_шаблон"], ["спортэкг", "спорт"], []);
+  if (serviceText.includes("экг")) return findStandaloneEkgTemplate();
+  if (serviceText.includes("лмк") || serviceText.includes("медицинская книж")) return findDocxSafely(["лмк_шаблон"], ["лмк"], []);
+  if (serviceText.includes("профосмотр") || serviceText.includes("29н")) return findDocxSafely(["заключение29н_шаблон"], ["заключение29н", "профосмотр"], []);
   if (serviceText.includes("санатор")) {
-    return findDocx(["072 сюрина", "072 сюрина ноый шабл", "072"]) || null;
+    return findDocxSafely(["072у_шаблон", "072 сюрина ноый шабл"], ["072"], []);
   }
   if (serviceText.includes("драг") || serviceText.includes("drug") || serviceText.includes("alcohol")) {
-    return findDocx(["драг тест морская шаблон", "драг"]) || null;
+    return findDocxSafely(["драг тест морская шаблон"], ["драг"], []);
   }
   if (serviceText.includes("морск") || serviceText.includes("marine") || serviceText.includes("seafar")) {
-    return findDocx(["серт морская шаблон", "морская", "marine", "seafarer"]) || null;
+    return findDocxSafely(["серт морская шаблон"], ["морская", "marine", "seafarer"], ["драг"]);
   }
 
   const haystack = `${normalizedType} ${(visit?.serviceNames || []).join(" ")}`.toLowerCase();
@@ -5591,19 +6299,7 @@ function pickDocumentTemplate(type, visit = null) {
 }
 
 function getChairmanTemplatePrintType(visit) {
-  const serviceText = (Array.isArray(visit?.serviceNames) ? visit.serviceNames : []).join(" ").toLowerCase();
-  if (!serviceText) return null;
-
-  if (
-    serviceText.includes("лмк") ||
-    serviceText.includes("медицинская книж") ||
-    serviceText.includes("профосмотр") ||
-    serviceText.includes("29н")
-  ) {
-    return "medical";
-  }
-
-  return null;
+  return getChairmanFormConfigForVisit(visit).templateType;
 }
 
 function registerGeneratedDocument(result, type, client, visit) {
@@ -5702,7 +6398,7 @@ async function createDocumentForVisit(type, client, visit, options = {}) {
 
   await syncVisitToBackend(visit, client);
 
-  const template = pickDocumentTemplate(type, visit);
+  const template = pickDocumentTemplate(type, visit, client);
   if (!template) {
     throw new Error("Не найден подходящий шаблон документа");
   }
@@ -5736,6 +6432,46 @@ async function printDocumentForVisit(type, client, visit, options = {}) {
   return documentItem;
 }
 
+async function printChairmanDocumentFromExam(examId) {
+  const exam = data.doctorExams.find((item) => String(item.id) === String(examId));
+  const client = exam
+    ? getClientPool().find((item) => String(item.id) === String(exam.clientId))
+    : getSelectedClient();
+  const visit = exam
+    ? data.visits.find((item) => String(item.id) === String(exam.visitId))
+    : client
+      ? getCurrentVisitForClient(client.id)
+      : null;
+  if (!client || !visit) {
+    showToast("Не удалось подготовить печать из окна председателя");
+    return null;
+  }
+
+  const formInfo = getChairmanFormInfo(visit, client);
+  if (formInfo.printMode === "driver-flow") {
+    window.closeSportCard?.();
+    await openDriverPrintFlow();
+    return null;
+  }
+
+  const printType = getChairmanTemplatePrintType(visit);
+  if (!printType) {
+    showToast("Не найден шаблон для печати");
+    return null;
+  }
+
+  try {
+    const documentItem = await printDocumentForVisit(printType, client, visit);
+    window.closeSportCard?.();
+    showToast(`Шаблон открыт для печати: ${documentItem?.title || "документ"}`);
+    return documentItem;
+  } catch (error) {
+    console.error(error);
+    showToast(humanizeApiError(error, "Не удалось открыть шаблон для печати"));
+    return null;
+  }
+}
+
 async function createDemoDocument(type) {
   ensureVisitsStore();
   const client = getSelectedClient();
@@ -5757,19 +6493,99 @@ const DRIVER_PRINT_VARIANTS = [
 
 const PREENTERED_BLANK_SERIES = ["40", "4026", "ЛМК", "ГИМС"];
 const PREENTERED_BLANK_SERIES_SET = new Set(PREENTERED_BLANK_SERIES.map((item) => item.toLowerCase()));
+const CERTIFICATE_PRINT_SERIES_OPTIONS = [
+  "070У",
+  "071У",
+  "072У",
+  "082У",
+  "086У",
+  "095У",
+  "001 ГСУ",
+  "989Н",
+  "ГТО",
+  "БАСС",
+  "СПОРТ",
+  "ЭКГ",
+  "ЭКГР",
+  "ЭКГН",
+  "ЛМК",
+  "ГИМС",
+  "4026",
+  "29Н",
+  "ДРАГ",
+  "МОРСКАЯ",
+  "13082",
+  "13098",
+];
+const CERTIFICATE_PRINT_SERIES_TO_TYPE = new Map([
+  ["070", "070"],
+  ["070у", "070"],
+  ["071", "071"],
+  ["071у", "071"],
+  ["072", "072"],
+  ["072у", "072"],
+  ["082", "082"],
+  ["082у", "082"],
+  ["086", "086"],
+  ["086у", "086"],
+  ["095", "095"],
+  ["095у", "095"],
+  ["001", "gsu"],
+  ["001 гсу", "gsu"],
+  ["гсу", "gsu"],
+  ["989", "gostaina"],
+  ["989н", "gostaina"],
+  ["гостайна", "gostaina"],
+  ["гос.тайна", "gostaina"],
+  ["гто", "gto"],
+  ["1144", "gto"],
+  ["басс", "pool"],
+  ["бассейн", "pool"],
+  ["спорт", "sport"],
+  ["спорт экг", "sport"],
+  ["экг", "ekg"],
+  ["экгр", "ekg"],
+  ["экгн", "ekg"],
+  ["лмк", "lmk"],
+  ["гимс", "gims"],
+  ["4026", "chod"],
+  ["чод", "chod"],
+  ["охран", "guard"],
+  ["охрана", "guard"],
+  ["29н", "prof"],
+  ["проф", "prof"],
+  ["драг", "drug"],
+  ["морская", "marine"],
+  ["морск", "marine"],
+  ["13082", "13082"],
+  ["13098", "13098"],
+]);
 const SERVICE_SERIES_OVERRIDES = new Map([
   ["071у", "071У"],
+  ["профосмотр", "29Н"],
   ["первичный профосмотр 29н", "29Н"],
   ["санаторно-курортная карта", "072У"],
+  ["санаторно-курортная карта 072у", "072У"],
+  ["справка для получения путевки 070у", "070У"],
   ["справка 001 гсу для работы на госслужбе", "001 ГСУ"],
+  ["справка формы 001 гсу", "001 ГСУ"],
   ["справка 002 чод (для охраны)", "4026"],
   ["справка в бассейн", "БАСС"],
+  ["справка для посещения бассейна", "БАСС"],
   ["справка выезжающих за границу 082у", "082У"],
+  ["справка для выезжающих за границу 082у", "082У"],
   ["справка гостайна, форма 989н", "989Н"],
+  ["справка для работы с гостайной формы 989н", "989Н"],
   ["справка гто 1144", "ГТО"],
   ["справка для поступления 086у", "086У"],
+  ["справка формы 086у", "086У"],
   ["справка по форме 095у", "095У"],
+  ["справка 095/у о временной нетрудоспособности", "095У"],
+  ["справка для участия в соревнованиях", "СПОРТ"],
   ["справка спорт + экг", "СПОРТ"],
+  ["электрокардиография (экг)", "ЭКГ"],
+  ["морская медицинская комиссия", "МОРСКАЯ"],
+  ["drug/alcohol test № 96", "ДРАГ"],
   ["узи брюшной полости", "УЗИ ОБП"],
   ["узи молочных желез", "УЗИ МЖ"],
   ["узи предстательной железы", "УЗИ ПЖ"],
@@ -5802,9 +6618,59 @@ function setStoredDriverPrintSeries(series) {
 
 function getDriverPrintCertificateType(series) {
   const normalized = normalizeBlankSeries(series).toLowerCase();
-  if (normalized === "086" || normalized === "086у") return "086";
-  if (normalized === "095" || normalized === "095у") return "095";
+  if (CERTIFICATE_PRINT_SERIES_TO_TYPE.has(normalized)) return CERTIFICATE_PRINT_SERIES_TO_TYPE.get(normalized);
+  if (/^0?70у?$/.test(normalized)) return "070";
+  if (/^0?71у?$/.test(normalized)) return "071";
+  if (/^0?72у?$/.test(normalized)) return "072";
+  if (/^0?82у?$/.test(normalized)) return "082";
+  if (/^0?86у?$/.test(normalized)) return "086";
+  if (/^0?95у?$/.test(normalized)) return "095";
+  if (normalized.includes("гсу") || normalized.includes("001")) return "gsu";
+  if (normalized.includes("гостайн") || normalized.includes("гос.тайн") || normalized.includes("989")) return "gostaina";
+  if (normalized.includes("гто") || normalized.includes("1144")) return "gto";
+  if (normalized.includes("басс")) return "pool";
+  if (normalized.includes("спорт")) return "sport";
+  if (normalized.includes("экг")) return "ekg";
+  if (normalized.includes("лмк")) return "lmk";
+  if (normalized.includes("гимс")) return "gims";
+  if (normalized.includes("4026") || normalized.includes("чод")) return "chod";
+  if (normalized.includes("охран")) return "guard";
+  if (normalized.includes("29н") || normalized.includes("проф")) return "prof";
+  if (normalized.includes("драг")) return "drug";
+  if (normalized.includes("морск") || normalized.includes("marine") || normalized.includes("seafar")) return "marine";
+  if (normalized === "13082" || normalized === "13098") return normalized;
   return "";
+}
+
+function isCertificatePrintSeries(series) {
+  return Boolean(getDriverPrintCertificateType(series));
+}
+
+function isNumberedCertificatePrintType(type) {
+  return new Set(["086", "095"]).has(String(type || "").toLowerCase());
+}
+
+function isNumberedCertificatePrintSeries(series) {
+  return isNumberedCertificatePrintType(getDriverPrintCertificateType(series));
+}
+
+function resolveNumberedCertificateLookupSeries(selectedSeries, certificateType, seriesOptions = []) {
+  const normalizedSelected = normalizeBlankSeries(selectedSeries).toLowerCase();
+  const normalizedType = String(certificateType || "").toLowerCase();
+  const options = (Array.isArray(seriesOptions) ? seriesOptions : [])
+    .map((item) => normalizeBlankSeries(item?.series || item))
+    .filter(Boolean);
+
+  const exact = options.find((series) => series.toLowerCase() === normalizedSelected);
+  if (exact) return exact;
+
+  if (isNumberedCertificatePrintType(normalizedType)) {
+    const marker = normalizedType === "086" ? "086" : "095";
+    const matching = options.find((series) => series.toLowerCase().includes(marker));
+    if (matching) return matching;
+  }
+
+  return normalizeBlankSeries(selectedSeries);
 }
 
 function isPreenteredBlankSeries(series) {
@@ -5820,8 +6686,7 @@ function buildServiceSeriesAbbreviation(service) {
     isTractorService(service) ||
     isGimsService(service) ||
     isLmkService(service) ||
-    normalizedName.includes("лмк") ||
-    normalizedName.includes("медицинск")
+    normalizedName.includes("лмк")
   ) {
     return "";
   }
@@ -5851,7 +6716,7 @@ function getAutoServiceSeriesOptions() {
 }
 
 function getDriverPrintSeriesPickerOptions(seriesOptions = []) {
-  const ordered = [...PREENTERED_BLANK_SERIES, ...getAutoServiceSeriesOptions()];
+  const ordered = [...PREENTERED_BLANK_SERIES, ...CERTIFICATE_PRINT_SERIES_OPTIONS, ...getAutoServiceSeriesOptions()];
   (Array.isArray(seriesOptions) ? seriesOptions : []).forEach((item) => {
     const series = normalizeBlankSeries(item?.series);
     if (series) ordered.push(series);
@@ -6078,7 +6943,7 @@ async function openDriverPrintFlow(options = {}) {
 
   await syncVisitToBackend(visit, client);
 
-  const template = pickDocumentTemplate("driver", visit);
+  const template = pickDocumentTemplate("driver", visit, client);
   if (!template) {
     showToast("Не найден шаблон водительской справки");
     return;
@@ -6187,7 +7052,7 @@ async function openDriverPrintFlow(options = {}) {
   const renderPrintActions = () => {
     if (flowState.selectedCertificateType) {
       return `
-        <button type="button" class="driver-print-classic__button" data-driver-print-selected-certificate="${escapeHtml(flowState.selectedCertificateType)}" ${flowState.loading || !flowState.currentBlank ? "disabled" : ""}>Печать документа</button>
+        <button type="button" class="driver-print-classic__button" data-driver-print-selected-certificate="${escapeHtml(flowState.selectedCertificateType)}" ${flowState.loading || !flowState.currentBlank?.id ? "disabled" : ""}>Печать документа</button>
       `;
     }
 
@@ -6313,7 +7178,9 @@ async function openDriverPrintFlow(options = {}) {
   const printSelectedCertificate = async () => {
     if (!flowState.selectedCertificateType) return;
     if (!flowState.currentBlank?.id) {
-      flowState.error = "Сначала нажмите \"Найти номер\", чтобы подобрать свободный бланк.";
+      flowState.error = isPreenteredBlankSeries(flowState.selectedSeries)
+        ? "Сначала нажмите \"Найти номер\", чтобы подобрать свободный бланк из заведенного диапазона."
+        : "Сначала нажмите \"Найти номер\", чтобы присвоить следующий 7-значный номер.";
       renderFlow();
       return;
     }
@@ -6321,9 +7188,8 @@ async function openDriverPrintFlow(options = {}) {
     flowState.error = "";
     renderFlow();
     try {
-      const documentItem = await printDocumentForVisit(flowState.selectedCertificateType, client, visit, {
-        blankFormId: flowState.currentBlank.id,
-      });
+      const printOptions = { blankFormId: Number(flowState.currentBlank.id) };
+      const documentItem = await printDocumentForVisit(flowState.selectedCertificateType, client, visit, printOptions);
       showToast(`Справка открыта для печати: ${documentItem?.title || "документ"}`);
     } catch (error) {
       console.error(error);
@@ -6367,7 +7233,6 @@ async function openDriverPrintFlow(options = {}) {
           </div>
           <button type="button" class="driver-print-classic__button driver-print-classic__button--wide" data-driver-print-extra="court">справка Суда</button>
           <button type="button" class="driver-print-classic__button driver-print-classic__button--wide" data-driver-print-extra="ambulatory">Амб. Карта 25У</button>
-          <button type="button" class="driver-print-classic__button driver-print-classic__button--result" data-driver-print-extra="result">Результат ЭЭГ</button>
         </div>
       `,
       "modal--driver-print",
@@ -6399,22 +7264,32 @@ async function openDriverPrintFlow(options = {}) {
     document.getElementById("driverFindBlank")?.addEventListener("click", async () => {
       flowState.loading = true;
       flowState.error = "";
-      setStoredDriverPrintSeries(flowState.selectedSeries);
+      const lookupSeries = resolveNumberedCertificateLookupSeries(
+        flowState.selectedSeries,
+        flowState.selectedCertificateType,
+        flowState.seriesOptions,
+      );
+      setStoredDriverPrintSeries(lookupSeries || flowState.selectedSeries);
       renderFlow();
       try {
         const query = new URLSearchParams({
           blank_type: flowState.blankType,
           center_id: String(flowState.centerId),
         });
-        if (flowState.selectedSeries) {
-          query.set("series", flowState.selectedSeries);
+        if (lookupSeries) {
+          query.set("series", lookupSeries);
         } else {
           query.set("series", "");
         }
-        if (!isPreenteredBlankSeries(flowState.selectedSeries)) {
+        if (!isPreenteredBlankSeries(lookupSeries || flowState.selectedSeries)) {
           query.set("auto_create", "true");
         }
         flowState.currentBlank = await apiRequest(`/blanks/forms/next?${query.toString()}`);
+        if (flowState.currentBlank?.series) {
+          flowState.selectedSeries = normalizeBlankSeries(flowState.currentBlank.series);
+          flowState.selectedCertificateType = getDriverPrintCertificateType(flowState.selectedSeries) || flowState.selectedCertificateType;
+          setStoredDriverPrintSeries(flowState.selectedSeries);
+        }
       } catch (error) {
         flowState.currentBlank = null;
         flowState.error = humanizeApiError(error, "Не удалось подобрать свободный бланк");
@@ -6732,7 +7607,7 @@ async function loadReportsSummary() {
   data.reportError = "";
   renderApp();
   try {
-    const dateFrom = normalizeCashFilterDate(appState.reportDateFrom) || new Date().toISOString().slice(0, 10);
+    const dateFrom = normalizeCashFilterDate(appState.reportDateFrom) || getLocalDateInputValue();
     const dateTo = normalizeCashFilterDate(appState.reportDateTo) || dateFrom;
     const [fromValue, toValue] = dateFrom <= dateTo ? [dateFrom, dateTo] : [dateTo, dateFrom];
     data.reportSummary = await apiRequest(
@@ -7058,6 +7933,7 @@ async function saveOperatorVisitForm({ recalculate = false, close = false } = {}
 
   await syncVisitToBackend(visit, selectedClient);
   await ensureRequiredDoctorExamsForVisit(selectedClient, visit, { syncToBackend: true });
+  await loadDashboardDoctorStatuses([selectedClient], { render: false });
 
   const autoDocumentConfig =
     !recalculate &&
@@ -7070,7 +7946,7 @@ async function saveOperatorVisitForm({ recalculate = false, close = false } = {}
     if (!data.documentTemplatesLoaded) {
       await loadDocumentTemplatesFromBackend();
     }
-    const template = pickDocumentTemplate("medical", visit);
+    const template = pickDocumentTemplate("medical", visit, selectedClient);
     if (template) {
         try {
           let documentItem = null;
@@ -7139,9 +8015,7 @@ function bindContentEvents() {
   const cashPeriodTodayButton = document.getElementById("cashPeriodTodayButton");
   if (cashPeriodTodayButton) {
     cashPeriodTodayButton.addEventListener("click", () => {
-      const today = new Date().toISOString().slice(0, 10);
-      appState.cashDateFrom = today;
-      appState.cashDateTo = today;
+      resetCashPeriodToToday();
       persistDemoState();
       renderApp();
     });
@@ -7168,7 +8042,7 @@ function bindContentEvents() {
   const reportPeriodTodayButton = document.getElementById("reportPeriodTodayButton");
   if (reportPeriodTodayButton) {
     reportPeriodTodayButton.addEventListener("click", () => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = getLocalDateInputValue();
       appState.reportDateFrom = today;
       appState.reportDateTo = today;
       persistDemoState();
@@ -7181,29 +8055,60 @@ function bindContentEvents() {
     clientSearchInput.addEventListener("input", (event) => {
       appState.clientSearch = event.target.value;
       appState.dashboardPage = 1;
-      scheduleClientSearch(event.target.value);
+      scheduleClientSearch(event.target.value, { render: false });
       rerenderAndRestoreInput("clientSearchInput", event.target.value, event.target.selectionStart || event.target.value.length);
     });
   }
 
-  const clientEncounterDateInput = document.getElementById("clientEncounterDateInput");
-  if (clientEncounterDateInput) {
-    clientEncounterDateInput.addEventListener("input", (event) => {
-      appState.clientEncounterDate = event.target.value;
+  const clientEncounterDateInput = document.getElementById("clientEncounterDateColumnInput");
+  const clientEncounterDateButton = contentRoot.querySelector("[data-encounter-date-filter]");
+  if (clientEncounterDateInput && clientEncounterDateButton) {
+    clientEncounterDateButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        if (typeof clientEncounterDateInput.showPicker === "function") {
+          clientEncounterDateInput.showPicker();
+          return;
+        }
+      } catch (error) {
+        console.debug("Native date picker needs a direct user gesture", error);
+      }
+      try {
+        clientEncounterDateInput.focus();
+        clientEncounterDateInput.click();
+      } catch (error) {
+        console.debug("Could not open native date picker", error);
+      }
+    });
+
+    clientEncounterDateInput.addEventListener("change", (event) => {
+      appState.clientEncounterDate = event.target.value || "";
       appState.dashboardPage = 1;
       persistDemoState();
       scheduleClientSearch(appState.clientSearch);
-      renderApp();
+    });
+  }
+
+  const clearEncounterDateFilterButton = contentRoot.querySelector("[data-clear-encounter-date-filter]");
+  if (clearEncounterDateFilterButton) {
+    clearEncounterDateFilterButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      appState.clientEncounterDate = "";
+      appState.dashboardPage = 1;
+      persistDemoState();
+      scheduleClientSearch(appState.clientSearch);
     });
   }
 
   contentRoot.querySelectorAll("[data-dashboard-page]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const nextPage = Number(button.dataset.dashboardPage || 1);
       if (!Number.isFinite(nextPage) || nextPage < 1 || nextPage === appState.dashboardPage) return;
       appState.dashboardPage = nextPage;
       persistDemoState();
-      renderApp();
+      await loadDashboardDoctorStatuses(getVisibleDashboardClients());
     });
   });
 
@@ -7643,7 +8548,7 @@ function bindContentEvents() {
   contentRoot.querySelectorAll("[data-template-preview-role-id]").forEach((button) => {
     button.addEventListener("click", async () => {
       const doctorRoleId = button.dataset.templatePreviewRoleId;
-      const previewClient = getSelectedClient() || data.clients[0];
+      const previewClient = getSelectedClient() || getClientPool()[0];
 
       if (!previewClient) {
         showToast("Нет клиента для предпросмотра формы");
@@ -7719,12 +8624,25 @@ function bindContentEvents() {
   const chairmanForm = contentRoot.querySelector('.chairman-form[data-doctor-role-id="chairman"]');
   const chairmanActions = chairmanForm?.querySelector(".chairman-actions");
   if (chairmanForm && chairmanActions && !chairmanActions.querySelector("[data-chairman-print]")) {
+    const templateButton = document.createElement("button");
+    templateButton.type = "button";
+    templateButton.className = "chairman-action-btn";
+    templateButton.dataset.chairmanTemplate = "true";
+    templateButton.textContent = "Шаблон";
+    chairmanActions.prepend(templateButton);
+
     const printButton = document.createElement("button");
     printButton.type = "button";
     printButton.className = "chairman-action-btn";
     printButton.dataset.chairmanPrint = "true";
     printButton.textContent = "Печать";
     chairmanActions.prepend(printButton);
+
+    templateButton.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      await openChairmanTemplateFile(chairmanForm.dataset.examId || null);
+    });
 
     printButton.addEventListener("click", async (event) => {
       event.preventDefault();
@@ -7742,7 +8660,7 @@ function bindContentEvents() {
 
       const exam = data.doctorExams.find((item) => String(item.id) === String(examId));
       const client = exam
-        ? data.clients.find((item) => String(item.id) === String(exam.clientId))
+        ? getClientPool().find((item) => String(item.id) === String(exam.clientId))
         : getSelectedClient();
       const visit = exam
         ? data.visits.find((item) => String(item.id) === String(exam.visitId))
@@ -7750,8 +8668,9 @@ function bindContentEvents() {
           ? getCurrentVisitForClient(client.id)
           : null;
       const printType = getChairmanTemplatePrintType(visit);
+      const formInfo = getChairmanFormInfo(visit, client);
 
-      if (printType) {
+      if (formInfo.printMode !== "driver-flow" && printType) {
         try {
           const documentItem = await printDocumentForVisit(printType, client, visit);
           window.closeDoctorExamCard?.();
@@ -7891,6 +8810,7 @@ actionModal?.querySelector(".modal__backdrop")?.addEventListener("click", () => 
 window.appState = appState;
 window.data = data;
 window.getSelectedClient = getSelectedClient;
+window.getClientPool = getClientPool;
 window.getDoctorTemplate = getDoctorTemplate;
 window.getDoctorExam = getDoctorExam;
 window.getOrCreateDoctorExam = getOrCreateDoctorExam;
@@ -7912,6 +8832,9 @@ window.saveDoctorExamDraft = saveDoctorExamDraft;
 window.deleteDoctorExam = deleteDoctorExam;
 window.openDemoDocument = openDemoDocument;
 window.createDemoDocument = createDemoDocument;
+window.printChairmanDocumentFromExam = printChairmanDocumentFromExam;
+window.getChairmanFormInfo = getChairmanFormInfo;
+window.openChairmanTemplateFile = openChairmanTemplateFile;
 window.API_BASE_URL = API_BASE_URL;
 window.apiRequest = apiRequest;
 window.humanizeApiError = humanizeApiError;
@@ -7928,6 +8851,5 @@ window.renderApp = renderApp;
 window.openDriverPrintFlow = openDriverPrintFlow;
 
 renderApp();
-Promise.all([loadServicesFromBackend(), loadDocumentTemplatesFromBackend()]).then(() => {
-  restoreWorkplaceSelection();
-});
+Promise.allSettled([loadClientsFromBackend(appState.clientSearch), loadServicesFromBackend(), loadDocumentTemplatesFromBackend()])
+  .then(() => restoreWorkplaceSelection());

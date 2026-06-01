@@ -17,13 +17,21 @@ def create_application() -> FastAPI:
     )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[settings.frontend_origin, "http://127.0.0.1:5173"],
+        allow_origins=[
+            settings.frontend_origin,
+            settings.public_frontend_origin,
+            "http://127.0.0.1:5173",
+        ],
         allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
     app.include_router(api_router, prefix=settings.api_v1_prefix)
+
+    @app.get("/health", tags=["health"])
+    def healthcheck() -> dict[str, str]:
+        return {"status": "ok"}
 
     @app.get("/test-documents", include_in_schema=False)
     def document_test_page() -> FileResponse:

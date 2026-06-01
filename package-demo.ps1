@@ -41,6 +41,7 @@ $excludedDirs = @(
 )
 
 $excludedFilePatterns = @(
+    ".env",
     "*.db",
     "*.sqlite",
     "*.sqlite3",
@@ -54,14 +55,14 @@ $excludedFilePatterns = @(
     "temp_*"
 )
 
-if (-not $IncludeLocalClientExport) {
-    $excludedFilePatterns += "legacy-data.js"
-}
-
 function Test-IsExcludedPath {
     param([string]$RelativePath)
 
     $normalizedPath = $RelativePath.Replace("/", "\")
+
+    if (-not $IncludeLocalClientExport -and $normalizedPath -eq "demo\legacy-data.js") {
+        return $true
+    }
 
     foreach ($dir in $excludedDirs) {
         $normalizedDir = $dir.Replace("/", "\").TrimEnd("\")

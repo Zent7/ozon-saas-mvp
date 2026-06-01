@@ -1,7 +1,6 @@
 ﻿let clientModalSelectedServices = new Set();
-let clientModalServiceDetails = {};
-let clientModalManualTotal = null;
-let clientModalSubmitAction = "save";
+let clientModalServiceDetails = {};
+let clientModalSubmitAction = "save";
 
 const CLIENT_DRIVER_DEFAULT_CATEGORIES = ["A", "B", "C", "D", "BE", "M"];
 const CLIENT_DRIVER_LIMITATIONS = [
@@ -16,9 +15,12 @@ const CLIENT_DRIVER_INDICATIONS = [
   "ТС мед. изд. для коррекции зрения",
   "ТС мед. изд. для компенсации потери слуха",
 ];
-const CLIENT_ADDRESS_STORAGE_KEY = "vova-medcenter-address-suggestions-v1";
+const CLIENT_ADDRESS_STORAGE_KEY = "vova-medcenter-address-suggestions-v1";
+const CLIENT_ISSUED_BY_STORAGE_KEY = "vova-medcenter-issued-by-suggestions-v1";
+const CLIENT_RECENT_FIELDS_STORAGE_KEY = "vova-medcenter-client-recent-fields-v1";
 const CLIENT_DEFAULT_COUNTRY = "Россия";
-const CLIENT_ADDRESS_PRESETS = [
+const CLIENT_ISSUED_BY_PRESETS = ["УФМС", "ГУ МВД", "МВД", "ОВД"];
+const CLIENT_ADDRESS_PRESETS = [
   { city: "Санкт-Петербург", subject: "Санкт-Петербург", district: "" },
   { city: "Кудрово", subject: "Ленинградская область", district: "Всеволожский район" },
   { city: "Мурино", subject: "Ленинградская область", district: "Всеволожский район" },
@@ -52,55 +54,173 @@ function saveClientAddressSuggestion(entry = {}) {
   window.localStorage?.setItem(CLIENT_ADDRESS_STORAGE_KEY, JSON.stringify([nextEntry, ...existing].slice(0, 60)));
 }
 
-function parseClientAddressSuggestion(addressText = "") {
-  const parts = String(addressText || "")
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (!parts.length) return null;
-
-  const isCountryValue = (value = "") => {
-    const normalized = String(value || "")
-      .trim()
-      .toLowerCase()
-      .replace(/\./g, "");
+function loadClientIssuedBySuggestions() {
+  try {
+    const parsed = JSON.parse(window.localStorage?.getItem(CLIENT_ISSUED_BY_STORAGE_KEY) || "[]");
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || "").trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveClientIssuedBySuggestion(value = "") {
+  const nextValue = String(value || "").trim();
+  if (!nextValue) return;
+  const existing = loadClientIssuedBySuggestions().filter((item) => item.toLowerCase() !== nextValue.toLowerCase());
+  window.localStorage?.setItem(CLIENT_ISSUED_BY_STORAGE_KEY, JSON.stringify([nextValue, ...existing].slice(0, 80)));
+}
+
+function getClientIssuedBySuggestionsFromClients() {
+  const clients = [...(data?.backendClients || []), ...(data?.clients || [])];
+  return clients
+    .map((client) => {
+      const raw = client?.rawApiClient || client || {};
+      return String(
+        raw.document_issued_by ||
+          raw.legacy_payload_json?.WhoGive ||
+          raw.legacy_payload_json?.["qdfMain.WhoGive"] ||
+          client?.documentIssuedBy ||
+          "",
+      ).trim();
+    })
+    .filter(Boolean);
+}
+
+function getClientIssuedByOptions() {
+  const byValue = new Map();
+  [...loadClientIssuedBySuggestions(), ...getClientIssuedBySuggestionsFromClients(), ...CLIENT_ISSUED_BY_PRESETS].forEach((value) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) return;
+    const key = normalized.toLowerCase();
+    if (!byValue.has(key)) byValue.set(key, normalized);
+  });
+  return [...byValue.values()].slice(0, 120);
+}
+
+function loadClientRecentFields() {
+  try {
+    const parsed = JSON.parse(window.localStorage?.getItem(CLIENT_RECENT_FIELDS_STORAGE_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function getClientRecentField(name) {
+  const values = loadClientRecentFields()[name];
+  return Array.isArray(values) ? String(values[0] || "").trim() : "";
+}
+
+function rememberClientRecentFields(fields = {}) {
+  const recent = loadClientRecentFields();
+  Object.entries(fields).forEach(([name, value]) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) return;
+    const existing = Array.isArray(recent[name]) ? recent[name] : [];
+    recent[name] = [normalized, ...existing.filter((item) => String(item || "").trim().toLowerCase() !== normalized.toLowerCase())].slice(0, 80);
+  });
+  window.localStorage?.setItem(CLIENT_RECENT_FIELDS_STORAGE_KEY, JSON.stringify(recent));
+}
+
+function uniqueClientTextOptions(values = []) {
+  const byValue = new Map();
+  values.forEach((value) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) return;
+    const key = normalized.toLowerCase();
+    if (!byValue.has(key)) byValue.set(key, normalized);
+  });
+  return [...byValue.values()].slice(0, 120);
+}
+
+function parseClientAddressSuggestion(addressText = "") {
+  const parts = String(addressText || "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return null;
+
+  const isCountryValue = (value = "") => {
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\./g, "");
     return ["россия", "рф", "российская федерация"].includes(normalized);
-  };
+  };
+  const hasSubjectMarker = (value = "") => /обл\.?|область|край|респ\.?|республика|автоном|ао\b|округ|санкт-петербург|спб|москва|севастополь/i.test(value);
+  const hasDistrictMarker = (value = "") => /район|р-н/i.test(value);
+  const hasCityMarker = (value = "") => /(^|\s)(г\.|гор\.|город)\s*|санкт-петербург|спб|москва|севастополь/i.test(value);
+  const hasStreetMarker = (value = "") => /(^|\s)(ул\.|улица|пр-?кт|просп\.?|проспект|пер\.|переулок|наб\.|шоссе|б-р|бул\.?|бульвар)\s*/i.test(value);
+  const hasHouseMarker = (value = "") => /(^|\s)(д\.|дом)\s*/i.test(value);
+  const hasBuildingMarker = (value = "") => /корпус|корп\.?|к\.\s*/i.test(value);
+  const hasFlatMarker = (value = "") => /(^|\s)(кв\.|квартира)\s*/i.test(value);
+  const stripMarker = (value = "", pattern) => String(value || "").replace(pattern, "").trim();
+
+  if (isCountryValue(parts[0])) {
+    return {
+      country: parts[0] || CLIENT_DEFAULT_COUNTRY,
+      subject: parts[1] || "",
+      district: parts[2] || "",
+      city: parts[3] || "",
+      street: parts[4] || "",
+      house: stripMarker(parts[5] || "", /(^|\s)(д\.|дом)\s*/i),
+      building: stripMarker(parts[6] || "", /(^|\s)(корпус|корп\.?|к\.)\s*/i),
+      flat: stripMarker(parts[7] || "", /(^|\s)(кв\.|квартира)\s*/i),
+    };
+  }
+
+  const subject = parts.find(hasSubjectMarker) || "";
+  const district = parts.find(hasDistrictMarker) || "";
+  const city = parts.find(hasCityMarker) || parts.find((part) => part && part !== subject && part !== district && !hasStreetMarker(part) && !hasHouseMarker(part)) || "";
+  const street = parts.find(hasStreetMarker) || "";
+  const house = parts.find(hasHouseMarker) || "";
+  const building = parts.find(hasBuildingMarker) || "";
+  const flat = parts.find(hasFlatMarker) || "";
+
+  return {
+    country: CLIENT_DEFAULT_COUNTRY,
+    subject,
+    district,
+    city,
+    street,
+    house: stripMarker(house, /(^|\s)(д\.|дом)\s*/i),
+    building: stripMarker(building, /(^|\s)(корпус|корп\.?|к\.)\s*/i),
+    flat: stripMarker(flat, /(^|\s)(кв\.|квартира)\s*/i),
+  };
+}
 
-  if (isCountryValue(parts[0])) {
-    return {
-      country: parts[0] || CLIENT_DEFAULT_COUNTRY,
-      subject: parts[1] || "",
-      district: parts[2] || "",
-      city: parts[3] || "",
-      street: parts[4] || "",
-      house: parts[5] || "",
-      building: parts[6] || "",
-      flat: parts[7] || "",
-    };
-  }
-
-  return {
-    country: CLIENT_DEFAULT_COUNTRY,
-    subject: "",
-    district: parts[1] || "",
-    city: parts[0] || "",
-    street: parts[2] || "",
-    house: parts[3] || "",
-    building: parts[4] || "",
-    flat: parts[5] || "",
-  };
-}
-
-function getClientAddressSuggestionsFromClients() {
+function getClientAddressSuggestionsFromClients() {
   const clients = [...(data?.backendClients || []), ...(data?.clients || [])];
   return clients
     .map((client) => {
       const raw = client?.rawApiClient || {};
       return parseClientAddressSuggestion(client?.registration || raw.registration_text || raw.address_text || "");
     })
-    .filter((item) => item?.city);
-}
+    .filter((item) => item?.city);
+}
+
+function getClientTextFieldOptions(name, presets = []) {
+  const recent = loadClientRecentFields()[name] || [];
+  const clients = [...(data?.backendClients || []), ...(data?.clients || [])];
+  const values = clients.map((client) => {
+    const raw = client?.rawApiClient || client || {};
+    if (name === "documentType") return raw.document_type || client?.documentType || "";
+    if (name === "agent") return raw.agent || raw.legacy_payload_json?.agent || client?.agent || "";
+    if (name === "profession") return raw.profession || raw.legacy_payload_json?.profession || client?.profession || "";
+    if (name === "workPlace") return raw.work_place || raw.legacy_payload_json?.work_place || client?.workPlace || "";
+    if (name === "organization") return raw.organization || raw.legacy_payload_json?.organization || client?.organization || "";
+    return "";
+  });
+  return uniqueClientTextOptions([...recent, ...values, ...presets]);
+}
+
+function getClientAddressFieldOptions(name) {
+  const recent = loadClientRecentFields()[name] || [];
+  const saved = loadClientAddressSuggestions();
+  const fromClients = getClientAddressSuggestionsFromClients();
+  const fromPresets = CLIENT_ADDRESS_PRESETS;
+  return uniqueClientTextOptions([...recent, ...saved, ...fromClients, ...fromPresets].map((item) => item?.[name]));
+}
 
 function getClientAddressOptions() {
   const saved = loadClientAddressSuggestions();
@@ -113,21 +233,64 @@ function getClientAddressOptions() {
   return Array.from(byCity.values());
 }
 
-function renderClientAddressDatalists() {
-  const options = getClientAddressOptions();
-  const streetOptions = [...loadClientAddressSuggestions(), ...getClientAddressSuggestionsFromClients()]
-    .map((item) => String(item.street || "").trim())
-    .filter(Boolean)
-    .filter((value, index, list) => list.indexOf(value) === index);
-  return `
-    <datalist id="clientCitySuggestions">
-      ${options.map((item) => `<option value="${escapeHtml(item.city)}">${escapeHtml([item.subject, item.district].filter(Boolean).join(", "))}</option>`).join("")}
-    </datalist>
-    <datalist id="clientStreetSuggestions">
-      ${streetOptions.map((street) => `<option value="${escapeHtml(street)}"></option>`).join("")}
-    </datalist>
-  `;
-}
+function renderClientAddressDatalists() {
+  const options = getClientAddressOptions();
+  const streetOptions = [...loadClientAddressSuggestions(), ...getClientAddressSuggestionsFromClients()]
+    .map((item) => String(item.street || "").trim())
+    .filter(Boolean)
+    .filter((value, index, list) => list.indexOf(value) === index);
+  const subjectOptions = getClientAddressFieldOptions("subject");
+  const districtOptions = getClientAddressFieldOptions("district");
+  const issuedByOptions = getClientIssuedByOptions();
+  const documentTypeOptions = getClientTextFieldOptions("documentType", ["Паспорт РФ", "Другое"]);
+  const agentOptions = getClientTextFieldOptions("agent");
+  const professionOptions = getClientTextFieldOptions("profession");
+  const workPlaceOptions = getClientTextFieldOptions("workPlace");
+  const organizationOptions = getClientTextFieldOptions("organization");
+  return `
+    <datalist id="clientDocumentTypeSuggestions">
+      ${documentTypeOptions.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("")}
+    </datalist>
+
+    <datalist id="clientCitySuggestions">
+      ${options.map((item) => `<option value="${escapeHtml(item.city)}">${escapeHtml([item.subject, item.district].filter(Boolean).join(", "))}</option>`).join("")}
+    </datalist>
+
+    <datalist id="clientSubjectSuggestions">
+      ${subjectOptions.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("")}
+    </datalist>
+
+    <datalist id="clientDistrictSuggestions">
+      ${districtOptions.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("")}
+    </datalist>
+
+    <datalist id="clientStreetSuggestions">
+      ${streetOptions.map((street) => `<option value="${escapeHtml(street)}"></option>`).join("")}
+    </datalist>
+
+    <datalist id="clientIssuedBySuggestions">
+
+      ${issuedByOptions.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("")}
+
+    </datalist>
+
+    <datalist id="clientAgentSuggestions">
+      ${agentOptions.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("")}
+    </datalist>
+
+    <datalist id="clientProfessionSuggestions">
+      ${professionOptions.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("")}
+    </datalist>
+
+    <datalist id="clientWorkPlaceSuggestions">
+      ${workPlaceOptions.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("")}
+    </datalist>
+
+    <datalist id="clientOrganizationSuggestions">
+      ${organizationOptions.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("")}
+    </datalist>
+  `;
+}
 
 function bindClientAddressAutocomplete(form) {
   const countryInput = form?.elements.country;
@@ -261,7 +424,9 @@ function renderClientDriverClassicPanel(selectedServices = [], selectedCategorie
   if (!selectedDriverService) return "";
 
   const normalizedCategories = Array.isArray(selectedCategories)
-    ? DRIVER_CATEGORY_OPTIONS.filter((item) => selectedCategories.includes(item))
+    ? (typeof normalizeDriverCategories === "function"
+        ? normalizeDriverCategories(selectedCategories)
+        : DRIVER_CATEGORY_OPTIONS.filter((item) => selectedCategories.includes(item)))
     : CLIENT_DRIVER_DEFAULT_CATEGORIES.slice();
 
 
@@ -312,7 +477,19 @@ function renderClientDriverClassicPanel(selectedServices = [], selectedCategorie
             ${["BE", "CE", "DE"].map((category) => renderClientClassicCheckbox("clientDriverCategory", category, category, normalizedCategories.includes(category))).join("")}
           </div>
           <div class="client-driver-category-row">
-            ${["M", "Tm", "Tb"].map((category) => renderClientClassicCheckbox("clientDriverCategory", category, category, normalizedCategories.includes(category))).join("")}
+            ${["Tm", "Tb", "M"].map((category) => renderClientClassicCheckbox("clientDriverCategory", category, category, normalizedCategories.includes(category))).join("")}
+
+
+
+          </div>
+
+
+
+          <div class="client-driver-category-row">
+
+
+
+            ${["A1", "B1", "C1", "D1", "C1E", "D1E"].map((category) => renderClientClassicCheckbox("clientDriverCategory", category, category, normalizedCategories.includes(category))).join("")}
           </div>
         </div>
 
@@ -429,25 +606,13 @@ function getClientPaymentRowsTotal() {
     .reduce((sum, input) => sum + Number(input.value || 0), 0);
 }
 
-function updateClientPaymentTotal() {
-  const totalInput = document.getElementById("clientPaymentTotalInput");
-  const totalNode = document.getElementById("clientPaymentTotalValue");
-  if (!totalInput) return;
-  const total = clientModalManualTotal ?? getClientPaymentRowsTotal();
-  totalInput.value = Number(total || 0);
-  if (totalNode) totalNode.textContent = Number(total || 0).toLocaleString("ru-RU");
-}
+function updateClientPaymentTotal() {
+  const totalNode = document.getElementById("clientPaymentTotalValue");
+  const total = getClientPaymentRowsTotal();
+  if (totalNode) totalNode.textContent = Number(total || 0).toLocaleString("ru-RU");
+}
 
-function getClientPaymentTotalOverride() {
-  const totalInput = document.getElementById("clientPaymentTotalInput");
-  if (!totalInput) return clientModalManualTotal;
-  const rawValue = String(totalInput.value || "").replace(",", ".");
-  if (!rawValue.trim()) return null;
-  const value = Number(rawValue);
-  return Number.isFinite(value) ? value : null;
-}
-
-function renderClientPaymentRows(selectedServices = []) {
+function renderClientPaymentRows(selectedServices = []) {
   const serviceItems = getClientServiceItemsByNames(selectedServices);
   if (!serviceItems.length) {
     return "";
@@ -481,12 +646,7 @@ function renderClientPaymentRows(selectedServices = []) {
 
   return `
     <div class="client-payment-block">
-      <div class="client-payment-block__head">
-        <label class="client-payment-total">
-          <span>Итоговая цена</span>
-          <input id="clientPaymentTotalInput" name="clientPaymentTotal" type="number" min="0" step="0.01" value="0" />
-          <b>₽</b>
-        </label>
+      <div class="client-payment-block__head">
         <strong>Выбранные услуги</strong>
         <span>Итого: <b id="clientPaymentTotalValue">0</b> ₽</span>
       </div>
@@ -497,36 +657,19 @@ function renderClientPaymentRows(selectedServices = []) {
 
 function bindClientPaymentRows() {
   actionModalContent.querySelectorAll("[data-client-payment-service]").forEach((row) => {
-    row.querySelectorAll("input, select").forEach((input) => {
-      input.addEventListener("input", () => {
-        if (input.name === "clientServicePrice") {
-          clientModalManualTotal = null;
-        }
-        syncClientPaymentRowsFromDom();
+    row.querySelectorAll("input, select").forEach((input) => {
+      input.addEventListener("input", () => {
+        syncClientPaymentRowsFromDom();
+        if (input.name === "clientServicePrice") updateClientPaymentTotal();
+      });
+      input.addEventListener("change", () => {
+        syncClientPaymentRowsFromDom();
         if (input.name === "clientServicePrice") updateClientPaymentTotal();
       });
-      input.addEventListener("change", () => {
-        if (input.name === "clientServicePrice") {
-          clientModalManualTotal = null;
-        }
-        syncClientPaymentRowsFromDom();
-        if (input.name === "clientServicePrice") updateClientPaymentTotal();
-      });
-    });
-  });
-  const totalInput = document.getElementById("clientPaymentTotalInput");
-  if (totalInput) {
-    totalInput.addEventListener("input", () => {
-      clientModalManualTotal = getClientPaymentTotalOverride();
-      updateClientPaymentTotal();
-    });
-    totalInput.addEventListener("change", () => {
-      clientModalManualTotal = getClientPaymentTotalOverride();
-      updateClientPaymentTotal();
-    });
-  }
-  updateClientPaymentTotal();
-}
+    });
+  });
+  updateClientPaymentTotal();
+}
 
 function refreshClientPaymentPanel({ driverCategoriesChanged = false } = {}) {
   syncClientPaymentRowsFromDom();
@@ -578,45 +721,8 @@ function buildClientServiceDetails(selectedServices = []) {
     };
   }
 
-  if (clientModalManualTotal === null) return details;
-
-  const normalizedTotal = Math.round(Number(clientModalManualTotal || 0) * 100) / 100;
-  if (!Number.isFinite(normalizedTotal) || !serviceItems.length) return details;
-
-  const detailKeys = serviceItems.map((service) => getClientServiceDetailKey(service));
-  const sourceTotal = detailKeys.reduce((sum, key) => sum + Number(details[key]?.unitPrice || 0), 0);
-
-  if (sourceTotal > 0) {
-    let distributedTotal = 0;
-    detailKeys.forEach((key, index) => {
-      const currentValue = Number(details[key]?.unitPrice || 0);
-      const nextValue = index === detailKeys.length - 1
-        ? Math.round((normalizedTotal - distributedTotal) * 100) / 100
-        : Math.round(((currentValue / sourceTotal) * normalizedTotal) * 100) / 100;
-      details[key] = {
-        ...(details[key] || {}),
-        unitPrice: nextValue,
-      };
-      distributedTotal = Math.round((distributedTotal + nextValue) * 100) / 100;
-    });
-    return details;
-  }
-
-  const evenValue = Math.round((normalizedTotal / detailKeys.length) * 100) / 100;
-  let distributedTotal = 0;
-  detailKeys.forEach((key, index) => {
-    const nextValue = index === detailKeys.length - 1
-      ? Math.round((normalizedTotal - distributedTotal) * 100) / 100
-      : evenValue;
-    details[key] = {
-      ...(details[key] || {}),
-      unitPrice: nextValue,
-    };
-    distributedTotal = Math.round((distributedTotal + nextValue) * 100) / 100;
-  });
-
-  return details;
-}
+  return details;
+}
 
 function getClientVisitPaymentSummary(selectedServices = [], serviceDetails = {}, baseComment = "") {
   const serviceItems = getClientServiceItemsByNames(selectedServices);
@@ -733,7 +839,8 @@ function openClientModal(clientId = null, options = {}) {
   const editingClient = clientId
     ? selectedClient && String(selectedClient.id) === String(clientId)
       ? selectedClient
-      : data.clients.find((client) => String(client.id) === String(clientId))
+      : window.getClientPool?.().find((client) => String(client.id) === String(clientId)) ||
+        data.clients.find((client) => String(client.id) === String(clientId))
     : null;
   const raw = editingClient ? editingClient.fullName : appState.clientSearch.trim();
   const parts = raw.split(/\s+/).filter(Boolean);
@@ -746,19 +853,21 @@ function openClientModal(clientId = null, options = {}) {
     "",
   ) || {};
 
-  if (!appState.clientServiceGroupFilter || !sortedGroups.some((group) => String(group.id) === String(appState.clientServiceGroupFilter))) {
+  if (!editingClient) {
+    initialAddress.country = initialAddress.country || getClientRecentField("country") || CLIENT_DEFAULT_COUNTRY;
+    initialAddress.subject = initialAddress.subject || getClientRecentField("subject") || getClientAddressFieldOptions("subject")[0] || "";
+    initialAddress.district = initialAddress.district || getClientRecentField("district") || getClientAddressFieldOptions("district")[0] || "";
+    initialAddress.city = initialAddress.city || getClientRecentField("city") || getClientAddressOptions()[0]?.city || "";
+  }
+
+  if (!appState.clientServiceGroupFilter || !sortedGroups.some((group) => String(group.id) === String(appState.clientServiceGroupFilter))) {
     appState.clientServiceGroupFilter = sortedGroups.length ? String(sortedGroups[0].id) : "";
   }
 
-  const initialVisit = editingClient ? window.getCurrentVisitForClient?.(editingClient.id) : null;
-  const initialSelectedServices = encounterMode
-    ? (initialVisit?.serviceNames?.length ? initialVisit.serviceNames : (editingClient?.services || []))
-    : (editingClient?.services || []);
+  const initialVisit = !encounterMode && editingClient ? window.getCurrentVisitForClient?.(editingClient.id) : null;
+  const initialSelectedServices = encounterMode ? [] : (editingClient?.services || []);
   clientModalSelectedServices = new Set(initialSelectedServices);
-  clientModalServiceDetails = { ...(initialVisit?.serviceDetails || {}) };
-  clientModalManualTotal = initialVisit?.amount !== undefined && initialVisit?.amount !== null
-    ? Number(initialVisit.amount)
-    : null;
+  clientModalServiceDetails = { ...(initialVisit?.serviceDetails || {}) };
   clientModalSubmitAction = "save";
   const modalTitle = encounterMode
     ? "Новое обращение"
@@ -770,32 +879,47 @@ function openClientModal(clientId = null, options = {}) {
     ? "Обращение"
     : (editingClient ? "Редактирование" : "Создание");
   const primarySubmitLabel = encounterMode ? "Сохранить обращение" : "ОК";
-  const defaultGender = editingClient?.gender || editingClient?.sex || "";
-  const initialBirthPlace =
-    editingClient?.birthPlace ||
-    editingClient?.rawApiClient?.birth_place ||
-    editingClient?.rawApiClient?.legacy_payload_json?.birth_place ||
-    "";
-  const initialDocumentType =
-    editingClient?.rawApiClient?.document_type ||
-    String(editingClient?.document || "").split(" ").slice(0, 2).join(" ").trim() ||
-    "";
-  const initialProfession =
-    editingClient?.profession ||
-    editingClient?.rawApiClient?.profession ||
-    editingClient?.rawApiClient?.legacy_payload_json?.profession ||
-    "";
-  const initialWorkPlace =
-    editingClient?.workPlace ||
-    editingClient?.rawApiClient?.work_place ||
-    editingClient?.rawApiClient?.legacy_payload_json?.work_place ||
-    "";
-  const initialOrganization =
-    editingClient?.organization ||
-    editingClient?.rawApiClient?.organization ||
-    editingClient?.rawApiClient?.legacy_payload_json?.organization ||
-    "";
-
+  const defaultGender = editingClient?.gender || editingClient?.sex || editingClient?.rawApiClient?.sex || "";
+  const initialBirthPlace =
+    editingClient?.birthPlace ||
+    editingClient?.rawApiClient?.birth_place ||
+    editingClient?.rawApiClient?.legacy_payload_json?.birth_place ||
+    "";
+  const rawClientDocument = editingClient?.rawApiClient || {};
+  const initialDocumentType =
+    rawClientDocument.document_type ||
+    String(editingClient?.document || "").split(" ").slice(0, 2).join(" ").trim() ||
+    "";
+  const resolvedInitialDocumentType = initialDocumentType || (editingClient ? "" : getClientRecentField("documentType") || getClientTextFieldOptions("documentType", ["Паспорт РФ", "Другое"])[0] || "Паспорт РФ");
+  const documentTextMatch = String(editingClient?.document || "").match(/(\d{2}\s?\d{2})\s+(\d{6})/);
+  const initialDocumentSeries = rawClientDocument.document_series || documentTextMatch?.[1] || "";
+  const initialDocumentNumber = rawClientDocument.document_number || documentTextMatch?.[2] || "";
+  const initialDocumentIssuedDate = rawClientDocument.document_issued_date
+    ? (typeof formatApiDate === "function" ? formatApiDate(rawClientDocument.document_issued_date) : String(rawClientDocument.document_issued_date))
+    : "";
+  const initialDocumentIssuedBy =
+    rawClientDocument.document_issued_by ||
+    rawClientDocument.legacy_payload_json?.WhoGive ||
+    rawClientDocument.legacy_payload_json?.["qdfMain.WhoGive"] ||
+    editingClient?.documentIssuedBy ||
+    (editingClient ? "" : getClientRecentField("issuedBy") || getClientIssuedByOptions()[0] || "");
+  const initialEmail = editingClient?.email || rawClientDocument.email || "";
+  const initialProfession =
+    editingClient?.profession ||
+    rawClientDocument.profession ||
+    rawClientDocument.legacy_payload_json?.profession ||
+    (editingClient ? "" : getClientRecentField("profession") || getClientTextFieldOptions("profession")[0] || "");
+  const initialWorkPlace =
+    editingClient?.workPlace ||
+    rawClientDocument.work_place ||
+    rawClientDocument.legacy_payload_json?.work_place ||
+    (editingClient ? "" : getClientRecentField("workPlace") || getClientTextFieldOptions("workPlace")[0] || "");
+  const initialOrganization =
+    editingClient?.organization ||
+    rawClientDocument.organization ||
+    rawClientDocument.legacy_payload_json?.organization ||
+    (editingClient ? "" : getClientRecentField("organization") || getClientTextFieldOptions("organization")[0] || "");
+
   openActionModal(
     modalTitle,
     `
@@ -856,26 +980,26 @@ function openClientModal(clientId = null, options = {}) {
           <label class="field">
             <span>Документ</span>
             <select name="documentType">
-              <option value="" ${initialDocumentType ? "" : "selected"}></option>
-              <option ${initialDocumentType === "Паспорт РФ" ? "selected" : ""}>Паспорт РФ</option>
-              <option ${initialDocumentType === "Другое" ? "selected" : ""}>Другое</option>
+              <option value="" ${resolvedInitialDocumentType ? "" : "selected"}></option>
+              <option ${resolvedInitialDocumentType === "Паспорт РФ" ? "selected" : ""}>Паспорт РФ</option>
+              <option ${resolvedInitialDocumentType === "Другое" ? "selected" : ""}>Другое</option>
             </select>
           </label>
           <label class="field">
             <span>Серия</span>
-            <input name="passportSeries" value="" />
+            <input name="passportSeries" value="${escapeHtml(initialDocumentSeries)}" />
           </label>
           <label class="field">
             <span>Номер</span>
-            <input name="passportNumber" value="" />
+            <input name="passportNumber" value="${escapeHtml(initialDocumentNumber)}" />
           </label>
           <label class="field">
             <span>Дата выдачи</span>
-            <input name="passportDate" data-date-mask value="" />
+            <input name="passportDate" data-date-mask value="${escapeHtml(initialDocumentIssuedDate)}" />
           </label>
           <label class="field field--wide">
             <span>Кем выдан</span>
-            <input name="issuedBy" value="" />
+            <input name="issuedBy" value="${escapeHtml(initialDocumentIssuedBy)}" list="clientIssuedBySuggestions" />
           </label>
         </div>
 
@@ -887,11 +1011,11 @@ function openClientModal(clientId = null, options = {}) {
           </label>
           <label class="field">
             <span>Субъект РФ</span>
-            <input name="subject" value="${escapeHtml(initialAddress.subject || "")}" />
+            <input name="subject" value="${escapeHtml(initialAddress.subject || "")}" list="clientSubjectSuggestions" />
           </label>
           <label class="field">
             <span>Район</span>
-            <input name="district" value="${escapeHtml(initialAddress.district || "")}" />
+            <input name="district" value="${escapeHtml(initialAddress.district || "")}" list="clientDistrictSuggestions" />
           </label>
           <label class="field">
             <span>Город</span>
@@ -927,11 +1051,11 @@ function openClientModal(clientId = null, options = {}) {
         <div class="client-create-grid client-create-grid--contacts">
           <label class="field">
             <span>Телефон</span>
-            <input name="phone" value="${escapeHtml(editingClient?.phone || "")}" />
+            <input name="phone" value="${escapeHtml(editingClient ? editingClient.phone || "" : "+7 ")}" />
           </label>
           <label class="field">
             <span>E-mail</span>
-            <input name="email" value="" />
+            <input name="email" value="${escapeHtml(initialEmail)}" />
           </label>
           <label class="field">
             <span>СНИЛС</span>
@@ -939,22 +1063,22 @@ function openClientModal(clientId = null, options = {}) {
           </label>
           <label class="field">
             <span>Агент</span>
-            <input name="agent" value="${escapeHtml(editingClient?.agent || "")}" />
+            <input name="agent" value="${escapeHtml(editingClient?.agent || (!editingClient ? getClientRecentField("agent") || getClientTextFieldOptions("agent")[0] || "" : ""))}" list="clientAgentSuggestions" />
           </label>
         </div>
 
         <div class="client-create-grid client-create-grid--contacts">
           <label class="field">
             <span>Профессия</span>
-            <input name="profession" value="${escapeHtml(initialProfession)}" />
+            <input name="profession" value="${escapeHtml(initialProfession)}" list="clientProfessionSuggestions" />
           </label>
           <label class="field">
             <span>Место работы</span>
-            <input name="workPlace" value="${escapeHtml(initialWorkPlace)}" />
+            <input name="workPlace" value="${escapeHtml(initialWorkPlace)}" list="clientWorkPlaceSuggestions" />
           </label>
           <label class="field">
             <span>Организация</span>
-            <input name="organization" value="${escapeHtml(initialOrganization)}" />
+            <input name="organization" value="${escapeHtml(initialOrganization)}" list="clientOrganizationSuggestions" />
           </label>
         </div>
 
@@ -1074,12 +1198,9 @@ function openClientModal(clientId = null, options = {}) {
     const selectedServiceIds = getClientServiceIdsByNames(selectedServiceValues);
     const serviceDetails = buildClientServiceDetails(selectedServiceValues);
     const paymentSummary = getClientVisitPaymentSummary(selectedServiceValues, serviceDetails, formData.get("comment"));
-    const totalOverride = getClientPaymentTotalOverride();
-    const visitAmount = totalOverride ?? (
-      window.calculateVisitAmountByIds
-        ? window.calculateVisitAmountByIds(selectedServiceIds, serviceDetails)
-        : window.calculateVisitAmount?.(selectedServiceValues)
-    );
+    const visitAmount = window.calculateVisitAmountByIds
+      ? window.calculateVisitAmountByIds(selectedServiceIds, serviceDetails)
+      : window.calculateVisitAmount?.(selectedServiceValues);
 
     let targetClient =
       editingClient ||
@@ -1130,13 +1251,27 @@ function openClientModal(clientId = null, options = {}) {
         .map((value) => String(value || "").trim())
         .filter(Boolean)
         .join(", ");
-      saveClientAddressSuggestion({
+      saveClientAddressSuggestion({
         subject: formData.get("subject"),
         district: formData.get("district"),
         city: formData.get("city"),
-        street: formData.get("street"),
-      });
-      const backendId = editingClient?.backendId || (editingClient?.rawApiClient ? editingClient.id : null);
+        street: formData.get("street"),
+      });
+      saveClientIssuedBySuggestion(formData.get("issuedBy"));
+      rememberClientRecentFields({
+        documentType: formData.get("documentType"),
+        issuedBy: formData.get("issuedBy"),
+        country: formData.get("country"),
+        subject: formData.get("subject"),
+        district: formData.get("district"),
+        city: formData.get("city"),
+        street: formData.get("street"),
+        agent: formData.get("agent"),
+        profession: formData.get("profession"),
+        workPlace: formData.get("workPlace"),
+        organization: formData.get("organization"),
+      });
+      const backendId = editingClient?.backendId || (editingClient?.rawApiClient ? editingClient.id : null);
       if (!window.apiRequest) throw new Error("Backend API недоступен");
       const savedClient = await window.apiRequest?.(backendId ? `/clients/${backendId}` : "/clients", {
         method: backendId ? "PUT" : "POST",
@@ -1205,20 +1340,21 @@ function openClientModal(clientId = null, options = {}) {
     }
 
     appState.selectedClientId = targetClient.id;
-    appState.clientSearch = targetClient.fullName || fullName;
+    appState.clientSearch = isCreated ? "" : targetClient.fullName || fullName;
     data.backendSearch = appState.clientSearch.trim();
     window.markClientChanged?.(targetClient, isCreated);
 
-    const currentVisit =
-      selectedServiceValues.length
-        ? window.createVisitForClientIfNeeded?.(targetClient.id, {
-            serviceNames: selectedServiceValues,
-            serviceIds: selectedServiceIds,
-            serviceDetails,
-            amount: visitAmount,
-            paymentType: paymentSummary.paymentType,
-            comment: paymentSummary.comment,
-          })
+    const currentVisit =
+      encounterMode || selectedServiceValues.length
+        ? window.createVisitForClientIfNeeded?.(targetClient.id, {
+            serviceNames: selectedServiceValues,
+            serviceIds: selectedServiceIds,
+            serviceDetails,
+            amount: visitAmount,
+            paymentType: paymentSummary.paymentType,
+            comment: paymentSummary.comment,
+            forceNew: encounterMode,
+          })
         : window.getCurrentVisitForClient?.(targetClient.id);
     if (currentVisit && currentVisit.status !== "closed") {
       const visitPatch = {
@@ -1263,5 +1399,5 @@ function openClientModal(clientId = null, options = {}) {
   });
 }
 
-window.openClientModal = openClientModal;
-window.renderClientServiceSelector = renderClientServiceSelector;
+window.openClientModal = openClientModal;
+window.renderClientServiceSelector = renderClientServiceSelector;

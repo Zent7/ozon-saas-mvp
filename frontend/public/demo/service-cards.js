@@ -11,6 +11,26 @@
     return (window.escapeHtml || String)(value);
   }
 
+  const AUTO_EKG_CONCLUSION_PREFIX =
+    "Ритм синусовый, ЧСС , нормальная электрическая позиция сердца, ЭКГ-комплексы без особенностей";
+
+  function extractRuDate(value) {
+    return String(value ?? "").match(/\b\d{2}\.\d{2}\.\d{4}\b/)?.[0] || "";
+  }
+
+  function todayRuDate() {
+    return new Date().toLocaleDateString("ru-RU");
+  }
+
+  function buildAutoEkgConclusion(date) {
+    const finalDate = extractRuDate(date) || todayRuDate();
+    return `${AUTO_EKG_CONCLUSION_PREFIX} от ${finalDate}`;
+  }
+
+  function isAutoEkgConclusion(value) {
+    return String(value ?? "").trim().startsWith(`${AUTO_EKG_CONCLUSION_PREFIX} от `);
+  }
+
   // ----- Определение типа карточки по услуге --------------------------------
   // driver — открывается уже существующая карточка председателя.
   // sport  — новая карточка спортивной справки.
@@ -19,6 +39,7 @@
   // Все остальные услуги показывают плейсхолдер «Карточка пока не готова».
   const DRIVER_LEGACY_IDS = new Set([8, 29]);
   const SPORT_LEGACY_IDS = new Set([4, 5]);
+  const EKG_LEGACY_IDS = new Set([6, 20, 21, 27]);
 
   function resolveServiceCardKind(service) {
     if (!service) return "placeholder";
@@ -43,6 +64,10 @@
       name === "спортивная справка"
     ) {
       return "sport";
+    }
+
+    if (EKG_LEGACY_IDS.has(legacyId) || (name.includes("\u044d\u043a\u0433") && !name.includes("\u0441\u043f\u043e\u0440\u0442"))) {
+      return "ekg";
     }
 
     return "placeholder";
@@ -86,7 +111,11 @@
       return;
     }
     if (kind === "sport") {
-      openSportCard({ clientId: client.id, visitId: visit?.id || null, service });
+      openSportCard({ clientId: client.id, visitId: visit?.id || null, service, doctorRoleId: "chairman" });
+      return;
+    }
+    if (kind === "ekg") {
+      openSportCard({ clientId: client.id, visitId: visit?.id || null, service, doctorRoleId: "chairman" });
       return;
     }
     openServicePlaceholder(service);
@@ -120,12 +149,13 @@
     return data.sportCard;
   }
 
-  function openSportCard({ clientId, visitId, service }) {
+  function openSportCard({ clientId, visitId, service, doctorRoleId = SPORT_CARD_ROLE_ID }) {
     closeServiceCardOverlays();
     const state = ensureSportState();
+    const roleId = doctorRoleId || SPORT_CARD_ROLE_ID;
     if (typeof window.getOrCreateDoctorExam === "function") {
       // Через существующий механизм doctor_exams. У doctor_role_id нет FK.
-      const exam = window.getOrCreateDoctorExam(clientId, visitId, SPORT_CARD_ROLE_ID);
+      const exam = window.getOrCreateDoctorExam(clientId, visitId, roleId);
       if (exam) state.examId = exam.id;
     }
     state.isOpen = true;
@@ -133,6 +163,7 @@
     state.visitId = visitId;
     state.serviceId = service?.id || service?.backendId || null;
     state.serviceName = service?.name || "Спортивная справка";
+    state.doctorRoleId = roleId;
     state.phrasePicker = null;
 
     // Подгружаем справочник фраз (если ещё не загружены — загружаем).
@@ -148,6 +179,7 @@
     state.clientId = null;
     state.visitId = null;
     state.examId = null;
+    state.doctorRoleId = null;
     state.phrasePicker = null;
     window.renderApp();
   }
@@ -251,7 +283,7 @@
       return "";
     }
     const exam = window.getDoctorExam
-      ? window.getDoctorExam(state.clientId, state.visitId, SPORT_CARD_ROLE_ID)
+      ? window.getDoctorExam(state.clientId, state.visitId, state.doctorRoleId || SPORT_CARD_ROLE_ID)
       : null;
     const fields = (exam && exam.fields) || {};
     const client = (window.data?.clients || []).find(
@@ -274,6 +306,8 @@
 
     const todayIso = new Date().toLocaleDateString("ru-RU");
     const examDate = val("examDate") || todayIso;
+    const ekgDate = extractRuDate(val("ekg")) || extractRuDate(examDate) || todayIso;
+    const ekgConclusion = String(val("ekgConclusion")).trim() || buildAutoEkgConclusion(ekgDate);
 
     return `
       <div class="sport-card-backdrop" data-sport-card>
@@ -311,7 +345,7 @@
               </label>
               <label class="sport-card-field">
                 <span>Заключение ЭКГ</span>
-                <input type="text" name="ekgConclusion" value="${esc(val("ekgConclusion"))}" />
+                <input type="text" name="ekgConclusion" value="${esc(ekgConclusion)}" />
               </label>
               <label class="sport-card-field">
                 <span>Флюорография</span>
@@ -347,6 +381,7 @@
             </div>
 
             <div class="sport-card-actions">
+              ${state.doctorRoleId === "chairman" ? '<button type="button" class="primary-button" data-sport-card-print>Печать</button>' : ""}
               <button type="submit" class="primary-button">Сохранить</button>
               <button type="button" class="ghost-button" data-sport-card-close>Отмена</button>
             </div>
@@ -470,12 +505,13 @@
     return result;
   }
 
-  function saveSportCard(form) {
+  async function saveSportCard(form) {
     const state = ensureSportState();
     const data = collectSportFormData(form);
     if (state.examId && typeof window.saveDoctorExam === "function") {
-      window.saveDoctorExam(state.examId, data);
+      return window.saveDoctorExam(state.examId, data);
     }
+    return null;
   }
 
   // ----- Биндинги ---------------------------------------------------------
@@ -509,13 +545,39 @@
 
       const form = card.querySelector("[data-sport-card-form]");
       if (form) {
-        form.addEventListener("submit", (event) => {
+        const syncAutoEkgConclusion = () => {
+          const conclusionInput = form.elements.ekgConclusion;
+          if (!conclusionInput) return;
+          const currentValue = String(conclusionInput.value || "").trim();
+          if (currentValue && !isAutoEkgConclusion(currentValue)) return;
+          const ekgDate =
+            extractRuDate(form.elements.ekg?.value) ||
+            extractRuDate(form.elements.examDate?.value) ||
+            todayRuDate();
+          conclusionInput.value = buildAutoEkgConclusion(ekgDate);
+        };
+        form.elements.examDate?.addEventListener("input", syncAutoEkgConclusion);
+        form.elements.examDate?.addEventListener("change", syncAutoEkgConclusion);
+        form.elements.ekg?.addEventListener("input", syncAutoEkgConclusion);
+        form.elements.ekg?.addEventListener("change", syncAutoEkgConclusion);
+
+        form.addEventListener("submit", async (event) => {
           event.preventDefault();
           event.stopPropagation();
-          saveSportCard(form);
+          await saveSportCard(form);
           window.showToast && window.showToast("Спортивная справка сохранена");
           closeSportCard();
         });
+        const printBtn = form.querySelector("[data-sport-card-print]");
+        if (printBtn) {
+          printBtn.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const saved = await saveSportCard(form);
+            if (!saved) return;
+            await window.printChairmanDocumentFromExam?.(ensureSportState().examId);
+          });
+        }
         const pickBtn = form.querySelector("[data-sport-pick-phrase]");
         if (pickBtn) {
           pickBtn.addEventListener("click", (event) => {
@@ -641,6 +703,7 @@
   }
 
   window.openServiceCard = openServiceCard;
+  window.openSportCard = openSportCard;
   window.closeServiceCardOverlays = closeServiceCardOverlays;
   window.closeSportCard = closeSportCard;
   window.openPhrasePicker = openPhrasePicker;

@@ -74,6 +74,20 @@ def sync_document_template_catalog(db) -> int:
         template.file_name: template
         for template in db.execute(select(DocumentTemplate)).scalars().all()
     }
+    existing_by_code = {
+        template.code: template
+        for template in existing_by_file_name.values()
+    }
+    target_by_file_name = {item["file_name"]: item["code"] for item in catalog}
+    for file_name, target_code in target_by_file_name.items():
+        template = existing_by_file_name.get(file_name)
+        code_owner = existing_by_code.get(target_code)
+        if template is not None and template.code != target_code:
+            template.code = f"template-sync-{template.id}"
+        if code_owner is not None and code_owner is not template:
+            code_owner.code = f"template-sync-{code_owner.id}"
+    db.flush()
+
     active_file_names: set[str] = set()
 
     for item in catalog:
@@ -96,6 +110,8 @@ def sync_document_template_catalog(db) -> int:
         template.template_type = item["template_type"]
         template.output_format = item["template_type"]
         template.is_active = True
+        template.requires_numbered_blank = False
+        template.blank_type = None
 
         haystack = " ".join([item["code"], item["name"], item["file_name"]]).lower()
         if ("вод" in haystack) or ("driver" in haystack):
