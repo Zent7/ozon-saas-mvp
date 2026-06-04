@@ -1,6 +1,5 @@
 from collections import defaultdict
 from datetime import date, datetime, timezone
-import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import String, and_, case, cast, func, or_, select
@@ -14,7 +13,7 @@ from app.models.encounter_service import EncounterService
 from app.models.medical_record import MedicalRecord
 from app.models.service import Service
 from app.models.user import User
-from app.schemas.client import ClientCreate, ClientRead, ClientUpdate, DeletedClientRead
+from app.schemas.client import ClientCreate, ClientRead, ClientSearchRead, ClientUpdate, DeletedClientRead
 from app.services.audit import write_audit_log
 from app.services.duplicates import build_duplicate_check_keys
 from app.services.notifications import build_deletion_email_body, send_deletion_notification
@@ -182,100 +181,97 @@ def latest_encounter_subquery():
     )
 
 
-@router.get("", response_model=list[ClientRead])
-def list_clients(
-    search: str | None = Query(default=None),
-    encounter_date: date | None = Query(default=None),
-    limit: int = Query(default=25, ge=1, le=100),
-    db: Session = Depends(get_db),
-) -> list[ClientRead]:
-    value = search.strip() if search else ""
-    if not value:
-        query = select(Client).where(Client.deleted_at.is_(None))
-        if encounter_date is not None:
-            latest_encounter = latest_encounter_subquery()
-            query = (
-                query.join(latest_encounter, latest_encounter.c.client_id == Client.id)
-                .where(latest_encounter.c.row_number == 1, latest_encounter.c.encounter_date == encounter_date)
-                .order_by(
-                    latest_encounter.c.encounter_date.desc(),
-                    latest_encounter.c.created_at.desc(),
-                    latest_encounter.c.encounter_id.desc(),
-                    Client.patient_number.desc(),
-                )
-            )
-        else:
-            query = query.order_by(Client.created_at.desc(), Client.id.desc())
-        query = query.limit(limit)
-        clients = db.execute(query).scalars().all()
-        return serialize_clients(db, clients)
+CLIENT_SEARCH_FIELDS = (
+    Client.last_name,
+    Client.first_name,
+    Client.middle_name,
+    Client.phone,
+    Client.snils,
+    Client.oms_policy,
+    Client.document_type,
+    Client.document_series,
+    Client.document_number,
+    Client.address_text,
+    Client.registration_text,
+    Client.admission_category,
+    Client.reference_number,
+    Client.card_number,
+    Client.journal_number,
+    Client.profession,
+    Client.work_place,
+    Client.organization,
+    Client.mkb10,
+)
 
-    pattern = f"%{value}%"
-    compact_value = re.sub(r"\s+", "", value.lower())
-    compact_pattern = f"%{compact_value}%" if compact_value else pattern
-    name_tokens = value.split()
-    numeric_value = int(value) if value.isdigit() and len(value) <= 9 else None
+CLIENT_SEARCH_COLUMNS = (
+    Client.id,
+    Client.patient_number,
+    Client.last_name,
+    Client.first_name,
+    Client.middle_name,
+    Client.birth_date,
+    Client.phone,
+    Client.document_type,
+    Client.document_series,
+    Client.document_number,
+    Client.snils,
+    Client.address_text,
+    Client.registration_text,
+    Client.admission_category,
+    Client.reference_number,
+    Client.notes,
+    Client.encounter_date_text,
+    Client.card_number,
+    Client.profession,
+    Client.work_place,
+    Client.organization,
+    Client.real_date_text,
+)
+
+
+def client_full_name_expr():
+    return (
+        func.coalesce(Client.last_name, "")
+        .concat(" ")
+        .concat(func.coalesce(Client.first_name, ""))
+        .concat(" ")
+        .concat(func.coalesce(Client.middle_name, ""))
+    )
+
+
+def client_search_text_expr():
+    full_name = client_full_name_expr()
+    expression = func.coalesce(cast(Client.patient_number, String), "")
+    for field in CLIENT_SEARCH_FIELDS:
+        expression = expression.concat(" ").concat(func.coalesce(field, ""))
+    return func.lower(expression.concat(" ").concat(func.replace(full_name, " ", "")))
+
+
+def client_search_conditions(value: str):
+    tokens = [token.lower() for token in value.split() if token]
+    conditions = []
+    if tokens:
+        search_text = client_search_text_expr()
+        conditions.append(and_(*[search_text.ilike(f"%{token}%") for token in tokens]))
+
+    if value.isdigit() and len(value) <= 9:
+        conditions.insert(0, Client.patient_number == int(value))
+
     date_value = parse_search_date(value)
-    search_conditions = [
-        Client.last_name.ilike(pattern),
-        Client.first_name.ilike(pattern),
-        Client.middle_name.ilike(pattern),
-        Client.phone.ilike(pattern),
-        Client.snils.ilike(pattern),
-        Client.oms_policy.ilike(pattern),
-        Client.document_series.ilike(pattern),
-        Client.document_number.ilike(pattern),
-        Client.registration_text.ilike(pattern),
-        Client.admission_category.ilike(pattern),
-        Client.reference_number.ilike(pattern),
-        Client.card_number.ilike(pattern),
-        Client.journal_number.ilike(pattern),
-        Client.profession.ilike(pattern),
-        Client.work_place.ilike(pattern),
-        Client.organization.ilike(pattern),
-        Client.mkb10.ilike(pattern),
-    ]
-    full_name_expr = func.lower(
-        func.concat(Client.last_name, " ", Client.first_name, " ", func.coalesce(Client.middle_name, ""))
-    )
-    compact_name_expr = func.replace(full_name_expr, " ", "")
-    search_conditions.extend(
-        [
-            full_name_expr.ilike(pattern),
-            compact_name_expr.ilike(compact_pattern),
-        ]
-    )
-    if name_tokens:
-        search_conditions.append(
-            and_(
-                *[
-                    or_(
-                        Client.last_name.ilike(f"%{token}%"),
-                        Client.first_name.ilike(f"%{token}%"),
-                        Client.middle_name.ilike(f"%{token}%"),
-                    )
-                    for token in name_tokens
-                ]
-            )
-        )
-    if numeric_value is not None:
-        search_conditions.insert(0, Client.patient_number == numeric_value)
     if date_value is not None:
-        search_conditions.insert(0, Client.birth_date == date_value)
+        conditions.insert(0, Client.birth_date == date_value)
 
-    lower_value = value.lower()
-    surname_rank = case(
-        (func.lower(Client.last_name) == lower_value, 0),
-        (Client.last_name.ilike(f"{value}%"), 1),
-        (Client.last_name.ilike(pattern), 2),
-        (full_name_expr.ilike(f"{value.lower()}%"), 3),
-        else_=9,
-    )
+    return conditions
 
-    query = select(Client).where(Client.deleted_at.is_(None), or_(*search_conditions))
+
+def apply_client_filters_and_order(query, value: str, encounter_date: date | None):
+    query = query.where(Client.deleted_at.is_(None))
+    if value:
+        query = query.where(or_(*client_search_conditions(value)))
+
     if encounter_date is not None:
         latest_encounter = latest_encounter_subquery()
-        query = (
+        return (
             query.join(latest_encounter, latest_encounter.c.client_id == Client.id)
             .where(latest_encounter.c.row_number == 1, latest_encounter.c.encounter_date == encounter_date)
             .order_by(
@@ -285,14 +281,56 @@ def list_clients(
                 Client.patient_number.desc(),
             )
         )
-    else:
-        query = query.order_by(
-            surname_rank.asc(),
-            Client.last_name.asc(),
-            Client.first_name.asc(),
-            Client.patient_number.asc(),
-        )
-    query = query.limit(limit)
+
+    if not value:
+        return query.order_by(Client.created_at.desc(), Client.id.desc())
+
+    pattern = f"%{value}%"
+    full_name = func.lower(client_full_name_expr())
+    rank_conditions = []
+    if value.isdigit() and len(value) <= 9:
+        rank_conditions.append((Client.patient_number == int(value), -2))
+    date_value = parse_search_date(value)
+    if date_value is not None:
+        rank_conditions.append((Client.birth_date == date_value, -1))
+    rank_conditions.extend(
+        [
+            (func.lower(Client.last_name) == value.lower(), 0),
+            (Client.last_name.ilike(f"{value}%"), 1),
+            (Client.last_name.ilike(pattern), 2),
+            (full_name.ilike(f"{value.lower()}%"), 3),
+        ]
+    )
+    surname_rank = case(*rank_conditions, else_=9)
+    return query.order_by(
+        surname_rank.asc(),
+        Client.last_name.asc(),
+        Client.first_name.asc(),
+        Client.patient_number.asc(),
+    )
+
+
+@router.get("/search", response_model=list[ClientSearchRead])
+def search_clients(
+    search: str | None = Query(default=None),
+    encounter_date: date | None = Query(default=None),
+    limit: int = Query(default=25, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> list[ClientSearchRead]:
+    value = search.strip() if search else ""
+    query = apply_client_filters_and_order(select(*CLIENT_SEARCH_COLUMNS), value, encounter_date).limit(limit)
+    return [ClientSearchRead.model_validate(row) for row in db.execute(query).mappings().all()]
+
+
+@router.get("", response_model=list[ClientRead])
+def list_clients(
+    search: str | None = Query(default=None),
+    encounter_date: date | None = Query(default=None),
+    limit: int = Query(default=25, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> list[ClientRead]:
+    value = search.strip() if search else ""
+    query = apply_client_filters_and_order(select(Client), value, encounter_date).limit(limit)
     clients = db.execute(query).scalars().all()
     return serialize_clients(db, clients)
 

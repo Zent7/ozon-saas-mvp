@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ClientBase(BaseModel):
@@ -60,9 +60,35 @@ class ClientUpdate(ClientBase):
 class ClientRead(ClientBase):
     id: int
     patient_number: int
-    services: list[str] = []
+    services: list[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
+
+
+class ClientSearchRead(BaseModel):
+    id: int
+    patient_number: int
+    last_name: str
+    first_name: str
+    middle_name: str | None = None
+    birth_date: date
+    phone: str | None = None
+    document_type: str | None = None
+    document_series: str | None = None
+    document_number: str | None = None
+    snils: str | None = None
+    address_text: str | None = None
+    registration_text: str | None = None
+    admission_category: str | None = None
+    reference_number: str | None = None
+    notes: str | None = None
+    encounter_date_text: str | None = None
+    card_number: str | None = None
+    profession: str | None = None
+    work_place: str | None = None
+    organization: str | None = None
+    real_date_text: str | None = None
+    services: list[str] = Field(default_factory=list)
 
 
 class DeletedClientRead(BaseModel):

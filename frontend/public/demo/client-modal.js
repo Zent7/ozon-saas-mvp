@@ -1195,20 +1195,22 @@ function openClientModal(clientId = null, options = {}) {
     const selectedServiceValues = getClientModalSelectedServicesFromDom()
       .map((value) => String(value).trim())
       .filter(Boolean);
-    const selectedServiceIds = getClientServiceIdsByNames(selectedServiceValues);
-    const serviceDetails = buildClientServiceDetails(selectedServiceValues);
-    const paymentSummary = getClientVisitPaymentSummary(selectedServiceValues, serviceDetails, formData.get("comment"));
+    const selectedServiceIds = getClientServiceIdsByNames(selectedServiceValues);
+    const serviceDetails = buildClientServiceDetails(selectedServiceValues);
+    const paymentSummary = getClientVisitPaymentSummary(selectedServiceValues, serviceDetails, formData.get("comment"));
     const visitAmount = window.calculateVisitAmountByIds
       ? window.calculateVisitAmountByIds(selectedServiceIds, serviceDetails)
       : window.calculateVisitAmount?.(selectedServiceValues);
-
-    let targetClient =
-      editingClient ||
-      {
-        id: `draft-${Date.now()}`,
-        patientNumber: "",
-      };
-
+
+    const isCreated = !editingClient;
+
+    let targetClient =
+      editingClient ||
+      {
+        id: `draft-${Date.now()}`,
+        patientNumber: "",
+      };
+
     Object.assign(targetClient, {
       fullName: fullName || "Новый клиент",
       birthDate: String(formData.get("birthDate") || "").trim(),
@@ -1310,35 +1312,37 @@ function openClientModal(clientId = null, options = {}) {
       if (savedClient) {
         const savedMapped = window.upsertClientInMemory?.(savedClient);
         if (savedMapped) {
-          Object.assign(savedMapped, {
-            ...targetClient,
-            id: savedClient.id,
-            backendId: savedClient.id,
-            patientNumber: savedClient.patient_number,
-            cardNumber: savedClient.card_number || targetClient.cardNumber || (savedClient.patient_number ? String(savedClient.patient_number).padStart(7, "0") : ""),
-            agent: String(formData.get("agent") || "").trim() || savedMapped.agent || "",
-            birthPlace: String(formData.get("birthPlace") || "").trim() || savedMapped.birthPlace || "",
-            profession: String(formData.get("profession") || "").trim() || savedMapped.profession || "",
-            workPlace: String(formData.get("workPlace") || "").trim() || savedMapped.workPlace || "",
-            organization: String(formData.get("organization") || "").trim() || savedMapped.organization || "",
-            rawApiClient: savedClient,
-          });
-          targetClient = savedMapped;
-        }
-      }
-    } catch (error) {
-      console.warn("Client backend save failed", error);
+          Object.assign(savedMapped, {
+            ...targetClient,
+            id: savedClient.id,
+            backendId: savedClient.id,
+            patientNumber: savedClient.patient_number,
+            cardNumber: savedClient.card_number || targetClient.cardNumber || (savedClient.patient_number ? String(savedClient.patient_number).padStart(7, "0") : ""),
+            agent: String(formData.get("agent") || "").trim() || savedMapped.agent || "",
+            birthPlace: String(formData.get("birthPlace") || "").trim() || savedMapped.birthPlace || "",
+            profession: String(formData.get("profession") || "").trim() || savedMapped.profession || "",
+            workPlace: String(formData.get("workPlace") || "").trim() || savedMapped.workPlace || "",
+            organization: String(formData.get("organization") || "").trim() || savedMapped.organization || "",
+            rawApiClient: savedClient,
+          });
+          targetClient = savedMapped;
+          targetClient = window.showClientInDashboardResults?.(targetClient, {
+            resetSearch: isCreated,
+            refresh: true,
+          }) || targetClient;
+        }
+      }
+    } catch (error) {
+      console.warn("Client backend save failed", error);
       showToast(window.humanizeApiError?.(error, "Backend не сохранил клиента") || "Backend не сохранил клиента");
-      return;
-    }
-
-    const isCreated = !editingClient;
-
-    if (isCreated && !data.clients.some((client) => String(client.id) === String(targetClient.id))) {
-      targetClient.__demoCreated = true;
-      data.clients.unshift(targetClient);
-    }
-
+      return;
+    }
+
+    if (isCreated && !data.clients.some((client) => String(client.id) === String(targetClient.id))) {
+      targetClient.__demoCreated = true;
+      data.clients.unshift(targetClient);
+    }
+
     appState.selectedClientId = targetClient.id;
     appState.clientSearch = isCreated ? "" : targetClient.fullName || fullName;
     data.backendSearch = appState.clientSearch.trim();

@@ -57,17 +57,13 @@ if (demoParams.get("employeeAuth") === "chairman") {
   };
 }
 
-const legacyClients = Array.isArray(window.LEGACY_CLIENTS) ? window.LEGACY_CLIENTS : null;
-const legacyServices = Array.isArray(window.LEGACY_SERVICES) ? window.LEGACY_SERVICES : null;
-
 let serviceGroups = [];
 let doctorRoles = [];
 let structuredServices = [];
 
 const data = {
   serviceCatalog:
-    legacyServices ??
-    (structuredServices.length
+    structuredServices.length
       ? structuredServices
           .filter((service) => service.isActive !== false)
           .slice()
@@ -83,100 +79,8 @@ const data = {
           "Терапевт",
           "Офтальмолог",
           "ЛОР",
-        ]),
-  clients: legacyClients ?? [
-    {
-      id: 1,
-      patientNumber: 1,
-      fullName: "Ефимов Иван Васильевич",
-      birthDate: "17.06.1974",
-      phone: "+7 999 000-00-01",
-      center: "Медцентр 1",
-      document: "Паспорт 45 00 123456",
-      snils: "111-111-111 11",
-      note: "Повторный медосмотр через 30 дней",
-      lastVisit: "02.06.2025 19:38",
-      services: ["Справка водительская", "Терапевт"],
-    },
-    {
-      id: 2,
-      patientNumber: 2,
-      fullName: "Старостенко Олег Викторович",
-      birthDate: "18.10.1986",
-      phone: "+7 999 000-00-02",
-      center: "Медцентр 2",
-      document: "Паспорт 45 11 654321",
-      snils: "222-222-222 22",
-      note: "Оформление бассейна",
-      lastVisit: "02.06.2025 19:37",
-      services: ["Справка в бассейн"],
-    },
-    {
-      id: 3,
-      patientNumber: 3,
-      fullName: "Бобков Егор Константинович",
-      birthDate: "20.04.1998",
-      phone: "+7 999 000-00-03",
-      center: "Медцентр 1",
-      document: "Паспорт 45 22 777777",
-      snils: "333-333-333 33",
-      note: "Нужен XML-реестр",
-      lastVisit: "02.06.2025 19:41",
-      services: ["Медосмотр", "ЭКГ"],
-    },
-    {
-      id: 4,
-      patientNumber: 4,
-      fullName: "Пяткин Константин Сергеевич",
-      birthDate: "26.01.1982",
-      phone: "+7 999 000-00-04",
-      center: "Медцентр 2",
-      document: "Паспорт 45 33 555555",
-      snils: "444-444-444 44",
-      note: "Просроченный повтор",
-      lastVisit: "02.06.2025 19:45",
-      services: ["Флюорография"],
-    },
-    {
-      id: 5,
-      patientNumber: 5,
-      fullName: "Петров Павел Васильевич",
-      birthDate: "07.03.1988",
-      phone: "+7 999 000-00-05",
-      center: "Медцентр 1",
-      document: "Паспорт 45 44 123123",
-      snils: "555-555-555 55",
-      note: "Победа, уточнить категории",
-      lastVisit: "01.06.2025 11:54",
-      services: ["Офтальмолог"],
-    },
-    {
-      id: 6,
-      patientNumber: 6,
-      fullName: "Стецурина Анатольевна",
-      birthDate: "18.12.1999",
-      phone: "+7 999 000-00-06",
-      center: "Медцентр 1",
-      document: "Паспорт 45 55 987987",
-      snils: "666-666-666 66",
-      note: "Военком",
-      lastVisit: "02.06.2025 14:19",
-      services: ["Психиатр", "Нарколог"],
-    },
-    {
-      id: 7,
-      patientNumber: 7,
-      fullName: "Федотов Павел Николаевич",
-      birthDate: "13.06.1988",
-      phone: "+7 999 000-00-07",
-      center: "Медцентр 2",
-      document: "Паспорт 45 66 456456",
-      snils: "777-777-777 77",
-      note: "Уточнить кат. дату",
-      lastVisit: "02.06.2025 15:50",
-      services: ["ЛОР"],
-    },
-  ],
+        ],
+  clients: [],
   visits: [],
   documents: [],
   doctorExams: [],
@@ -244,6 +148,7 @@ const data = {
 
 let clientSearchTimer = null;
 let clientSearchRequestId = 0;
+let clientSearchAbortController = null;
 const DASHBOARD_PAGE_SIZE = 50;
 
 const DEMO_STORAGE_KEY = "vova-medcenter-demo-state-v2";
@@ -936,9 +841,7 @@ let _clientPoolCache = null;
 
 function getClientPool() {
   if (_clientPoolCache) return _clientPoolCache;
-  const sourceClients = data.backendClientsLoaded || data.backendSearchLoading
-    ? [...(data.backendClients || []), ...(data.clients || [])]
-    : data.clients || [];
+  const sourceClients = [...(data.clients || []), ...(data.backendClients || [])];
   const uniqueClients = [];
   const seen = new Set();
 
@@ -2105,6 +2008,28 @@ function upsertClientInMemory(client) {
   return mappedClient;
 }
 
+function showClientInDashboardResults(client, options = {}) {
+  const mappedClient = upsertClientInMemory(client);
+  if (!mappedClient) return null;
+
+  if (options.resetSearch) {
+    appState.clientSearch = "";
+    data.backendSearch = "";
+  }
+  appState.selectedClientId = mappedClient.id;
+  appState.dashboardPage = 1;
+  data.backendClientsLoaded = true;
+  data.backendSearchLoading = false;
+  data.backendSearchError = "";
+  invalidateClientPool();
+  renderApp();
+  void loadDashboardDoctorStatuses(getVisibleDashboardClients(), { render: true });
+  if (options.refresh !== false) {
+    window.setTimeout(() => loadClientsFromBackend(appState.clientSearch), 0);
+  }
+  return mappedClient;
+}
+
 function getVisitTitle(visit) {
   if (!visit) return "Обращение не создано";
   return `Обращение от ${visit.visitDate || formatDateTime(visit.createdAt)}`;
@@ -2557,6 +2482,15 @@ async function loadClientWorkspace(client) {
     encounterId: visit?.backendId || null,
   });
   renderApp();
+}
+
+async function ensureFullClientLoaded(client) {
+  if (!client) return null;
+  if (client.rawApiClient && Object.hasOwn(client.rawApiClient, "legacy_payload_json")) return client;
+
+  const clientId = client.backendId || client.id;
+  const apiClient = await apiRequest(`/clients/${encodeURIComponent(clientId)}`);
+  return upsertClientInMemory(apiClient);
 }
 
 async function restoreWorkplaceSelection() {
@@ -3159,12 +3093,7 @@ function matchesEncounterDate(client) {
 }
 
 function filteredClients() {
-  const search = normalizeSearchValue(appState.clientSearch);
-  const pool = getClientPool().filter((client) => matchesCenter(client.center) && matchesEncounterDate(client));
-  if (!search) return pool;
-
-  return pool
-    .filter((client) => buildClientSearchHaystack(client).includes(search));
+  return data.backendClients.filter((client) => matchesCenter(client.center));
 }
 
 function getDashboardClientPage() {
@@ -3189,6 +3118,9 @@ async function loadClientsFromBackend(searchValue) {
   const search = String(searchValue || "").trim();
   const encounterDate = parseRuDateToIso(appState.clientEncounterDate, "");
   const requestId = ++clientSearchRequestId;
+  clientSearchAbortController?.abort();
+  const abortController = new AbortController();
+  clientSearchAbortController = abortController;
 
   data.backendSearchLoading = true;
   data.backendSearchError = "";
@@ -3198,8 +3130,8 @@ async function loadClientsFromBackend(searchValue) {
     const params = new URLSearchParams({ limit: String(DASHBOARD_PAGE_SIZE) });
     if (search) params.set("search", search);
     if (encounterDate) params.set("encounter_date", encounterDate);
-    const url = `${API_BASE_URL}/clients?${params.toString()}`;
-    const response = await fetch(url);
+    const url = `${API_BASE_URL}/clients/search?${params.toString()}`;
+    const response = await fetch(url, { signal: abortController.signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const clients = await response.json();
     if (requestId !== clientSearchRequestId) return;
@@ -3207,20 +3139,12 @@ async function loadClientsFromBackend(searchValue) {
     data.backendClients = Array.isArray(clients) ? clients.map(mapApiClient) : [];
     data.backendClientsLoaded = true;
     invalidateClientPool();
-    await loadDashboardDoctorStatuses(getVisibleDashboardClients(), { render: false });
-    if (requestId !== clientSearchRequestId) return;
     data.backendSearch = search;
-
-    if (!getClientPool().some((client) => String(client.id) === String(appState.selectedClientId))) {
-      appState.selectedClientId = data.backendClients[0]?.id || data.clients[0]?.id || null;
-      appState.activeVisitId = null;
-    }
-    const selectedClient = getSelectedClient();
-    if (selectedClient) {
-      await loadClientWorkspace(selectedClient);
-      return;
-    }
+    data.backendSearchLoading = false;
+    renderApp();
+    void loadDashboardDoctorStatuses(getVisibleDashboardClients());
   } catch (error) {
+    if (error?.name === "AbortError") return;
     if (requestId !== clientSearchRequestId) return;
     data.backendClients = [];
     data.backendClientsLoaded = false;
@@ -3231,6 +3155,7 @@ async function loadClientsFromBackend(searchValue) {
     console.error("Client search API error:", error);
   } finally {
     if (requestId !== clientSearchRequestId) return;
+    if (clientSearchAbortController === abortController) clientSearchAbortController = null;
     data.backendSearchLoading = false;
     renderApp();
   }
@@ -3238,6 +3163,7 @@ async function loadClientsFromBackend(searchValue) {
 
 function scheduleClientSearch(searchValue, { render = true } = {}) {
   window.clearTimeout(clientSearchTimer);
+  clientSearchAbortController?.abort();
   data.backendSearchLoading = true;
   data.backendSearchError = "";
   if (render) renderApp();
@@ -3248,6 +3174,7 @@ function scheduleClientSearch(searchValue, { render = true } = {}) {
 
 function resetDashboardClientSelection() {
   window.clearTimeout(clientSearchTimer);
+  clientSearchAbortController?.abort();
   clientSearchRequestId += 1;
   appState.clientSearch = "";
   appState.clientEncounterDate = "";
@@ -3798,13 +3725,10 @@ function renderSketchHome() {
     "Организация",
     "Агент",
   ];
-  const dashboardStatusesReady = areDashboardDoctorStatusesReady(currentClients);
   const tableLoading =
     data.backendSearchLoading ||
-    data.dashboardDoctorStatusesLoading ||
-    (!data.backendClientsLoaded && !data.backendSearchError) ||
-    (!dashboardStatusesReady && !data.dashboardDoctorStatusesError);
-  const tableError = data.backendSearchError || data.dashboardDoctorStatusesError;
+    (!data.backendClientsLoaded && !data.backendSearchError);
+  const tableError = data.backendSearchError;
   const excelRows = tableLoading || tableError ? [] : buildExcelRows(currentClients);
   const pageNumbers = [];
   const pageWindowStart = Math.max(1, currentPage - 2);
@@ -8496,7 +8420,14 @@ function bindContentEvents() {
       appState.activeVisitId = getCurrentVisitForClient(appState.selectedClientId)?.id || null;
       persistDemoState();
       renderApp();
-      const selectedClient = getSelectedClient();
+      let selectedClient = getSelectedClient();
+      try {
+        selectedClient = await ensureFullClientLoaded(selectedClient);
+      } catch (error) {
+        showToast(humanizeApiError(error, "Не удалось загрузить карточку клиента"));
+        return;
+      }
+      renderApp();
       if (!doctorRoleId || !wasSameSelectedClient) {
         await loadClientWorkspace(selectedClient);
       }
@@ -8841,6 +8772,7 @@ window.humanizeApiError = humanizeApiError;
 window.mapApiService = mapApiService;
 window.mapApiClient = mapApiClient;
 window.upsertClientInMemory = upsertClientInMemory;
+window.showClientInDashboardResults = showClientInDashboardResults;
 window.parseRuDateToIso = parseRuDateToIso;
 window.loadServicesFromBackend = loadServicesFromBackend;
 window.compareServicesForOperator = compareServicesForOperator;
