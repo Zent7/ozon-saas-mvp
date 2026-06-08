@@ -30,8 +30,31 @@ const CLIENT_ADDRESS_PRESETS = [
   { city: "Пушкин", subject: "Санкт-Петербург", district: "Пушкинский район" },
   { city: "Колпино", subject: "Санкт-Петербург", district: "Колпинский район" },
   { city: "Петергоф", subject: "Санкт-Петербург", district: "Петродворцовый район" },
-];
-
+];
+
+function formatClientNameInputValue(value = "") {
+  return String(value || "").replace(/[^\s-]+/gu, (part) => {
+    const [first = "", ...rest] = Array.from(part);
+    return first.toLocaleUpperCase("ru-RU") + rest.join("").toLocaleLowerCase("ru-RU");
+  });
+}
+
+function bindClientNameCapitalization(form) {
+  if (!form) return;
+  form.querySelectorAll('input[name="lastName"], input[name="firstName"], input[name="middleName"]').forEach((input) => {
+    const format = () => {
+      const nextValue = formatClientNameInputValue(input.value);
+      if (input.value === nextValue) return;
+      const selectionStart = input.selectionStart ?? nextValue.length;
+      input.value = nextValue;
+      input.setSelectionRange(selectionStart, selectionStart);
+    };
+    input.addEventListener("input", format);
+    input.addEventListener("blur", format);
+    format();
+  });
+}
+
 function loadClientAddressSuggestions() {
   try {
     const parsed = JSON.parse(window.localStorage?.getItem(CLIENT_ADDRESS_STORAGE_KEY) || "[]");
@@ -292,14 +315,14 @@ function renderClientAddressDatalists() {
   `;
 }
 
-function bindClientAddressAutocomplete(form) {
+function bindClientAddressAutocomplete(form, { defaultCountry = true } = {}) {
   const countryInput = form?.elements.country;
   const cityInput = form?.elements.city;
   const subjectInput = form?.elements.subject;
   const districtInput = form?.elements.district;
   if (!cityInput || !subjectInput || !districtInput) return;
 
-  if (countryInput && !String(countryInput.value || "").trim()) {
+  if (defaultCountry && countryInput && !String(countryInput.value || "").trim()) {
     countryInput.value = CLIENT_DEFAULT_COUNTRY;
   }
 
@@ -387,9 +410,11 @@ function getClientSelectedDriverService(selectedServices = []) {
 }
 
 function getClientDriverCategoriesFromForm() {
-  const checked = Array.from(actionModalContent.querySelectorAll('input[name="clientDriverCategory"]:checked'))
+  const categoryInputs = Array.from(actionModalContent.querySelectorAll('input[name="clientDriverCategory"]'));
+  if (!categoryInputs.length) return CLIENT_DRIVER_DEFAULT_CATEGORIES.slice();
+  const checked = categoryInputs.filter((input) => input.checked)
     .map((input) => input.value);
-  return checked.length ? checked : CLIENT_DRIVER_DEFAULT_CATEGORIES.slice();
+  return checked;
 }
 
 function getClientDriverFlagsFromForm(fieldName) {
@@ -623,7 +648,10 @@ function renderClientPaymentRows(selectedServices = []) {
     const detail = getClientServiceDraftDetail(service);
     return `
       <div class="client-payment-row" data-client-payment-service="${escapeHtml(serviceKey)}">
-        <div class="client-payment-row__service">${escapeHtml(service.name)}</div>
+        <div class="client-payment-row__service">
+          <span>${escapeHtml(service.name)}</span>
+          <button type="button" class="client-payment-row__remove" data-remove-client-service="${escapeHtml(service.name)}" aria-label="Удалить услугу ${escapeHtml(service.name)}">×</button>
+        </div>
         <label class="field">
           <span>Цена</span>
           <input name="clientServicePrice" type="number" min="0" step="0.01" value="${Number(detail.unitPrice || 0)}" />
@@ -668,7 +696,51 @@ function bindClientPaymentRows() {
       });
     });
   });
+
+  actionModalContent.querySelectorAll("[data-remove-client-service]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeClientSelectedService(button.dataset.removeClientService || "");
+    });
+  });
+
   updateClientPaymentTotal();
+}
+
+
+
+
+function removeClientSelectedService(serviceName = "") {
+  const normalizedName = String(serviceName || "").trim();
+  if (!normalizedName) return;
+
+  syncClientPaymentRowsFromDom();
+  clientModalSelectedServices.delete(normalizedName);
+  const removedService = getServerServiceByName(normalizedName) || structuredServices.find((service) => service.name === normalizedName);
+  delete clientModalServiceDetails[String(removedService ? getClientServiceDetailKey(removedService) : normalizedName)];
+  actionModalContent.querySelectorAll('#serviceSelectorContainer input[name="services"]').forEach((input) => {
+    if (input.value === normalizedName) input.checked = false;
+  });
+
+  const selectedNow = Array.from(clientModalSelectedServices);
+  const selector = document.getElementById("serviceSelectorContainer");
+  if (selector) {
+    selector.outerHTML = `<div id="serviceSelectorContainer">${renderClientServiceSelector(selectedNow)}</div>`;
+    bindClientServiceGroupButtons();
+  }
+
+  const driverContainer = document.getElementById("clientDriverPanelContainer");
+  if (driverContainer) {
+    driverContainer.innerHTML = renderClientDriverClassicPanel(selectedNow, getClientDriverCategoriesFromForm());
+    bindClientDriverCategoryCheckboxes();
+  }
+
+  const paymentContainer = document.getElementById("clientPaymentContainer");
+  if (paymentContainer) {
+    paymentContainer.innerHTML = renderClientPaymentRows(selectedNow);
+    bindClientPaymentRows();
+  }
 }
 
 function refreshClientPaymentPanel({ driverCategoriesChanged = false } = {}) {
@@ -853,13 +925,6 @@ function openClientModal(clientId = null, options = {}) {
     "",
   ) || {};
 
-  if (!editingClient) {
-    initialAddress.country = initialAddress.country || getClientRecentField("country") || CLIENT_DEFAULT_COUNTRY;
-    initialAddress.subject = initialAddress.subject || getClientRecentField("subject") || getClientAddressFieldOptions("subject")[0] || "";
-    initialAddress.district = initialAddress.district || getClientRecentField("district") || getClientAddressFieldOptions("district")[0] || "";
-    initialAddress.city = initialAddress.city || getClientRecentField("city") || getClientAddressOptions()[0]?.city || "";
-  }
-
   if (!appState.clientServiceGroupFilter || !sortedGroups.some((group) => String(group.id) === String(appState.clientServiceGroupFilter))) {
     appState.clientServiceGroupFilter = sortedGroups.length ? String(sortedGroups[0].id) : "";
   }
@@ -880,17 +945,12 @@ function openClientModal(clientId = null, options = {}) {
     : (editingClient ? "Редактирование" : "Создание");
   const primarySubmitLabel = encounterMode ? "Сохранить обращение" : "ОК";
   const defaultGender = editingClient?.gender || editingClient?.sex || editingClient?.rawApiClient?.sex || "";
-  const initialBirthPlace =
-    editingClient?.birthPlace ||
-    editingClient?.rawApiClient?.birth_place ||
-    editingClient?.rawApiClient?.legacy_payload_json?.birth_place ||
-    "";
   const rawClientDocument = editingClient?.rawApiClient || {};
   const initialDocumentType =
     rawClientDocument.document_type ||
     String(editingClient?.document || "").split(" ").slice(0, 2).join(" ").trim() ||
     "";
-  const resolvedInitialDocumentType = initialDocumentType || (editingClient ? "" : getClientRecentField("documentType") || getClientTextFieldOptions("documentType", ["Паспорт РФ", "Другое"])[0] || "Паспорт РФ");
+  const resolvedInitialDocumentType = initialDocumentType || (editingClient ? "" : "Паспорт РФ");
   const documentTextMatch = String(editingClient?.document || "").match(/(\d{2}\s?\d{2})\s+(\d{6})/);
   const initialDocumentSeries = rawClientDocument.document_series || documentTextMatch?.[1] || "";
   const initialDocumentNumber = rawClientDocument.document_number || documentTextMatch?.[2] || "";
@@ -902,23 +962,23 @@ function openClientModal(clientId = null, options = {}) {
     rawClientDocument.legacy_payload_json?.WhoGive ||
     rawClientDocument.legacy_payload_json?.["qdfMain.WhoGive"] ||
     editingClient?.documentIssuedBy ||
-    (editingClient ? "" : getClientRecentField("issuedBy") || getClientIssuedByOptions()[0] || "");
+    "";
   const initialEmail = editingClient?.email || rawClientDocument.email || "";
   const initialProfession =
     editingClient?.profession ||
     rawClientDocument.profession ||
     rawClientDocument.legacy_payload_json?.profession ||
-    (editingClient ? "" : getClientRecentField("profession") || getClientTextFieldOptions("profession")[0] || "");
+    "";
   const initialWorkPlace =
     editingClient?.workPlace ||
     rawClientDocument.work_place ||
     rawClientDocument.legacy_payload_json?.work_place ||
-    (editingClient ? "" : getClientRecentField("workPlace") || getClientTextFieldOptions("workPlace")[0] || "");
+    "";
   const initialOrganization =
     editingClient?.organization ||
     rawClientDocument.organization ||
     rawClientDocument.legacy_payload_json?.organization ||
-    (editingClient ? "" : getClientRecentField("organization") || getClientTextFieldOptions("organization")[0] || "");
+    "";
 
   openActionModal(
     modalTitle,
@@ -936,15 +996,15 @@ function openClientModal(clientId = null, options = {}) {
         <div class="client-create-grid client-create-grid--names">
           <label class="field">
             <span>Фамилия</span>
-            <input name="lastName" value="${escapeHtml(lastName)}" />
+            <input name="lastName" value="${escapeHtml(lastName)}" autocapitalize="words" />
           </label>
           <label class="field">
             <span>Имя</span>
-            <input name="firstName" value="${escapeHtml(firstName)}" />
+            <input name="firstName" value="${escapeHtml(firstName)}" autocapitalize="words" />
           </label>
           <label class="field">
             <span>Отчество</span>
-            <input name="middleName" value="${escapeHtml(middleName)}" />
+            <input name="middleName" value="${escapeHtml(middleName)}" autocapitalize="words" />
           </label>
         </div>
 
@@ -953,19 +1013,15 @@ function openClientModal(clientId = null, options = {}) {
             <span>Дата рождения</span>
             <input name="birthDate" data-date-mask value="${escapeHtml(editingClient?.birthDate || "")}" />
           </label>
-          <label class="field">
+          <label class="field">
             <span>Пол</span>
-            <select name="gender">
-              <option value="" ${defaultGender ? "" : "selected"}></option>
+            <select name="gender">
+              <option value="" ${defaultGender ? "" : "selected"}></option>
               <option ${defaultGender === "муж" || defaultGender === "M" ? "selected" : ""}>муж</option>
               <option ${defaultGender === "жен" || defaultGender === "F" ? "selected" : ""}>жен</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>Место рождения</span>
-            <input name="birthPlace" value="${escapeHtml(initialBirthPlace)}" list="clientCitySuggestions" />
-          </label>
-        </div>
+            </select>
+          </label>
+        </div>
 
         </section>
 
@@ -1007,7 +1063,7 @@ function openClientModal(clientId = null, options = {}) {
           ${renderClientAddressDatalists()}
           <label class="field">
             <span>Страна</span>
-            <input name="country" value="${escapeHtml(initialAddress.country || CLIENT_DEFAULT_COUNTRY)}" />
+            <input name="country" value="${escapeHtml(initialAddress.country || (!editingClient ? CLIENT_DEFAULT_COUNTRY : ""))}" />
           </label>
           <label class="field">
             <span>Субъект РФ</span>
@@ -1063,7 +1119,7 @@ function openClientModal(clientId = null, options = {}) {
           </label>
           <label class="field">
             <span>Агент</span>
-            <input name="agent" value="${escapeHtml(editingClient?.agent || (!editingClient ? getClientRecentField("agent") || getClientTextFieldOptions("agent")[0] || "" : ""))}" list="clientAgentSuggestions" />
+            <input name="agent" value="${escapeHtml(editingClient?.agent || "")}" list="clientAgentSuggestions" />
           </label>
         </div>
 
@@ -1110,7 +1166,7 @@ function openClientModal(clientId = null, options = {}) {
 
         <div class="client-create-actions">
           <button type="button" class="ghost-button" id="cancelClientCreate">Отмена</button>
-          ${encounterMode ? "" : '<button type="submit" class="ghost-button" name="clientSubmitAction" value="contract">ОК + договор</button>'}
+          <button type="submit" class="ghost-button" name="clientSubmitAction" value="contract">${encounterMode ? "Сохранить + договор" : "ОК + договор"}</button>
           <button type="submit" class="primary-button">${primarySubmitLabel}</button>
         </div>
         </div>
@@ -1123,9 +1179,13 @@ function openClientModal(clientId = null, options = {}) {
   const contractSubmitButton = form?.querySelector('[name="clientSubmitAction"][value="contract"]');
   const defaultSubmitButton = form?.querySelector('.primary-button[type="submit"], .primary-button:not([type])');
 
-  if (form) {
-    attachDateMask(form);
-    bindClientAddressAutocomplete(form);
+  if (form) {
+    attachDateMask(form);
+    form.querySelectorAll(".field").forEach((field) => {
+      if (!field.querySelector("input, select, textarea")) field.remove();
+    });
+    bindClientNameCapitalization(form);
+    bindClientAddressAutocomplete(form, { defaultCountry: Boolean(editingClient) });
 
     form.addEventListener("keydown", (event) => {
       if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) {
@@ -1183,7 +1243,10 @@ function openClientModal(clientId = null, options = {}) {
   form?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const shouldOpenContract = clientModalSubmitAction === "contract" || event.submitter?.value === "contract";
-    const formData = new FormData(form);
+    const formData = new FormData(form);
+    ["lastName", "firstName", "middleName"].forEach((fieldName) => {
+      formData.set(fieldName, formatClientNameInputValue(formData.get(fieldName)));
+    });
     const encounterDateText = String(
       editingClient?.encounterDate || editingClient?.lastVisit || formatDateTime(new Date()),
     ).trim();
@@ -1214,7 +1277,6 @@ function openClientModal(clientId = null, options = {}) {
     Object.assign(targetClient, {
       fullName: fullName || "Новый клиент",
       birthDate: String(formData.get("birthDate") || "").trim(),
-      birthPlace: String(formData.get("birthPlace") || "").trim(),
       phone: String(formData.get("phone") || "").trim(),
       profession: String(formData.get("profession") || "").trim(),
       workPlace: String(formData.get("workPlace") || "").trim(),
@@ -1302,7 +1364,6 @@ function openClientModal(clientId = null, options = {}) {
             source: "demo-client-modal",
             services: selectedServiceValues,
             agent: String(formData.get("agent") || "").trim() || null,
-            birth_place: String(formData.get("birthPlace") || "").trim() || null,
             profession: String(formData.get("profession") || "").trim() || null,
             work_place: String(formData.get("workPlace") || "").trim() || null,
             organization: String(formData.get("organization") || "").trim() || null,
@@ -1319,7 +1380,6 @@ function openClientModal(clientId = null, options = {}) {
             patientNumber: savedClient.patient_number,
             cardNumber: savedClient.card_number || targetClient.cardNumber || (savedClient.patient_number ? String(savedClient.patient_number).padStart(7, "0") : ""),
             agent: String(formData.get("agent") || "").trim() || savedMapped.agent || "",
-            birthPlace: String(formData.get("birthPlace") || "").trim() || savedMapped.birthPlace || "",
             profession: String(formData.get("profession") || "").trim() || savedMapped.profession || "",
             workPlace: String(formData.get("workPlace") || "").trim() || savedMapped.workPlace || "",
             organization: String(formData.get("organization") || "").trim() || savedMapped.organization || "",
@@ -1382,7 +1442,8 @@ function openClientModal(clientId = null, options = {}) {
         }
       }
       await window.syncVisitToBackend?.(effectiveVisit, targetClient);
-      await window.ensureRequiredDoctorExamsForVisit?.(targetClient, effectiveVisit);
+      await window.ensureRequiredDoctorExamsForVisit?.(targetClient, effectiveVisit);
+      await window.loadDashboardDoctorStatuses?.([targetClient], { render: false });
       window.persistDemoState?.();
     }
 

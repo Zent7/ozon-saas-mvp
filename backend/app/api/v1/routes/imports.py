@@ -95,6 +95,9 @@ def parse_date(value: str | None) -> date:
             return datetime.strptime(text, date_format).date()
         except ValueError:
             continue
+    parsed_short_date = parse_short_ru_date(text)
+    if parsed_short_date is not None:
+        return parsed_short_date
     return date(1900, 1, 1)
 
 
@@ -107,7 +110,24 @@ def parse_optional_date(value: str | None) -> date | None:
             return datetime.strptime(text, date_format).date()
         except ValueError:
             continue
+    parsed_short_date = parse_short_ru_date(text)
+    if parsed_short_date is not None:
+        return parsed_short_date
     return None
+
+
+def parse_short_ru_date(value: str) -> date | None:
+    match = re.fullmatch(r"(\d{2})\.(\d{2})\.(\d{2})(?:\s+\d{1,2}:\d{2})?", value)
+    if not match:
+        return None
+    day, month, year = match.groups()
+    current_year = date.today().year
+    current_century = current_year // 100 * 100
+    full_year = (current_century if int(year) <= current_year % 100 + 20 else current_century - 100) + int(year)
+    try:
+        return date(full_year, int(month), int(day))
+    except ValueError:
+        return None
 
 
 def normalize_text(value: Any) -> str | None:
@@ -209,7 +229,7 @@ def read_xls_rows(content: bytes) -> list[dict[str, Any]]:
             if cell.ctype in {xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK}:
                 cells[column_index] = None
             elif cell.ctype == xlrd.XL_CELL_DATE:
-                cells[column_index] = xlrd.xldate_as_datetime(cell.value, book.datemode).strftime("%d.%m.%Y")
+                cells[column_index] = xlrd.xldate_as_datetime(cell.value, book.datemode).strftime("%d.%m.%y")
             elif cell.ctype == xlrd.XL_CELL_NUMBER:
                 number = float(cell.value)
                 cells[column_index] = str(int(number)) if number.is_integer() else str(number)
@@ -522,7 +542,7 @@ def preview_client_excel_import(payload: ClientImportExcelRequest, db: Session =
                 full_name=" ".join(
                     part for part in [row.get("last_name"), row.get("first_name"), row.get("middle_name")] if part
                 ),
-                birth_date=row.get("birth_date").strftime("%d.%m.%Y") if row.get("birth_date") else None,
+                birth_date=row.get("birth_date").strftime("%d.%m.%y") if row.get("birth_date") else None,
                 organization=row.get("organization"),
                 status=status_label,
                 match_reason=match_reason,

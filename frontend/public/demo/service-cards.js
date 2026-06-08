@@ -15,11 +15,15 @@
     "Ритм синусовый, ЧСС , нормальная электрическая позиция сердца, ЭКГ-комплексы без особенностей";
 
   function extractRuDate(value) {
-    return String(value ?? "").match(/\b\d{2}\.\d{2}\.\d{4}\b/)?.[0] || "";
+    return String(value ?? "").match(/\b\d{2}\.\d{2}\.(?:\d{2}|\d{4})\b/)?.[0] || "";
   }
 
   function todayRuDate() {
-    return new Date().toLocaleDateString("ru-RU");
+    return new Date().toLocaleDateString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit",
+    });
   }
 
   function buildAutoEkgConclusion(date) {
@@ -35,9 +39,10 @@
   // driver — открывается уже существующая карточка председателя.
   // sport  — новая карточка спортивной справки.
   // прочее — placeholder.
-  // Жёсткий whitelist: только для двух услуг — своя карточка.
+  // Жёсткий whitelist: только для согласованных услуг — своя карточка.
   // Все остальные услуги показывают плейсхолдер «Карточка пока не готова».
   const DRIVER_LEGACY_IDS = new Set([8, 29]);
+  const PROF_LEGACY_IDS = new Set([16]);
   const SPORT_LEGACY_IDS = new Set([4, 5]);
   const EKG_LEGACY_IDS = new Set([6, 20, 21, 27]);
 
@@ -54,6 +59,10 @@
       name === "медицинское заключение для водительского удостоверения"
     ) {
       return "driver";
+    }
+
+    if (PROF_LEGACY_IDS.has(legacyId) || name.includes("профосмотр") || name.includes("29н")) {
+      return "prof";
     }
 
     if (SPORT_LEGACY_IDS.has(legacyId)) return "sport";
@@ -100,9 +109,8 @@
     const visit = window.getOrCreateDraftVisit && window.getOrCreateDraftVisit(client.id);
 
     const kind = resolveServiceCardKind(service);
-    if (kind === "driver" || kind === "chairman") {
+    if (kind === "driver" || kind === "prof" || kind === "chairman") {
       closeServiceCardOverlays();
-      // ВАЖНО: водительская карточка — chairman, как было раньше.
       window.openDoctorExamCard({
         clientId: client.id,
         visitId: visit?.id || null,

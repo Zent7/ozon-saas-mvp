@@ -6,7 +6,11 @@
   function formatDate(value) {
     if (!value) return "—";
     try {
-      return new Date(value).toLocaleDateString("ru-RU");
+      return new Date(value).toLocaleDateString("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "2-digit",
+      });
     } catch {
       return String(value);
     }
@@ -15,7 +19,13 @@
   function formatDateTime(value) {
     if (!value) return "—";
     try {
-      return new Date(value).toLocaleString("ru-RU");
+      return new Date(value).toLocaleString("ru-RU", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
     } catch {
       return String(value);
     }

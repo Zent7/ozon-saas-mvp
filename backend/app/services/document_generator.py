@@ -393,7 +393,7 @@ def _xls_excel_date(value: date | datetime | str | None) -> float | str:
     if value <= date(1900, 1, 1):
         return ""
     if value < date(1900, 3, 1):
-        return value.strftime("%d.%m.%Y")
+        return value.strftime("%d.%m.%y")
     return xldate.xldate_from_date_tuple((value.year, value.month, value.day), 0)
 
 
@@ -650,6 +650,14 @@ def _sheet_pair(source_book, target_book, sheet_name: str):
     return source_book.sheet_by_index(index), target_book.get_sheet(index), index
 
 
+def _sheet_pair_any(source_book, target_book, sheet_names: tuple[str, ...]):
+    for sheet_name in sheet_names:
+        source_sheet, target_sheet, index = _sheet_pair(source_book, target_book, sheet_name)
+        if source_sheet is not None and target_sheet is not None:
+            return source_sheet, target_sheet, index
+    return None, None, None
+
+
 def _fill_contract_xls_sheet(
     source_sheet,
     target_sheet,
@@ -892,6 +900,46 @@ DRIVER_CATEGORY_FIELD_KEYS = {
     "C1E": "categoryC1E",
     "D1E": "categoryD1E",
 }
+DRIVER_XLS_FRONT_SHEET_NAMES = ("Водительская Лицевая", "Вод.Лиц22")
+DRIVER_XLS_BACK_SHEET_NAMES = ("Водительская Оборотная", "Вод.Об22", "Вод.Оборот")
+DRIVER_CATEGORY_LEGACY_ALIASES = {
+    "A1": "1A",
+    "B1": "1B",
+    "C1": "1C",
+    "D1": "1D",
+    "C1E": "1CE",
+    "D1E": "1DE",
+}
+DRIVER_XML_CATEGORY_TOKENS = {
+    "A": ("ACalc", "CategoryA"),
+    "B": ("BCalc", "CategoryB"),
+    "C": ("CCalc", "CategoryC"),
+    "D": ("DCalc", "CategoryD"),
+    "BE": ("BECalc", "CategoryBE"),
+    "CE": ("CECalc", "CategoryCE"),
+    "DE": ("DECalc", "CategoryDE"),
+    "Tm": ("TmCalc", "CategoryTm"),
+    "Tb": ("TbCalc", "CategoryTb"),
+    "M": ("MCalc", "CategoryM"),
+    "A1": ("A1Calc", "CategoryA1", "Category1A"),
+    "B1": ("B1Calc", "CategoryB1", "Category1B"),
+    "C1": ("C1Calc", "CategoryC1", "Category1C"),
+    "D1": ("D1Calc", "CategoryD1", "Category1D"),
+    "C1E": ("C1ECalc", "CategoryC1E", "Category1CE"),
+    "D1E": ("D1ECalc", "CategoryD1E", "Category1DE"),
+}
+DRIVER_INDICATION_TOKEN_FIELDS = {
+    "ManualControlCalc": ("indicationManual", ("с ручным упр", "ручн.управ", "ручн управ")),
+    "AutomaticTransmissionCalc": ("indicationAutomatic", ("автоматич. трансмисс", "автоматической трансмисс", "с автоматом")),
+    "ParkingSystemCalc": ("indicationAcoustic", ("акустич. парковочная", "акустической парковочной", "парковочная система")),
+    "VisionTCCalc": ("indicationGlasses", ("коррекции зрения", "очки", "линзы")),
+    "HearingTCCalc": ("indicationHearingAid", ("компенсации потери слуха", "слуховой аппарат")),
+}
+DRIVER_RESTRICTION_TOKEN_FIELDS = {
+    "TCA": ("restrictionAM", ("am",)),
+    "TCB": ("restrictionBBE", ("b be", "bbe")),
+    "TCC": ("restrictionCCE", ("c ce", "cce")),
+}
 
 
 def _truthy_driver_value(value: object) -> bool:
@@ -927,6 +975,17 @@ def _driver_category_tokens(value: object) -> set[str]:
     return tokens
 
 
+def _driver_completed_chairman(exams: list[DoctorExam]) -> DoctorExam | None:
+    return next(
+        (
+            exam
+            for exam in exams
+            if str(exam.doctor_role_id or "").strip().lower() == "chairman" and bool(exam.is_completed)
+        ),
+        None,
+    )
+
+
 def _driver_categories_from_chairman(fields: dict) -> set[str] | None:
     exact_fields = {field_key for field_key in DRIVER_CATEGORY_FIELD_KEYS.values() if field_key in fields}
     if "categoryE" in fields:
@@ -954,6 +1013,95 @@ def _driver_categories_from_context(context: dict[str, str], client: Client) -> 
     }
     selected.update(_driver_category_tokens(client.admission_category))
     return selected
+
+
+def _driver_categories_for_documents(client: Client, exams: list[DoctorExam]) -> set[str]:
+    chairman = _driver_completed_chairman(exams)
+    chairman_categories = _driver_categories_from_chairman(chairman.fields_json or {}) if chairman else None
+    if chairman_categories is not None:
+        return chairman_categories
+    return _driver_category_tokens(client.admission_category)
+
+
+def _driver_category_context_values(selected: set[str], true_value: str = "X", false_value: str = "") -> dict[str, str]:
+    context: dict[str, str] = {}
+    for category in DRIVER_XLS_CATEGORY_KEYS:
+        value = true_value if category in selected else false_value
+        for key in (
+            f"Category{category}",
+            f"Category{category}1",
+            f"{category}Calc",
+            f"Category{category}Calc",
+        ):
+            context[key] = value
+        legacy_key = DRIVER_CATEGORY_LEGACY_ALIASES.get(category)
+        if legacy_key:
+            for key in (
+                f"Category{legacy_key}",
+                f"Category{legacy_key}1",
+                f"{legacy_key}Calc",
+                f"Category{legacy_key}Calc",
+            ):
+                context[key] = value
+    return context
+
+
+def _driver_text_contains(value: object, needles: tuple[str, ...]) -> bool:
+    text = str(value or "").strip().lower().replace("ё", "е")
+    return any(needle in text for needle in needles)
+
+
+def _driver_field_or_text_flag(fields: dict, field_key: str, fallback_text: object, labels: tuple[str, ...]) -> bool:
+    if field_key in fields:
+        return _truthy_driver_value(fields.get(field_key))
+    return _driver_text_contains(fallback_text, labels)
+
+
+def _driver_flag_context_values(client: Client, exams: list[DoctorExam]) -> dict[str, str]:
+    chairman = _driver_completed_chairman(exams)
+    fields = (chairman.fields_json or {}) if chairman else {}
+    fallback_text = client.indications or ""
+    context: dict[str, str] = {}
+    for token, (field_key, labels) in DRIVER_INDICATION_TOKEN_FIELDS.items():
+        context[token] = "true" if _driver_field_or_text_flag(fields, field_key, fallback_text, labels) else "false"
+    for token, (field_key, labels) in DRIVER_RESTRICTION_TOKEN_FIELDS.items():
+        context[token] = "X" if _driver_field_or_text_flag(fields, field_key, fallback_text, labels) else ""
+    context["DriveShipCalc"] = "true" if _truthy_driver_value(fields.get("categoryBoat")) else "false"
+    return context
+
+
+def _driver_document_context_overrides(client: Client, exams: list[DoctorExam]) -> dict[str, str]:
+    selected = _driver_categories_for_documents(client, exams)
+    return {
+        **_driver_category_context_values(selected),
+        **_driver_flag_context_values(client, exams),
+    }
+
+
+def _bool_text(value: bool) -> str:
+    return "true" if value else "false"
+
+
+def _driver_xml_context_overrides(context: dict[str, str], client: Client, exams: list[DoctorExam]) -> dict[str, str]:
+    selected = _driver_categories_for_documents(client, exams)
+    overrides: dict[str, str] = {}
+    for category, token_names in DRIVER_XML_CATEGORY_TOKENS.items():
+        value = _bool_text(category in selected)
+        for token_name in token_names:
+            overrides[token_name] = value
+
+    flag_context = _driver_flag_context_values(client, exams)
+    overrides.update(
+        {
+            token_name: flag_context[token_name]
+            for token_name in DRIVER_INDICATION_TOKEN_FIELDS
+        }
+    )
+    overrides["DriveShipCalc"] = flag_context["DriveShipCalc"]
+    overrides["CategoryACalc"] = _bool_text(bool(flag_context.get("TCA")))
+    overrides["CategoryBCalc"] = _bool_text(bool(flag_context.get("TCB")))
+    overrides["CategoryCCalc"] = _bool_text(bool(flag_context.get("TCC")))
+    return overrides
 
 
 def _driver_category_marks(context: dict[str, str], client: Client, exams_by_role: dict[str, DoctorExam]) -> list[str]:
@@ -1007,7 +1155,7 @@ def _fill_driver_xls_sheets(
         _build_exam_export(exams_by_role.get("chairman")).get("doctor"),
     ]
     issue_date = encounter.encounter_date if encounter else date.today()
-    front_source, front_target, _ = _sheet_pair(source_book, target_book, "Водительская Лицевая")
+    front_source, front_target, _ = _sheet_pair_any(source_book, target_book, DRIVER_XLS_FRONT_SHEET_NAMES)
     if front_source and front_target:
         _write_xls_pairs(
             front_target,
@@ -1064,7 +1212,7 @@ def _fill_driver_xls_sheets(
             ((41, 12), (41, 39)),
         ]:
             _copy_xls_target_cell_style(front_target, *target_coord, *style_coord)
-    back_source, back_target, _ = _sheet_pair(source_book, target_book, "Водительская Оборотная")
+    back_source, back_target, _ = _sheet_pair_any(source_book, target_book, DRIVER_XLS_BACK_SHEET_NAMES)
     if back_source and back_target:
         category_marks = _driver_category_marks(context, client, exams_by_role)
         _write_driver_marker_cells(source_book, back_source, back_target, DRIVER_XLS_CATEGORY_CELLS_LEFT, category_marks)
@@ -1190,6 +1338,9 @@ def _generate_prof_amb_xls(
     target_sheet = target_book.get_sheet(amb_index)
     target_book._Workbook__active_sheet = amb_index
 
+    exams_by_role = _exam_map(exams)
+    _fill_driver_xls_sheets(source_book, target_book, context, client, encounter, exams_by_role)
+
     address = context.get("AddressCalc", "")
     city = context.get("CityCalc", "")
     district = context.get("DistrictCalc", "")
@@ -1243,11 +1394,6 @@ def _generate_prof_amb_xls(
             (49, 26),
         ],
     )
-
-    exams_by_role: dict[str, DoctorExam] = {}
-    for exam in exams:
-        role_key = str(exam.doctor_role_id or "").strip().lower()
-        exams_by_role.setdefault(role_key, exam)
 
     psychiatrist_exam = exams_by_role.get("psychiatrist")
     narcologist_exam = exams_by_role.get("psychiatrist-narcologist")
@@ -1345,26 +1491,34 @@ def _apply_print_variant_to_xls_workbook(target_book, print_variant: str | None)
     if not variant:
         return
 
-    sheet_by_variant = {
-        "driver_front": "Водительская Лицевая",
-        "driver_back": "Водительская Оборотная",
-        "tractor_front": "Тракторная Лицевая",
-        "tractor_back": "Тракторная оборотная",
+    sheets_by_variant = {
+        "driver_front": DRIVER_XLS_FRONT_SHEET_NAMES,
+        "driver_back": DRIVER_XLS_BACK_SHEET_NAMES,
+        "tractor_front": ("Тракторная Лицевая",),
+        "tractor_back": ("Тракторная оборотная",),
     }
-    target_sheet_name = sheet_by_variant.get(variant)
-    if not target_sheet_name:
+    target_sheet_names = sheets_by_variant.get(variant)
+    if not target_sheet_names:
         raise ValueError(f"Неизвестный вариант печати: {print_variant}")
 
     worksheets = list(getattr(target_book, "_Workbook__worksheets", []) or [])
     if not worksheets:
         return
 
-    kept_sheets = [sheet for sheet in worksheets if getattr(sheet, "name", "") == target_sheet_name]
-    if not kept_sheets:
-        raise ValueError(f"В шаблоне не найден лист для печати: {target_sheet_name}")
+    kept_sheet = next(
+        (
+            sheet
+            for target_sheet_name in target_sheet_names
+            for sheet in worksheets
+            if getattr(sheet, "name", "") == target_sheet_name
+        ),
+        None,
+    )
+    if kept_sheet is None:
+        raise ValueError(f"В шаблоне не найден лист для печати: {target_sheet_names[0]}")
 
-    target_book._Workbook__worksheets = kept_sheets
-    target_book._Workbook__worksheet_idx_from_name = {target_sheet_name: 0}
+    target_book._Workbook__worksheets = [kept_sheet]
+    target_book._Workbook__worksheet_idx_from_name = {getattr(kept_sheet, "name", target_sheet_names[0]): 0}
     target_book._Workbook__active_sheet = 0
 
 
@@ -1496,8 +1650,8 @@ def _get_journal_info(template: DocumentTemplate) -> tuple[str, str] | None:
         return ("journal_344", "Журнал 344 водительских заключений")
     if "оруж" in name or "002" in name:
         return ("journal_441", "Журнал 441 оружейных заключений")
-    if "лмк" in name or "медкниж" in name:
-        return ("lmk", "Журнал личных медицинских книжек")
+    if "лмк" in name:
+        return ("lmk", "Журнал ЛМК")
     if "086" in name:
         return ("086", "Журнал справок 086у")
     return None
@@ -1534,7 +1688,7 @@ def _load_encounter_document_values(db: Session, client: Client, encounter: Enco
                 "ordinal": str(index),
                 "service": name,
                 "quantity": "1",
-                "date": date.today().strftime("%d.%m.%Y"),
+                "date": date.today().strftime("%d.%m.%y"),
                 "unit_price": "",
                 "line_total": "",
             }
@@ -1571,7 +1725,7 @@ def _load_encounter_document_values(db: Session, client: Client, encounter: Enco
             "ordinal": str(index),
             "service": name,
             "quantity": str(item.quantity or 1),
-            "date": encounter.encounter_date.strftime("%d.%m.%Y"),
+            "date": encounter.encounter_date.strftime("%d.%m.%y"),
             "unit_price": str(item.unit_price or ""),
             "line_total": str(item.line_total or ""),
         }
@@ -1585,7 +1739,7 @@ def _load_encounter_document_values(db: Session, client: Client, encounter: Enco
                 "ordinal": str(index),
                 "service": name,
                 "quantity": "1",
-                "date": encounter.encounter_date.strftime("%d.%m.%Y"),
+                "date": encounter.encounter_date.strftime("%d.%m.%y"),
                 "unit_price": "",
                 "line_total": "",
             }
@@ -1644,6 +1798,13 @@ def _load_encounter_document_values(db: Session, client: Client, encounter: Enco
         context_overrides["DistinguishingMark"] = context_overrides["DistinguishingMark"] or _first_field_value(
             fields, "distinguishingMark", "distinguishingMarks", "specialMarks", "special_mark"
         )
+    context_overrides.update(
+        {
+            key: value
+            for key, value in _driver_document_context_overrides(client, exams).items()
+            if value not in (None, "")
+        }
+    )
     context_overrides.update(
         {
             key: value
@@ -1903,10 +2064,12 @@ def generate_document(
                 if value not in (None, "")
             }
         )
+        document_exams = list(runtime_values.get("exams", []))
+        context.update(_driver_document_context_overrides(client, document_exams))
         context.update(
             {
                 key: str(value or "").strip()
-                for key, value in _sport_context_overrides(list(runtime_values.get("exams", []))).items()
+                for key, value in _sport_context_overrides(document_exams).items()
             }
         )
         if blank_form is not None:
@@ -1930,7 +2093,9 @@ def generate_document(
                 cleanup_xml=_is_contract_template(template),
             )
         elif template.template_type == "xml":
-            _generate_xml(template_path, output_path, context)
+            xml_context = context.copy()
+            xml_context.update(_driver_xml_context_overrides(xml_context, client, document_exams))
+            _generate_xml(template_path, output_path, xml_context)
         elif template.template_type == "xls":
             _generate_runtime_xls(
                 template_path,

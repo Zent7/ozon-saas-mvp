@@ -1,0 +1,13 @@
+$ErrorActionPreference = "Stop"
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Python = Join-Path $ScriptDir ".venv\Scripts\python.exe"
+
+if (-not (Test-Path $Python)) {
+    Write-Host "Creating virtual environment..."
+    py -3 -m venv (Join-Path $ScriptDir ".venv")
+    & $Python -m pip install --upgrade pip
+    & $Python -m pip install -r (Join-Path $ScriptDir "requirements.txt")
+}
+
+& $Python (Join-Path $ScriptDir "main.py") --host 127.0.0.1 --port 8765

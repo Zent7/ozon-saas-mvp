@@ -46,7 +46,7 @@ def _text(value: Any) -> str:
 
 
 def _date(value: date | None) -> str:
-    return value.strftime("%d.%m.%Y") if value else ""
+    return value.strftime("%d.%m.%y") if value else ""
 
 
 def _date_parts(value: date | None) -> tuple[str, str, str, str]:

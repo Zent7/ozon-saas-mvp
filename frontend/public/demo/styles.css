@@ -12,31 +12,30 @@
   --warn-soft: rgba(169, 91, 23, 0.12);
   --danger: #9d2f2f;
   --shadow: 0 24px 60px rgba(15, 31, 56, 0.08);
-  --excel-col-number: clamp(34px, 2.4vw, 42px);
-  --excel-col-fio: clamp(95px, 8vw, 130px);
-  --excel-col-birth: clamp(58px, 4.4vw, 64px);
-  --excel-col-registration: clamp(96px, 8vw, 155px);
-  --excel-col-category: clamp(80px, 6vw, 110px);
-  --excel-col-reference: clamp(42px, 3.8vw, 58px);
-  --excel-col-gynecologist: clamp(28px, 2.2vw, 42px);
-  --excel-col-stomatologist: clamp(28px, 2.2vw, 42px);
-  --excel-col-dermatologist: clamp(28px, 2.2vw, 42px);
-  --excel-col-neurologist: clamp(28px, 2.2vw, 42px);
-  --excel-col-surgeon: clamp(28px, 2.2vw, 42px);
-  --excel-col-otolaryngologist: clamp(28px, 2.2vw, 42px);
-  --excel-col-ophthalmologist: clamp(28px, 2.2vw, 42px);
-  --excel-col-therapist: clamp(28px, 2.2vw, 42px);
-  --excel-col-psychiatrist: clamp(28px, 2.2vw, 42px);
-  --excel-col-infectionist: clamp(28px, 2.2vw, 42px);
-  --excel-col-phthisiatrician: clamp(28px, 2.2vw, 42px);
-  --excel-col-uzist: clamp(28px, 2.2vw, 42px);
-  --excel-col-chairman: clamp(28px, 2.2vw, 42px);
-  --excel-col-stamp: clamp(28px, 2.2vw, 42px);
-  --excel-col-note: clamp(120px, 9vw, 165px);
-  --excel-col-encounterDate: clamp(58px, 4.8vw, 72px);
-  --excel-col-cardNumber: clamp(54px, 4.4vw, 68px);
-  --excel-col-organization: clamp(88px, 7vw, 120px);
-  --excel-col-agent: clamp(88px, 7vw, 120px);
+  --excel-col-encounterDate: clamp(86px, 5.4vw, 112px);
+  --excel-col-fio: clamp(150px, 11vw, 220px);
+  --excel-col-birth: clamp(82px, 5.2vw, 104px);
+  --excel-col-registration: clamp(150px, 11vw, 230px);
+  --excel-col-category: clamp(96px, 6.6vw, 138px);
+  --excel-col-reference: clamp(66px, 4.4vw, 84px);
+  --excel-col-gynecologist: clamp(34px, 2.4vw, 46px);
+  --excel-col-stomatologist: clamp(34px, 2.4vw, 46px);
+  --excel-col-dermatologist: clamp(34px, 2.4vw, 46px);
+  --excel-col-neurologist: clamp(34px, 2.4vw, 46px);
+  --excel-col-surgeon: clamp(34px, 2.4vw, 46px);
+  --excel-col-otolaryngologist: clamp(34px, 2.4vw, 46px);
+  --excel-col-ophthalmologist: clamp(34px, 2.4vw, 46px);
+  --excel-col-therapist: clamp(34px, 2.4vw, 46px);
+  --excel-col-psychiatrist: clamp(34px, 2.4vw, 46px);
+  --excel-col-infectionist: clamp(34px, 2.4vw, 46px);
+  --excel-col-phthisiatrician: clamp(34px, 2.4vw, 46px);
+  --excel-col-uzist: clamp(34px, 2.4vw, 46px);
+  --excel-col-chairman: clamp(34px, 2.4vw, 46px);
+  --excel-col-note: clamp(140px, 9vw, 190px);
+  --excel-col-cardNumber: clamp(78px, 5vw, 104px);
+  --excel-col-organization: clamp(116px, 7.4vw, 160px);
+  --excel-col-agent: clamp(110px, 7vw, 150px);
+  --dashboard-sticky-offset: 0px;
   --excel-col-serviceId: 72px;
   --excel-col-serviceName: 340px;
   --excel-col-serviceGroup: 190px;
@@ -72,51 +71,55 @@ textarea {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
+  grid-template-columns: 128px minmax(0, 1fr);
   min-height: 100vh;
 }
 
 .sidebar {
   background: linear-gradient(180deg, #14334f 0%, #10263f 100%);
   color: #f7fbfd;
-  padding: 16px 10px;
+  padding: 14px 8px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .brand {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   justify-items: start;
 }
 
 .brand__badge {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
+  width: 38px;
+  height: 38px;
+  border-radius: 13px;
   display: grid;
   place-items: center;
   background: linear-gradient(135deg, #2fd1d3 0%, #9ce9d5 100%);
   color: #14334f;
   font-weight: 800;
-  font-size: 20px;
+  font-size: 19px;
 }
 
 .brand__title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
 }
 
 .brand__subtitle {
   color: rgba(247, 251, 253, 0.68);
-  font-size: 11px;
+  font-size: 10px;
   margin-top: 2px;
 }
 
 .nav {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .nav button {
@@ -124,10 +127,12 @@ textarea {
   background: transparent;
   color: rgba(247, 251, 253, 0.82);
   text-align: left;
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: 10px;
+  border-radius: 10px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.25;
 }
 
 .nav button:hover,
@@ -182,14 +187,14 @@ textarea {
 }
 
 .main {
-  padding: 18px;
+  padding: 10px 14px 14px;
 }
 
 .topbar {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
+  align-items: center;
+  gap: 12px;
 }
 
 .eyebrow {
@@ -200,23 +205,32 @@ textarea {
 }
 
 .topbar h1 {
-  margin: 8px 0 0;
-  font-size: 38px;
+  margin: 2px 0 0;
+  font-size: 28px;
   line-height: 1.05;
 }
 
 .topbar-actions {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
 }
 
 .center-pill {
-  padding: 10px 14px;
+  padding: 7px 11px;
   border-radius: 999px;
   background: var(--panel);
   border: 1px solid var(--line);
-  box-shadow: var(--shadow);
+  box-shadow: 0 8px 18px rgba(15, 31, 56, 0.08);
+  font-size: 13px;
+  line-height: 1.1;
+}
+
+.topbar-actions .primary-button {
+  border-radius: 11px;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.15;
 }
 
 .center-select {
@@ -244,15 +258,22 @@ textarea {
   color: #ffffff;
 }
 
+.ghost-button:disabled,
+.primary-button:disabled,
+.secondary-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .secondary-button {
   background: var(--accent-soft);
   color: var(--accent-deep);
 }
 
 .content {
-  margin-top: 14px;
+  margin-top: 8px;
   display: grid;
-  gap: 18px;
+  gap: 12px;
 }
 
 .hero {
@@ -1063,7 +1084,7 @@ textarea {
 .modal {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: 1000;
 }
 
 .modal__backdrop {
@@ -1082,10 +1103,65 @@ textarea {
   overflow: hidden;
 }
 
+#loginModal .modal__card {
+  width: min(340px, calc(100% - 32px));
+  margin: 96px auto;
+  border-radius: 18px;
+}
+
+#loginModal .modal__header {
+  padding: 9px 12px;
+}
+
+#loginModal .modal__header h2 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+#loginModal .icon-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  font-size: 18px;
+}
+
+#loginModal .login-card {
+  padding: 10px;
+  gap: 7px;
+}
+
+#loginModal .field {
+  gap: 5px;
+}
+
+#loginModal .field span {
+  font-size: 12px;
+}
+
+#loginModal .field input {
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+#loginModal .note {
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+#loginModal .primary-button {
+  border-radius: 10px;
+  padding: 9px 12px;
+  font-size: 13px;
+}
+
 #actionModal .modal__card {
   width: min(1640px, calc(100% - 32px));
-  max-height: calc(100vh - 32px);
-  margin: 8px auto;
+  max-height: calc(100vh - 4px);
+  margin: 0 auto;
   overflow: auto;
   border: 1px solid rgba(23, 48, 74, 0.08);
   background:
@@ -1093,11 +1169,28 @@ textarea {
     linear-gradient(180deg, #fcfeff 0%, #f4f8fc 100%);
 }
 
+#actionModal .modal__header {
+  padding: 4px 12px;
+}
+
+#actionModal .modal__header h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.15;
+}
+
+#actionModal .icon-button {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  font-size: 18px;
+}
+
 .modal__header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 18px 22px;
+  padding: 12px 18px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -1112,24 +1205,47 @@ textarea {
 }
 
 .login-card {
-  padding: 18px;
+  padding: 8px 12px 10px;
+  display: grid;
+  gap: 6px;
+}
+
+#actionModal.modal--doctor-mark-action .modal__card {
+  width: min(420px, calc(100% - 32px));
+  margin: 120px auto;
+  border-radius: 18px;
+}
+
+.doctor-mark-action {
   display: grid;
   gap: 12px;
+  padding: 8px 2px 2px;
+}
+
+.doctor-mark-action p {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.danger-button {
+  border-color: rgba(157, 47, 47, 0.28) !important;
+  color: var(--danger) !important;
 }
 
 .client-create-form {
   display: grid;
-  gap: 10px;
+  gap: 4px;
 }
 
 .client-create-shell {
   display: grid;
-  gap: 10px;
+  gap: 5px;
 }
 
 .client-create-section {
   display: grid;
-  gap: 10px;
+  gap: 5px;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -1174,7 +1290,28 @@ textarea {
 
 .client-create-grid {
   display: grid;
-  gap: 10px;
+  gap: 4px 5px;
+}
+
+.client-create-form .field {
+  gap: 2px;
+}
+
+.client-create-form .field span {
+  font-size: 11px;
+}
+
+.client-create-form .field input,
+.client-create-form .field select,
+.client-create-form .field textarea {
+  min-height: 30px;
+  border-radius: 8px;
+  padding: 4px 8px;
+}
+
+.client-create-form .field textarea {
+  min-height: 34px;
+  height: 36px;
 }
 
 .client-create-grid--names {
@@ -1182,11 +1319,15 @@ textarea {
 }
 
 .client-create-grid--top {
-  grid-template-columns: 160px 120px minmax(280px, 1fr);
+  grid-template-columns: 160px 120px;
 }
 
 .client-create-grid--document {
-  grid-template-columns: 180px 110px 140px 150px minmax(260px, 1fr);
+  grid-template-columns: 150px 82px 108px 120px minmax(180px, 1fr);
+}
+
+.client-create-grid--document .field--wide {
+  grid-column: auto;
 }
 
 .client-create-grid--address {
@@ -1210,8 +1351,8 @@ textarea {
 
 .client-services-block {
   display: grid;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 5px;
+  padding: 6px 8px;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: rgba(23, 48, 74, 0.03);
@@ -1226,14 +1367,18 @@ textarea {
 .client-services-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 5px 7px;
+}
+
+.client-services-block .sketch-doctors--top {
+  margin-bottom: 4px !important;
 }
 
 .client-service-chip {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 4px 9px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: #ffffff;
@@ -1269,8 +1414,8 @@ textarea {
 
 .client-payment-block {
   display: grid;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 7px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #ffffff;
@@ -1310,24 +1455,54 @@ textarea {
 
 .client-payment-list {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .client-payment-row {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) 110px 110px minmax(220px, 0.8fr);
-  gap: 8px;
+  gap: 6px;
   align-items: end;
-  padding: 8px;
+  padding: 6px;
   border: 1px solid rgba(148, 163, 184, 0.35);
   border-radius: 8px;
   background: #f8fafc;
 }
 
 .client-payment-row__service {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   align-self: center;
   font-weight: 700;
   line-height: 1.25;
+}
+
+.client-payment-row__service span {
+  min-width: 0;
+}
+
+.client-payment-row__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  border: 1px solid rgba(220, 38, 38, 0.22);
+  border-radius: 999px;
+  background: #ffffff;
+  color: #b91c1c;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.client-payment-row__remove:hover {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.35);
 }
 
 .client-payment-row .field {
@@ -1491,11 +1666,9 @@ textarea {
 }
 
 .client-driver-layout {
-  display: grid;
-  grid-template-columns: 380px 170px minmax(360px, 1fr) minmax(330px, 0.86fr);
-  min-height: 360px;
-  gap: 12px;
-  padding: 16px;
+  display: block;
+  min-height: 0;
+  padding: 4px;
 }
 
 .client-driver-doctors {
@@ -1524,26 +1697,25 @@ textarea {
 }
 
 .client-driver-categories {
-  display: grid;
-  grid-template-rows: repeat(3, 1fr);
-  padding: 12px;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - 72px);
+  overflow-x: auto;
+  padding: 4px 5px;
   border: 1px solid rgba(23, 48, 74, 0.12);
-  border-radius: 18px;
+  border-radius: 12px;
   background: linear-gradient(180deg, #ffffff 0%, #f6fafc 100%);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .client-driver-category-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-items: start;
-  justify-items: center;
-  gap: 10px;
-  padding: 8px 6px 0;
+  display: contents;
 }
 
 .client-driver-category-row--top {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: contents;
 }
 
 .client-classic-checkbox {
@@ -1565,6 +1737,20 @@ textarea {
   width: 18px;
   height: 18px;
   margin: 0;
+}
+
+.client-driver-categories .client-classic-checkbox {
+  flex: 0 0 auto;
+  min-width: 42px;
+  gap: 2px;
+  padding: 3px 6px;
+  border-radius: 9px;
+  font-size: 15px;
+}
+
+.client-driver-categories .client-classic-checkbox input {
+  width: 15px;
+  height: 15px;
 }
 
 .client-driver-box {
@@ -1753,6 +1939,7 @@ textarea {
 .sketch-main {
   display: grid;
   gap: 18px;
+  min-width: 0;
 }
 
 .sketch-main--full {
@@ -1763,12 +1950,61 @@ textarea {
   padding: 14px;
 }
 
+.sketch-panel--dashboard {
+  min-width: 0;
+  overflow: visible;
+}
+
+.dashboard-sticky-controls {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  min-width: 0;
+  max-width: 100%;
+  margin: -14px -14px 10px;
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid rgba(14, 31, 53, 0.1);
+  border-radius: 24px 24px 0 0;
+  background: #ffffff;
+  box-shadow: 0 12px 22px rgba(15, 31, 56, 0.08);
+}
+
+.dashboard-sticky-controls .sketch-doctors-block {
+  margin-bottom: 10px;
+}
+
+.dashboard-table-head-scroll {
+  width: calc(100% + 28px);
+  min-width: 0;
+  max-width: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: 16px 16px 0 0;
+  background: #f7f8fa;
+  scrollbar-width: thin;
+}
+
 .sketch-toolbar {
   display: flex;
   justify-content: flex-start;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 0;
+  flex-wrap: wrap;
+}
+
+.sketch-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dashboard-new-visit-button {
+  min-height: 40px;
+  white-space: nowrap;
 }
 
 .sketch-toolbar__title,
@@ -1786,12 +2022,125 @@ textarea {
 }
 
 .sketch-search {
-  min-width: 360px;
-  max-width: 420px;
+  min-width: 280px;
+  max-width: 360px;
 }
 
 .sketch-search span {
   display: none;
+}
+
+.client-period-filter {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.client-period-filter label {
+  display: grid;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.client-period-filter input {
+  min-height: 34px;
+  width: 132px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--text);
+  padding: 6px 9px;
+}
+
+.client-period-filter .ghost-button,
+.client-period-filter .primary-button {
+  min-height: 34px;
+  padding: 8px 11px;
+  border-radius: 10px;
+}
+
+.native-date-picker {
+  position: absolute;
+  z-index: 300;
+  padding: 10px;
+  border: 1px solid rgba(23, 48, 74, 0.18);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 18px 48px rgba(11, 25, 38, 0.2);
+}
+
+.native-date-picker__header {
+  display: grid;
+  grid-template-columns: 34px 1fr 34px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.native-date-picker__title {
+  color: #17304a;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.native-date-picker__nav,
+.native-date-picker__day {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.native-date-picker__nav {
+  min-height: 32px;
+  border-color: var(--line);
+  border-radius: 8px;
+}
+
+.native-date-picker__nav:hover,
+.native-date-picker__day:hover {
+  border-color: rgba(12, 125, 123, 0.35);
+  background: rgba(12, 125, 123, 0.08);
+}
+
+.native-date-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(28px, 1fr));
+  gap: 4px;
+}
+
+.native-date-picker__weekday {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.native-date-picker__day {
+  min-height: 30px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.native-date-picker__day--today {
+  border-color: rgba(23, 48, 74, 0.28);
+}
+
+.native-date-picker__day--selected {
+  border-color: #0c7d7b;
+  background: #0c7d7b;
+  color: #ffffff;
+}
+
+.native-date-picker__day--selected:hover {
+  background: #096765;
+  color: #ffffff;
 }
 
 .duplicate-panel {
@@ -1841,9 +2190,13 @@ textarea {
 
 .sketch-table--excel {
   width: 100%;
-  overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: clip;
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-top: 0;
+  border-radius: 0 0 16px 16px;
   background: #ffffff;
 }
 
@@ -1852,7 +2205,7 @@ textarea {
   width: 100%;
   display: grid;
   grid-template-columns:
-    var(--excel-col-number)
+    var(--excel-col-encounterDate)
     var(--excel-col-fio)
     var(--excel-col-birth)
     var(--excel-col-registration)
@@ -1871,9 +2224,7 @@ textarea {
     var(--excel-col-phthisiatrician)
     var(--excel-col-uzist)
     var(--excel-col-chairman)
-    var(--excel-col-stamp)
     var(--excel-col-note)
-    var(--excel-col-encounterDate)
     var(--excel-col-cardNumber)
     var(--excel-col-organization)
     var(--excel-col-agent);
@@ -1881,17 +2232,18 @@ textarea {
 }
 
 .sketch-table__grid > span {
-  padding: 6px 4px;
+  padding: 7px 5px;
   border-right: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
-  font-size: 10px;
-  line-height: 1.1;
+  font-size: 12px;
+  line-height: 1.18;
   overflow: hidden;
 }
 
 .sketch-table__grid--head {
   background: #f7f8fa;
   font-weight: 700;
+  box-shadow: 0 2px 0 rgba(14, 31, 53, 0.08);
 }
 
 .sketch-table__grid--head > span {
@@ -1899,7 +2251,8 @@ textarea {
   align-items: center;
   justify-content: center;
   text-align: center;
-  min-height: 38px;
+  min-height: 42px;
+  font-size: 11px;
 }
 
 .sketch-head-cell {
@@ -2073,7 +2426,7 @@ textarea {
 }
 
 .sketch-toolbar__meta {
-  margin-left: auto;
+  margin-left: 0;
   font-size: 13px;
   color: var(--muted);
 }
@@ -3355,8 +3708,9 @@ textarea {
 .driver-print-classic__fio {
   display: block;
   width: 100%;
+  height: 42px;
   margin-bottom: 14px;
-  font-size: 18px;
+  font-size: 22px;
 }
 
 .driver-print-classic__caption {
@@ -4074,7 +4428,7 @@ textarea {
 }
 
 .chart-page__header p {
-  margin: 6px 0 0;
+  margin: 0;
 }
 
 .chart-page__actions {
@@ -4499,6 +4853,80 @@ textarea {
   line-height: 1.4;
 }
 
+.copyable-value,
+.copyable-table-value {
+  cursor: pointer;
+  border-radius: 6px;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.copyable-value {
+  display: flex !important;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 5px;
+  margin: 2px -5px 0;
+}
+
+.copyable-value span,
+.copyable-table-value span {
+  min-width: 0;
+}
+
+.copyable-value i,
+.copyable-table-value i {
+  flex: 0 0 auto;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent-deep);
+  opacity: 0;
+}
+
+.copyable-value:hover,
+.copyable-value:focus-visible,
+.copyable-table-value:hover,
+.copyable-table-value:focus-visible {
+  background: rgba(12, 125, 123, 0.1);
+  color: var(--accent-deep);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(12, 125, 123, 0.16);
+}
+
+.copyable-value:hover i,
+.copyable-value:focus-visible i,
+.copyable-table-value:hover i,
+.copyable-table-value:focus-visible i {
+  opacity: 1;
+}
+
+.copyable-value--empty,
+.copyable-table-value--empty {
+  cursor: default;
+}
+
+.copyable-table-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+  min-height: 100%;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  text-align: left;
+}
+
+.copyable-table-value span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .chart-note {
   margin-top: 16px;
   padding-top: 16px;
@@ -4720,10 +5148,27 @@ textarea {
 
   .sidebar {
     gap: 18px;
+    position: static;
+    height: auto;
   }
 
   .topbar {
     flex-direction: column;
+  }
+
+  .dashboard-sticky-controls,
+  .sketch-table__grid--head {
+    position: static;
+    top: auto;
+    z-index: auto;
+  }
+
+  .dashboard-sticky-controls {
+    margin: 0 0 10px;
+    padding: 0;
+    border-bottom: 0;
+    border-radius: 0;
+    box-shadow: none;
   }
 
   .hero-grid,
@@ -4740,8 +5185,26 @@ textarea {
     align-items: stretch;
   }
 
+  .sketch-toolbar__actions,
+  .sketch-toolbar__actions .primary-button,
+  .sketch-toolbar__actions .secondary-button {
+    width: 100%;
+  }
+
   .sketch-search {
     min-width: 0;
+    max-width: none;
+  }
+
+  .client-period-filter {
+    align-items: stretch;
+  }
+
+  .client-period-filter label,
+  .client-period-filter input,
+  .client-period-filter .ghost-button,
+  .client-period-filter .primary-button {
+    width: 100%;
   }
 
   .sketch-doctors {

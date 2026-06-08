@@ -45,11 +45,11 @@ def template_visit_type_code(template_name: str) -> str | None:
     normalized = template_name.lower()
     if "вод" in normalized or "driver" in normalized:
         return "driver"
-    if "лмк" in normalized or "медкниж" in normalized:
+    if "лмк" in normalized:
         return "lmk_new"
     if "086" in normalized:
         return "086"
-    if "амб" in normalized or "профосмотр" in normalized or "мед.карта" in normalized:
+    if "амб" in normalized or "профосмотр" in normalized or "заключение29н" in normalized or "мед.карта" in normalized:
         return "prof"
     if "гимс" in normalized:
         return "gims"

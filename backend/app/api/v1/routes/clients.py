@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import date, datetime, timezone
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import String, and_, case, cast, func, or_, select
@@ -29,11 +30,28 @@ def normalize_optional(value: str | None) -> str | None:
     return value or None
 
 
+def capitalize_name_part(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    normalized = value.strip()
+    if not normalized:
+        return None
+
+    return re.sub(
+        r"[^\s-]+",
+        lambda match: match.group(0)[:1].upper() + match.group(0)[1:].lower(),
+        normalized,
+    )
+
+
 def normalize_payload(payload: ClientCreate | ClientUpdate) -> dict:
     data = payload.model_dump()
     for key, value in list(data.items()):
         if isinstance(value, str):
             data[key] = normalize_optional(value)
+    for key in ("last_name", "first_name", "middle_name"):
+        data[key] = capitalize_name_part(data.get(key))
     data["last_name"] = data["last_name"] or ""
     data["first_name"] = data["first_name"] or ""
     return data
@@ -45,6 +63,16 @@ def parse_search_date(value: str):
             return datetime.strptime(value, date_format).date()
         except ValueError:
             continue
+    short_match = re.fullmatch(r"(\d{2})\.(\d{2})\.(\d{2})", value)
+    if short_match:
+        day, month, year = short_match.groups()
+        current_year = date.today().year
+        current_century = current_year // 100 * 100
+        full_year = (current_century if int(year) <= current_year % 100 + 20 else current_century - 100) + int(year)
+        try:
+            return date(full_year, int(month), int(day))
+        except ValueError:
+            return None
     return None
 
 
@@ -264,17 +292,31 @@ def client_search_conditions(value: str):
     return conditions
 
 
-def apply_client_filters_and_order(query, value: str, encounter_date: date | None):
+def apply_client_filters_and_order(
+    query,
+    value: str,
+    encounter_date: date | None,
+    encounter_date_from: date | None = None,
+    encounter_date_to: date | None = None,
+):
     query = query.where(Client.deleted_at.is_(None))
     if value:
         query = query.where(or_(*client_search_conditions(value)))
 
-    if encounter_date is not None:
+    range_from = encounter_date_from or encounter_date
+    range_to = encounter_date_to or encounter_date
+
+    if range_from is not None or range_to is not None:
         latest_encounter = latest_encounter_subquery()
+        query = query.join(latest_encounter, latest_encounter.c.client_id == Client.id).where(
+            latest_encounter.c.row_number == 1,
+        )
+        if range_from is not None:
+            query = query.where(latest_encounter.c.encounter_date >= range_from)
+        if range_to is not None:
+            query = query.where(latest_encounter.c.encounter_date <= range_to)
         return (
-            query.join(latest_encounter, latest_encounter.c.client_id == Client.id)
-            .where(latest_encounter.c.row_number == 1, latest_encounter.c.encounter_date == encounter_date)
-            .order_by(
+            query.order_by(
                 latest_encounter.c.encounter_date.desc(),
                 latest_encounter.c.created_at.desc(),
                 latest_encounter.c.encounter_id.desc(),
@@ -314,11 +356,19 @@ def apply_client_filters_and_order(query, value: str, encounter_date: date | Non
 def search_clients(
     search: str | None = Query(default=None),
     encounter_date: date | None = Query(default=None),
+    encounter_date_from: date | None = Query(default=None),
+    encounter_date_to: date | None = Query(default=None),
     limit: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> list[ClientSearchRead]:
     value = search.strip() if search else ""
-    query = apply_client_filters_and_order(select(*CLIENT_SEARCH_COLUMNS), value, encounter_date).limit(limit)
+    query = apply_client_filters_and_order(
+        select(*CLIENT_SEARCH_COLUMNS),
+        value,
+        encounter_date,
+        encounter_date_from,
+        encounter_date_to,
+    ).limit(limit)
     return [ClientSearchRead.model_validate(row) for row in db.execute(query).mappings().all()]
 
 
@@ -326,11 +376,19 @@ def search_clients(
 def list_clients(
     search: str | None = Query(default=None),
     encounter_date: date | None = Query(default=None),
+    encounter_date_from: date | None = Query(default=None),
+    encounter_date_to: date | None = Query(default=None),
     limit: int = Query(default=25, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> list[ClientRead]:
     value = search.strip() if search else ""
-    query = apply_client_filters_and_order(select(Client), value, encounter_date).limit(limit)
+    query = apply_client_filters_and_order(
+        select(Client),
+        value,
+        encounter_date,
+        encounter_date_from,
+        encounter_date_to,
+    ).limit(limit)
     clients = db.execute(query).scalars().all()
     return serialize_clients(db, clients)
 

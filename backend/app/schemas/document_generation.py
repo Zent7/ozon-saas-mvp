@@ -26,6 +26,12 @@ class DocumentPrintResponse(DocumentGenerateResponse):
     message: str
 
 
+class DocumentPrintTicketResponse(BaseModel):
+    file_name: str
+    file_url: str
+    expires_in_seconds: int
+
+
 class DocumentPrintResultRequest(BaseModel):
     generated_document_id: int
     success: bool = True

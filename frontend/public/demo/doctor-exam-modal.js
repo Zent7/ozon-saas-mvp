@@ -56,11 +56,15 @@
     "Ритм синусовый, ЧСС , нормальная электрическая позиция сердца, ЭКГ-комплексы без особенностей";
 
   function extractRuDate(value) {
-    return String(value ?? "").match(/\b\d{2}\.\d{2}\.\d{4}\b/)?.[0] || "";
+    return String(value ?? "").match(/\b\d{2}\.\d{2}\.(?:\d{2}|\d{4})\b/)?.[0] || "";
   }
 
   function todayRuDate() {
-    return new Date().toLocaleDateString("ru-RU");
+    return new Date().toLocaleDateString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit",
+    });
   }
 
   function buildAutoEkgConclusion(date) {
@@ -1552,16 +1556,25 @@
     });
 
     modal.querySelectorAll("[data-doctor-exam-delete]").forEach((button) => {
-      button.hidden = true;
-      button.setAttribute("aria-hidden", "true");
-      button.tabIndex = -1;
-    });
+      const currentForm = modal.querySelector("[data-doctor-exam-form]");
+      const currentExam = window.getDoctorExamById?.(currentForm?.dataset.examId);
+      if (currentExam?.isCompleted) {
+        button.textContent = "Снять отметку";
+      }
 
-    modal.querySelectorAll("[data-doctor-exam-delete]").forEach((button) => {
       button.addEventListener("click", async () => {
         const form = modal.querySelector("[data-doctor-exam-form]");
         const examId = form?.dataset.examId;
         if (!examId) return;
+        const exam = window.getDoctorExamById?.(examId);
+        if (exam?.isCompleted) {
+          if (!window.confirm("Снять отметку врача? Карточка осмотра останется черновиком.")) return;
+          const removed = await window.uncompleteDoctorExam?.(examId);
+          if (removed) {
+            window.closeDoctorExamCard();
+          }
+          return;
+        }
         if (!window.confirm("Удалить карточку врача?")) return;
         const deleted = await window.deleteDoctorExam?.(examId);
         if (deleted) {
@@ -1649,9 +1662,19 @@
       const values = collectFormData(form, template);
       rememberMedicalRequirementValue(values.medicalRequirements);
       suppressDoctorCellReopen();
-      const saved = await window.saveDoctorExam(examId, values);
-      if (saved) {
-        window.closeDoctorExamCard();
+      const submitButtons = Array.from(form.querySelectorAll('button[type="submit"]'));
+      submitButtons.forEach((button) => {
+        button.disabled = true;
+      });
+      try {
+        const saved = await window.saveDoctorExam(examId, values);
+        if (saved) {
+          window.closeDoctorExamCard();
+        }
+      } finally {
+        submitButtons.forEach((button) => {
+          button.disabled = false;
+        });
       }
     });
 

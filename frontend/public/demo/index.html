@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MedCenters Demo</title>
-    <link rel="stylesheet" href="./styles.css?v=20260531-stable-doctor-marks" />
+    <link rel="stylesheet" href="./styles.css?v=20260605-compact-sidebar-nav" />
   </head>
   <body>
     <div class="app-shell">
@@ -75,17 +75,18 @@
 
     <script src="./doctor-presets.js?v=20260505-presets"></script>
     <script src="./doctor-templates.js?v=20260518-chairman-template-print"></script>
-    <script src="./service-cards.js?v=20260524-chairman-card-print"></script>
+    <script src="./service-cards.js?v=20260607-prof-chairman-print"></script>
     <script>
       window.DEMO_API_BASE_URL =
         window.location.hostname === "demo.med-center.online"
           ? "https://api.med-center.online/api/v1"
           : "/api/v1";
     </script>
-    <script src="./app.js?v=20260601-client-search"></script>
+    <script src="./services-data.js?v=20260607-certificate-doctors"></script>
+    <script src="./app.js?v=20260607-certificate-doctors"></script>
     <script src="./blanks-page.js?v=20260506-blanks-page"></script>
     <script src="./services-page.js?v=20260427-service-order-2"></script>
-    <script src="./client-modal.js?v=20260524-new-client-prefill"></script>
+    <script src="./client-modal.js?v=20260605-new-client-empty-fields"></script>
     <script src="./doctor-exam-modal.js?v=20260524-ekg-conclusion"></script>
   </body>
 </html>

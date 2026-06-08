@@ -11,7 +11,7 @@
                <mb:isDuplicated>false</mb:isDuplicated>
                <mb:duplicateId></mb:duplicateId>
             </mb:duplicate>
-            <mb:dateFormat>dd.MM.yyyy</mb:dateFormat>
+            <mb:dateFormat>dd.MM.yy</mb:dateFormat>
           </mb:blankInfo>
          <mb:clientInfo>
             <mb:surname>[LastNameCalc]</mb:surname>

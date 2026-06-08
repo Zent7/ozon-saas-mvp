@@ -3,7 +3,7 @@ window.servicesData = {
     { id: 1, name: "Анализы", sortOrder: 10, isActive: true },
     { id: 2, name: "ВУ", sortOrder: 20, isActive: true },
     { id: 3, name: "ГИМС", sortOrder: 30, isActive: true },
-    { id: 4, name: "Медкнижка", sortOrder: 40, isActive: true },
+    { id: 4, name: "ЛМК", sortOrder: 40, isActive: true },
     { id: 5, name: "Приём врачей", sortOrder: 50, isActive: true },
     { id: 6, name: "Профосмотры", sortOrder: 60, isActive: true },
     { id: 7, name: "Справки", sortOrder: 70, isActive: true },
@@ -21,7 +21,10 @@ window.servicesData = {
     { id: 7, name: "Офтальмолог", sortOrder: 70, isActive: true },
     { id: 8, name: "Дерматовенеролог", sortOrder: 80, isActive: true },
     { id: 9, name: "Стоматолог", sortOrder: 90, isActive: true },
-    { id: 10, name: "Хирург", sortOrder: 100, isActive: true }
+    { id: 10, name: "Хирург", sortOrder: 100, isActive: true },
+    { id: 11, name: "Фтизиатр", sortOrder: 110, isActive: true },
+    { id: 12, name: "Узист", sortOrder: 120, isActive: true },
+    { id: 13, name: "Председатель", sortOrder: 130, isActive: true }
   ],
 
   services: [
@@ -80,7 +83,7 @@ window.servicesData = {
 
     {
       id: 18,
-      name: "Медицинская книжка",
+      name: "ЛМК",
       groupId: 4,
       price: 4000,
       notes: "",
@@ -100,7 +103,7 @@ window.servicesData = {
     },
     {
       id: 19,
-      name: "Продление медицинской книжки",
+      name: "Продление ЛМК",
       groupId: 4,
       price: 3500,
       notes: "",
@@ -163,23 +166,23 @@ window.servicesData = {
 
     {
       id: 24,
-      name: "Санаторно-курортная карта",
+      name: "Санаторно-курортная карта 072У",
       groupId: 7,
       price: 2500,
-      notes: "форма 072у",
+      notes: "",
       isActive: true,
       sortOrder: 10,
-      doctorRoleIds: [13]
+      doctorRoleIds: [1, 13]
     },
     {
       id: 2,
-      name: "Справка 001 ГСУ для работы на Госслужбе",
+      name: "Справка формы 001 ГСУ",
       groupId: 7,
       price: 1800,
       notes: "",
       isActive: true,
       sortOrder: 20,
-      doctorRoleIds: [13]
+      doctorRoleIds: [1, 2, 3, 13]
     },
     {
       id: 9,
@@ -193,13 +196,13 @@ window.servicesData = {
     },
     {
       id: 3,
-      name: "Справка в бассейн",
+      name: "Справка для посещения бассейна",
       groupId: 7,
       price: 1000,
       notes: "",
       isActive: true,
       sortOrder: 40,
-      doctorRoleIds: [13]
+      doctorRoleIds: [1, 13]
     },
     {
       id: 10,
@@ -213,13 +216,13 @@ window.servicesData = {
     },
     {
       id: 11,
-      name: "Справка Гостайна, форма 989н",
+      name: "Справка для работы с гостайной формы 989Н",
       groupId: 7,
       price: 1800,
       notes: "",
       isActive: true,
       sortOrder: 60,
-      doctorRoleIds: [13]
+      doctorRoleIds: [1, 2, 3, 4, 13]
     },
     {
       id: 4,
@@ -229,11 +232,11 @@ window.servicesData = {
       notes: "",
       isActive: true,
       sortOrder: 70,
-      doctorRoleIds: [13]
+      doctorRoleIds: [1, 13]
     },
     {
       id: 12,
-      name: "Справка для поступления 086у",
+      name: "Справка формы 086у",
       groupId: 7,
       price: 2200,
       notes: "",
@@ -243,13 +246,13 @@ window.servicesData = {
     },
     {
       id: 30,
-      name: "Справка по форме 095у",
+      name: "Справка 095/у о временной нетрудоспособности",
       groupId: 7,
-      price: 2200,
-      notes: "больничный для учащихся",
+      price: 1800,
+      notes: "",
       isActive: true,
       sortOrder: 90,
-      doctorRoleIds: [13]
+      doctorRoleIds: [1, 13]
     },
     {
       id: 5,
@@ -259,7 +262,7 @@ window.servicesData = {
       notes: "",
       isActive: true,
       sortOrder: 100,
-      doctorRoleIds: [13]
+      doctorRoleIds: [1, 13]
     },
 
     {

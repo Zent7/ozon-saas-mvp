@@ -1,21 +1,27 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import secrets
 import shutil
+from threading import Lock
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.v1.routes.auth import get_current_user
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.document_template import DocumentTemplate
 from app.models.generated_document import GeneratedDocument
+from app.models.user import User
 from app.schemas.document_generation import (
     DocumentGenerateRequest,
     DocumentGenerateResponse,
     DocumentPrintResponse,
     DocumentPrintResultRequest,
     DocumentPrintResultResponse,
+    DocumentPrintTicketResponse,
 )
 from app.schemas.document_template import DocumentTemplateRead
 from app.services.blank_forms import BlankServiceError, NoFreeBlankError, spoil_for_generated_document
@@ -24,12 +30,58 @@ from app.services.template_catalog import SUPPORTED_TEMPLATE_EXTENSIONS, get_tem
 
 router = APIRouter()
 
+_TEMPLATE_FILE_ACCESS_ROLES = {"admin", "chairman"}
+
+_DOCUMENT_MEDIA_TYPES = {
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xml": "application/xml",
+}
+_PRINT_TICKET_TTL_SECONDS = 120
+_print_ticket_lock = Lock()
+_print_tickets: dict[str, tuple[Path, datetime]] = {}
+
 
 def _repair_mojibake(value: str) -> str:
     try:
         return value.encode("latin1").decode("utf-8")
     except UnicodeError:
         return value
+
+
+def _document_media_type(file_path: Path) -> str:
+    return _DOCUMENT_MEDIA_TYPES.get(file_path.suffix.lower(), "application/octet-stream")
+
+
+def _document_disposition_type(file_path: Path, *, inline_requested: bool) -> str:
+    return "inline" if inline_requested else "attachment"
+
+
+def _resolve_generated_file(file_name: str) -> Path | None:
+    generated_dir = Path(settings.generated_documents_dir).resolve()
+    file_path = next((path.resolve() for path in generated_dir.rglob(file_name) if path.is_file()), None)
+    if file_path is None or (generated_dir not in file_path.parents and file_path != generated_dir):
+        return None
+    return file_path
+
+
+def _cleanup_expired_print_tickets(now: datetime) -> None:
+    expired = [token for token, (_, expires_at) in _print_tickets.items() if expires_at <= now]
+    for token in expired:
+        _print_tickets.pop(token, None)
+
+
+def _role_code(user: User) -> str:
+    return user.role.code if user.role is not None else ""
+
+
+def require_template_file_access(current_user: User = Depends(get_current_user)) -> User:
+    if _role_code(current_user) not in _TEMPLATE_FILE_ACCESS_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступ к файлам шаблонов разрешен только администратору или председателю.",
+        )
+    return current_user
 
 
 def _resolve_template_file(template: DocumentTemplate) -> Path | None:
@@ -61,7 +113,10 @@ def list_document_templates(db: Session = Depends(get_db)) -> list[DocumentTempl
 
 
 @router.post("/templates/refresh", response_model=list[DocumentTemplateRead])
-def refresh_document_templates(db: Session = Depends(get_db)) -> list[DocumentTemplateRead]:
+def refresh_document_templates(
+    _: User = Depends(require_template_file_access),
+    db: Session = Depends(get_db),
+) -> list[DocumentTemplateRead]:
     sync_document_template_catalog(db)
     db.commit()
     templates = db.execute(select(DocumentTemplate).where(DocumentTemplate.is_active.is_(True))).scalars().all()
@@ -69,7 +124,11 @@ def refresh_document_templates(db: Session = Depends(get_db)) -> list[DocumentTe
 
 
 @router.get("/templates/{template_id}/file")
-def open_document_template(template_id: int, db: Session = Depends(get_db)) -> FileResponse:
+def open_document_template(
+    template_id: int,
+    _: User = Depends(require_template_file_access),
+    db: Session = Depends(get_db),
+) -> FileResponse:
     template = db.get(DocumentTemplate, template_id)
     if template is None or not template.file_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Шаблон не найден")
@@ -78,13 +137,20 @@ def open_document_template(template_id: int, db: Session = Depends(get_db)) -> F
     if file_path is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Файл шаблона не найден")
 
-    return FileResponse(path=file_path, filename=file_path.name, content_disposition_type="inline")
+    return FileResponse(
+        path=file_path,
+        filename=file_path.name,
+        media_type=_document_media_type(file_path),
+        content_disposition_type=_document_disposition_type(file_path, inline_requested=True),
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
+    )
 
 
 @router.post("/templates/{template_id}/replace", response_model=DocumentTemplateRead)
 def replace_document_template(
     template_id: int,
     file: UploadFile = File(...),
+    _: User = Depends(require_template_file_access),
     db: Session = Depends(get_db),
 ) -> DocumentTemplateRead:
     template = db.get(DocumentTemplate, template_id)
@@ -214,14 +280,65 @@ def save_print_result(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+@router.post("/generated/{file_name}/print-ticket", response_model=DocumentPrintTicketResponse)
+def create_generated_file_print_ticket(
+    file_name: str,
+    request: Request,
+    _: User = Depends(get_current_user),
+) -> DocumentPrintTicketResponse:
+    file_path = _resolve_generated_file(file_name)
+    if file_path is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Р¤Р°Р№Р» РЅРµ РЅР°Р№РґРµРЅ")
+
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(seconds=_PRINT_TICKET_TTL_SECONDS)
+    token = secrets.token_urlsafe(32)
+    with _print_ticket_lock:
+        _cleanup_expired_print_tickets(now)
+        _print_tickets[token] = (file_path, expires_at)
+
+    return DocumentPrintTicketResponse(
+        file_name=file_path.name,
+        file_url=str(request.url_for("download_print_ticket_file", token=token)),
+        expires_in_seconds=_PRINT_TICKET_TTL_SECONDS,
+    )
+
+
+@router.get("/print-ticket/{token}", name="download_print_ticket_file")
+def download_print_ticket_file(token: str) -> FileResponse:
+    now = datetime.now(timezone.utc)
+    with _print_ticket_lock:
+        _cleanup_expired_print_tickets(now)
+        ticket = _print_tickets.pop(token, None)
+
+    if ticket is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="РЎСЃС‹Р»РєР° РґР»СЏ РїРµС‡Р°С‚Рё РЅРµ РЅР°Р№РґРµРЅР° РёР»Рё СѓСЃС‚Р°СЂРµР»Р°")
+
+    file_path, expires_at = ticket
+    if expires_at <= now or not file_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Р¤Р°Р№Р» РґР»СЏ РїРµС‡Р°С‚Рё РЅРµ РЅР°Р№РґРµРЅ РёР»Рё СЃСЃС‹Р»РєР° СѓСЃС‚Р°СЂРµР»Р°")
+
+    return FileResponse(
+        path=file_path,
+        filename=file_path.name,
+        media_type=_document_media_type(file_path),
+        content_disposition_type=_document_disposition_type(file_path, inline_requested=True),
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
+    )
+
+
 @router.get("/generated/{file_name}")
-def download_generated_file(file_name: str, inline: bool = Query(default=False)) -> FileResponse:
-    generated_dir = Path(settings.generated_documents_dir).resolve()
-    file_path = next((path.resolve() for path in generated_dir.rglob(file_name) if path.is_file()), None)
-    if file_path is None or (generated_dir not in file_path.parents and file_path != generated_dir):
+def download_generated_file(
+    file_name: str,
+    _: User = Depends(get_current_user),
+) -> FileResponse:
+    file_path = _resolve_generated_file(file_name)
+    if file_path is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Файл не найден")
     return FileResponse(
         path=file_path,
         filename=file_path.name,
-        content_disposition_type="inline" if inline else "attachment",
+        media_type=_document_media_type(file_path),
+        content_disposition_type=_document_disposition_type(file_path, inline_requested=True),
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
     )
